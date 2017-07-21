@@ -46,18 +46,19 @@ public class OrderedElements<E> implements Iterable<E> {
     }
 
     /**
-     * Removes and returns the first element if bigger than {@code other}.
-     * The method returns {@code null} otherwise and if the list is empty.
+     * Removes and returns the first element if smaller (-1), bigger(1)
+     * or equal (0) to {@code other}. The method returns {@code null} otherwise.
      *
-     * @param other the element to which the first element is compared
+     * @param threshold the element to which the first element is compared
+     * @param lge       less (-1), greater (1) or equal (0)
      * @return The first element if {@code other} is bigger than the first
      * element of the list. {@code null} otherwise.
+     * @throws IndexOutOfBoundsException if the list is empty
      */
-    public E pollFirstConditionally(E other) {
+    public E pollFirstConditionally(E threshold, int lge) {
         E e = null;
 
-        if (!orderedElements.isEmpty() &&
-                comparator.compare(other, orderedElements.get(0)) >= 0) {
+        if (comparator.compare(threshold, orderedElements.get(0)) == lge) {
             e = orderedElements.remove(0);
         }
 
@@ -74,6 +75,10 @@ public class OrderedElements<E> implements Iterable<E> {
     @Override
     public Iterator<E> iterator() {
         return orderedElements.iterator();
+    }
+
+    public boolean remove(E equal) {
+        return orderedElements.removeIf(equal::equals);
     }
 
     public <T> boolean remove(T equal, Function<E, T> keyExtractor) {
