@@ -11,6 +11,7 @@ import java.net.UnknownHostException;
  */
 public class NetUtils {
     public static final int JOB_CONTROL_PORT = 9001;
+    public static final int DELTA_PORT = 9002;
     public static final int MIN_PORT = 8010;
     public static final int MAX_PORT = 9000;
 
@@ -34,5 +35,11 @@ public class NetUtils {
         parameters.toMap().put("jobControlServerIP", getMyIp());
         parameters.toMap().put("jobControlServerPort", String.valueOf(JOB_CONTROL_PORT));
         return getServer(JOB_CONTROL_PORT, new JobControlServer());
+    }
+
+    public static TimestampDeltaServer launchTimestampDeltaServer(ParameterTool parameters) throws IOException {
+        parameters.toMap().put("deltaServerIP", getMyIp());
+        parameters.toMap().put("deltaServerPort", String.valueOf(DELTA_PORT));
+        return getServer(DELTA_PORT, new TimestampDeltaServer());
     }
 }

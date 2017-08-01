@@ -35,7 +35,7 @@ public class TransferSource extends ControlledSource<Transfer> {
         this.microSleep = microSleep;
     }
 
-    private Transfer generateTransfer() {
+    private Transfer generateTransfer(long id) {
         String from = "a" + rand.nextInt(noAccounts);
         String to;
         do {
@@ -43,7 +43,7 @@ public class TransferSource extends ControlledSource<Transfer> {
         } while (from.equals(to));
         Double amount = rand.nextDouble() * startAmount;
 
-        return new Transfer(from, to, amount);
+        return new Transfer(id, from, to, amount);
     }
 
     @Override
@@ -54,7 +54,7 @@ public class TransferSource extends ControlledSource<Transfer> {
             if (elements != null) {
                 transfer = elements.get(i);
             } else {
-                transfer = generateTransfer();
+                transfer = generateTransfer(i);
             }
             sourceContext.collect(transfer);
             if (microSleep > 0) {

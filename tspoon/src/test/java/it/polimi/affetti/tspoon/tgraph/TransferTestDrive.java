@@ -2,8 +2,10 @@ package it.polimi.affetti.tspoon.tgraph;
 
 import it.polimi.affetti.tspoon.common.FinishOnCountSink;
 import it.polimi.affetti.tspoon.common.FlatMapFunction;
+import it.polimi.affetti.tspoon.common.TimestampTracker;
 import it.polimi.affetti.tspoon.runtime.JobControlServer;
 import it.polimi.affetti.tspoon.runtime.NetUtils;
+import it.polimi.affetti.tspoon.runtime.TimestampDeltaServer;
 import it.polimi.affetti.tspoon.test.ResultUtils;
 import it.polimi.affetti.tspoon.tgraph.backed.Movement;
 import it.polimi.affetti.tspoon.tgraph.backed.TGraphOutput;
@@ -17,6 +19,7 @@ import it.polimi.affetti.tspoon.tgraph.state.StateStream;
 import it.polimi.affetti.tspoon.tgraph.state.Update;
 import it.polimi.affetti.tspoon.tgraph.twopc.OpenStream;
 import org.apache.flink.api.common.JobExecutionResult;
+import org.apache.flink.api.common.typeinfo.TypeHint;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
@@ -40,6 +43,7 @@ public class TransferTestDrive {
         env.setBufferTimeout(0);
         ParameterTool parameters = ParameterTool.fromMap(new HashMap<>());
         JobControlServer jobControlServer = NetUtils.launchJobControlServer(parameters);
+        TimestampDeltaServer timestampDeltaServer = NetUtils.launchTimestampDeltaServer(parameters);
         env.getConfig().setGlobalJobParameters(parameters);
 
         final double startAmount = 100d;
@@ -52,6 +56,14 @@ public class TransferTestDrive {
         DataStream<QueryTuple> queries = env.addSource(new QuerySource());
         TransferSource transferSource = new TransferSource(100, 10, startAmount);
         DataStream<Transfer> transfers = env.addSource(transferSource).setParallelism(1);
+
+        transfers = transfers.map(
+                new TimestampTracker<Transfer>("responseTime", true) {
+                    @Override
+                    protected String extractId(Transfer element) {
+                        return element.f0.toString();
+                    }
+                });
 
         OpenStream<Transfer> open = tEnv.open(transfers);
 
@@ -88,18 +100,29 @@ public class TransferTestDrive {
         balances.updates.print();
 
         DataStream<TransactionResult<Movement>> output = tEnv.close(balances.leftUnchanged).get(0);
-        output.addSink(new FinishOnCountSink<>(transferSource.noElements * 2)).setParallelism(1);
+        output.map(
+                new TimestampTracker<TransactionResult<Movement>>("responseTime", false) {
+                    @Override
+                    protected String extractId(TransactionResult<Movement> element) {
+                        return element.f2.f0.toString();
+                    }
+                })
+                .returns(new TypeHint<TransactionResult<Movement>>() {
+                })
+                .addSink(new FinishOnCountSink<>(transferSource.noElements * 2)).setParallelism(1);
         balances.updates.addSink(new MaterializedViewChecker(startAmount)).setParallelism(1);
-
+        
         TGraphOutput<Movement, Double> tGraphOutput = new TGraphOutput<>(open.watermarks, balances.updates, output);
         ResultUtils.addAccumulator(tGraphOutput.watermarks, "watermarks");
         ResultUtils.addAccumulator(tGraphOutput.updates, "updates");
 
         JobExecutionResult result = env.execute();
         jobControlServer.close();
+        timestampDeltaServer.close();
 
         System.out.println(getWatermarks(result));
         System.out.println(getUpdates(result));
+        System.out.println(timestampDeltaServer.getMetrics());
     }
 
     /**
