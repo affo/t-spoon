@@ -123,6 +123,7 @@ public class OptimisticOpenOperator<T> extends OpenOperator<T> {
         LocalTransactionContext execution = executions.get(tid);
 
         Vote vote = execution.vote;
+        updateStats(vote);
         Integer dependency = timestampTidMapping.get(execution.replayCause);
 
         watermarks.addInOrder(timestamp);
@@ -155,6 +156,10 @@ public class OptimisticOpenOperator<T> extends OpenOperator<T> {
                     replayElement(tid);
                 }
         }
+    }
+
+    private void updateStats(Vote vote) {
+        stats.get(vote).add(1);
     }
 
     private void onTermination(int tid) {

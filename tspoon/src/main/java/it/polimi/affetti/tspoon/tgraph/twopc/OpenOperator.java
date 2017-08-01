@@ -2,11 +2,13 @@ package it.polimi.affetti.tspoon.tgraph.twopc;
 
 import it.polimi.affetti.tspoon.common.Address;
 import it.polimi.affetti.tspoon.common.SafeCollector;
+import it.polimi.affetti.tspoon.metrics.Report;
 import it.polimi.affetti.tspoon.runtime.BroadcastByKeyServer;
 import it.polimi.affetti.tspoon.runtime.WithServer;
 import it.polimi.affetti.tspoon.tgraph.Enriched;
 import it.polimi.affetti.tspoon.tgraph.Metadata;
 import it.polimi.affetti.tspoon.tgraph.Vote;
+import org.apache.flink.api.common.accumulators.IntCounter;
 import org.apache.flink.streaming.api.operators.AbstractStreamOperator;
 import org.apache.flink.streaming.api.operators.OneInputStreamOperator;
 import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
@@ -33,6 +35,16 @@ public abstract class OpenOperator<T>
     private Map<Integer, Integer> counters = new HashMap<>();
     protected Address myAddress;
 
+    // stats
+    protected Map<Vote, IntCounter> stats = new HashMap<>();
+
+    public OpenOperator() {
+        for (Vote vote : Vote.values()) {
+            stats.put(vote, new IntCounter());
+            Report.registerAccumulator(vote.toString().toLowerCase() + "-counter");
+        }
+    }
+
     @Override
     public void open() throws Exception {
         super.open();
@@ -41,6 +53,12 @@ public abstract class OpenOperator<T>
         server = new WithServer(broadcast);
         server.open();
         myAddress = server.getMyAddress();
+
+        // register accumulators
+        for (Map.Entry<Vote, IntCounter> s : stats.entrySet()) {
+            Vote vote = s.getKey();
+            getRuntimeContext().addAccumulator(vote.toString().toLowerCase() + "-counter", s.getValue());
+        }
     }
 
     @Override

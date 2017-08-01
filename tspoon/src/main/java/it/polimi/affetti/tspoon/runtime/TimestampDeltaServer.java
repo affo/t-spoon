@@ -25,7 +25,7 @@ public class TimestampDeltaServer extends ProcessRequestServer {
         long timestamp = System.currentTimeMillis();
 
         String metricName = key.split("\\.")[0];
-        Metric metric = metrics.computeIfAbsent(metricName, Metric::new);
+        Metric metric = metrics.computeIfAbsent(metricName, k -> new Metric());
 
         if (isBegin) {
             beginTimestamps.put(key, timestamp);

@@ -3,6 +3,7 @@ package it.polimi.affetti.tspoon.tgraph;
 import it.polimi.affetti.tspoon.common.FinishOnCountSink;
 import it.polimi.affetti.tspoon.common.FlatMapFunction;
 import it.polimi.affetti.tspoon.common.TimestampTracker;
+import it.polimi.affetti.tspoon.metrics.Report;
 import it.polimi.affetti.tspoon.runtime.JobControlServer;
 import it.polimi.affetti.tspoon.runtime.NetUtils;
 import it.polimi.affetti.tspoon.runtime.TimestampDeltaServer;
@@ -41,20 +42,23 @@ public class TransferTestDrive {
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         env.setParallelism(1);
         env.setBufferTimeout(0);
-        ParameterTool parameters = ParameterTool.fromMap(new HashMap<>());
+        ParameterTool parameters = ParameterTool.fromArgs(args);
         JobControlServer jobControlServer = NetUtils.launchJobControlServer(parameters);
         TimestampDeltaServer timestampDeltaServer = NetUtils.launchTimestampDeltaServer(parameters);
         env.getConfig().setGlobalJobParameters(parameters);
 
         final double startAmount = 100d;
+        final Strategy strategy = Strategy.OPTIMISTIC;
+        final IsolationLevel isolationLevel = IsolationLevel.PL3;
+        final boolean useDependencyTracking = true;
 
         TransactionEnvironment tEnv = TransactionEnvironment.get();
-        tEnv.setStrategy(Strategy.OPTIMISTIC);
-        tEnv.setIsolationLevel(IsolationLevel.PL3);
-        tEnv.setUseDependencyTracking(true);
+        tEnv.setStrategy(strategy);
+        tEnv.setIsolationLevel(isolationLevel);
+        tEnv.setUseDependencyTracking(useDependencyTracking);
 
         DataStream<QueryTuple> queries = env.addSource(new QuerySource());
-        TransferSource transferSource = new TransferSource(100, 10, startAmount);
+        TransferSource transferSource = new TransferSource(100, 100, startAmount);
         DataStream<Transfer> transfers = env.addSource(transferSource).setParallelism(1);
 
         transfers = transfers.map(
@@ -111,7 +115,7 @@ public class TransferTestDrive {
                 })
                 .addSink(new FinishOnCountSink<>(transferSource.noElements * 2)).setParallelism(1);
         balances.updates.addSink(new MaterializedViewChecker(startAmount)).setParallelism(1);
-        
+
         TGraphOutput<Movement, Double> tGraphOutput = new TGraphOutput<>(open.watermarks, balances.updates, output);
         ResultUtils.addAccumulator(tGraphOutput.watermarks, "watermarks");
         ResultUtils.addAccumulator(tGraphOutput.updates, "updates");
@@ -122,7 +126,15 @@ public class TransferTestDrive {
 
         System.out.println(getWatermarks(result));
         System.out.println(getUpdates(result));
-        System.out.println(timestampDeltaServer.getMetrics());
+
+        Report report = new Report("report.json");
+        report.addAccumulators(result);
+        report.addField("parameters", parameters.toMap());
+        report.addFields(timestampDeltaServer.getMetrics());
+        report.updateField("parameters", "strategy", strategy);
+        report.updateField("parameters", "isolationLevel", isolationLevel);
+        report.updateField("parameters", "dependencyTracking", useDependencyTracking);
+        report.writeToFile();
     }
 
     /**

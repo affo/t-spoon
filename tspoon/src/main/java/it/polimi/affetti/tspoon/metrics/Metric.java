@@ -10,12 +10,7 @@ import java.util.Map;
  * Created by affo on 31/03/17.
  */
 public class Metric implements Serializable {
-    private final String prefix;
     public final DescriptiveStatistics metric = new DescriptiveStatistics();
-
-    public Metric(String name) {
-        this.prefix = name;
-    }
 
     public void add(Double d) {
         metric.addValue(d);
@@ -28,12 +23,12 @@ public class Metric implements Serializable {
 
     public Map<String, Double> toMap() {
         Map<String, Double> res = new HashMap<>();
-        res.put(prefix + "-n", (double) metric.getN());
-        res.put(prefix + "-mean", metric.getMean());
-        res.put(prefix + "-mode", metric.getPercentile(50));
-        res.put(prefix + "-5th", metric.getPercentile(5));
-        res.put(prefix + "-95th", metric.getPercentile(95));
-        res.put(prefix + "-stddev", metric.getStandardDeviation());
+        res.put("n", (double) metric.getN());
+        res.put("mean", metric.getMean());
+        res.put("mode", metric.getPercentile(50));
+        res.put("5th", metric.getPercentile(5));
+        res.put("95th", metric.getPercentile(95));
+        res.put("stddev", metric.getStandardDeviation());
         return res;
     }
 }
