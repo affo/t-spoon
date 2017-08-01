@@ -33,7 +33,7 @@ public abstract class AbstractServer implements Runnable {
         this.stop = false;
     }
 
-    public abstract ClientHandler getHandlerFor(Socket s);
+    protected abstract ClientHandler getHandlerFor(Socket s);
 
     public void init(int startPort, int endPort) throws IOException {
         if (srv != null) {
@@ -78,6 +78,7 @@ public abstract class AbstractServer implements Runnable {
                 Socket s = srv.accept();
                 LOG.info(String.format("Connection accepted: %s:%d", s.getLocalAddress(), s.getLocalPort()));
                 ClientHandler r = getHandlerFor(s);
+                rcvrs.add(r);
                 r.init();
                 pool.execute(r);
             }

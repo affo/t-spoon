@@ -1,6 +1,7 @@
 package it.polimi.affetti.tspoon.tgraph.twopc;
 
 import it.polimi.affetti.tspoon.tgraph.Enriched;
+import it.polimi.affetti.tspoon.tgraph.Metadata;
 import org.apache.flink.streaming.api.functions.co.CoFlatMapFunction;
 import org.apache.flink.util.Collector;
 
@@ -13,18 +14,17 @@ import java.util.Map;
  * Created by affo on 29/01/17.
  */
 public class BufferRecordFunction<T> implements
-        CoFlatMapFunction<Enriched<T>, TwoPCData, Enriched<T>> {
+        CoFlatMapFunction<Enriched<T>, Metadata, Enriched<T>> {
     private Map<Integer, List<Enriched<T>>> batches = new HashMap<>();
-    private Map<Integer, TwoPCData> votes = new HashMap<>();
+    private Map<Integer, Metadata> votes = new HashMap<>();
     private Map<Integer, Integer> counts = new HashMap<>();
 
     private List<Enriched<T>> getOrCreateBatch(int tid, int size) {
-        batches.putIfAbsent(tid, new ArrayList<>(size));
-        return batches.get(tid);
+        return batches.computeIfAbsent(tid, k -> new ArrayList<>(size));
     }
 
     private void addElement(int tid, Enriched<T> element) {
-        getOrCreateBatch(tid, element.tContext().twoPC.batchSize).add(element);
+        getOrCreateBatch(tid, element.metadata.batchSize).add(element);
     }
 
     private int incrementCounter(int tid) {
@@ -36,47 +36,45 @@ public class BufferRecordFunction<T> implements
 
     @Override
     public void flatMap1(Enriched<T> element, Collector<Enriched<T>> collector) throws Exception {
-        int tid = element.tContext().getTid();
+        int timestamp = element.metadata.timestamp;
 
-        TwoPCData vote = votes.get(tid);
-        int count = incrementCounter(tid);
+        Metadata vote = votes.get(timestamp);
+        int count = incrementCounter(timestamp);
 
         if (vote != null) {
-            if (vote.isCollectable()) {
-                collector.collect(element);
-            }
+            element.metadata.vote = vote.vote;
+            collector.collect(element);
 
-            if (count >= element.tContext().twoPC.batchSize) {
-                votes.remove(tid);
-                counts.remove(tid);
+            if (count >= element.metadata.batchSize) {
+                votes.remove(timestamp);
+                counts.remove(timestamp);
             }
         } else {
-            addElement(tid, element);
+            addElement(timestamp, element);
         }
     }
 
     @Override
-    public void flatMap2(TwoPCData twoPCData, Collector<Enriched<T>> collector) throws Exception {
-        int tid = twoPCData.tid;
-        votes.put(tid, twoPCData);
+    public void flatMap2(Metadata metadata, Collector<Enriched<T>> collector) throws Exception {
+        int timestamp = metadata.timestamp;
+        votes.put(timestamp, metadata);
 
-        List<Enriched<T>> batch = batches.remove(tid);
+        List<Enriched<T>> batch = batches.remove(timestamp);
 
         if (batch == null) {
             return;
         }
 
-        int batchSize = batch.get(0).tContext().twoPC.batchSize;
+        int batchSize = batch.get(0).metadata.batchSize;
 
-        if (twoPCData.isCollectable()) {
-            for (Enriched<T> record : batch) {
-                collector.collect(record);
-            }
+        for (Enriched<T> record : batch) {
+            record.metadata.vote = metadata.vote;
+            collector.collect(record);
         }
 
         if (batch.size() >= batchSize) {
-            votes.remove(tid);
-            counts.remove(tid);
+            votes.remove(timestamp);
+            counts.remove(timestamp);
         }
     }
 }

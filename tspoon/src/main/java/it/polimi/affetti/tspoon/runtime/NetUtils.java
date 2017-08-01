@@ -1,5 +1,7 @@
 package it.polimi.affetti.tspoon.runtime;
 
+import org.apache.flink.api.java.utils.ParameterTool;
+
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
@@ -8,8 +10,7 @@ import java.net.UnknownHostException;
  * Created by affo on 25/01/17.
  */
 public class NetUtils {
-    public static final int QUERY_SERVICE_EXTERNAL_PORT = 8000;
-    public static final int QUERY_SERVICE_INTERNAL_PORT = 8001;
+    public static final int JOB_CONTROL_PORT = 9001;
     public static final int MIN_PORT = 8010;
     public static final int MAX_PORT = 9000;
 
@@ -27,5 +28,11 @@ public class NetUtils {
         server.init(startPort, endPort);
         new Thread(server).start();
         return server;
+    }
+
+    public static JobControlServer launchJobControlServer(ParameterTool parameters) throws IOException {
+        parameters.toMap().put("jobControlServerIP", getMyIp());
+        parameters.toMap().put("jobControlServerPort", String.valueOf(JOB_CONTROL_PORT));
+        return getServer(JOB_CONTROL_PORT, new JobControlServer());
     }
 }

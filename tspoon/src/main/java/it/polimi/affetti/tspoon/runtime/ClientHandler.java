@@ -24,7 +24,7 @@ public abstract class ClientHandler implements Runnable {
 
     protected void initStreams() throws IOException {
         in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-        out = new PrintWriter(socket.getOutputStream());
+        out = new PrintWriter(socket.getOutputStream(), true);
     }
 
     protected void init() throws IOException {
@@ -33,13 +33,21 @@ public abstract class ClientHandler implements Runnable {
 
     protected abstract void lifeCycle() throws Exception;
 
+    protected void send(String msg) {
+        out.println(msg);
+    }
+
+    protected String receive() throws IOException {
+        return in.readLine();
+    }
+
     @Override
     public void run() {
         try {
             lifeCycle();
         } catch (Exception e) {
             LOG.error(e.getMessage());
-            e.printStackTrace();
+            //e.printStackTrace();
         }
     }
 

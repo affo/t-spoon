@@ -1,51 +1,45 @@
 package it.polimi.affetti.tspoon.tgraph.twopc;
 
-import it.polimi.affetti.tspoon.common.Address;
+import it.polimi.affetti.tspoon.tgraph.Metadata;
 import org.apache.flink.api.common.functions.FlatMapFunction;
 import org.apache.flink.util.Collector;
 
 import java.util.HashMap;
-import java.util.LinkedList;
-import java.util.List;
 import java.util.Map;
 
 /**
  * Created by affo on 29/01/17.
  */
-public class ReduceVotesFunction implements FlatMapFunction<TwoPCData, TwoPCData> {
-    private Map<Integer, TwoPCData> votes = new HashMap<>();
+public class ReduceVotesFunction implements FlatMapFunction<Metadata, Metadata> {
+    private Map<Integer, Metadata> votes = new HashMap<>();
     private Map<Integer, Integer> counts = new HashMap<>();
-    private Map<Integer, List<Address>> cohortsByTID = new HashMap<>();
 
-    private int incrementCounter(int tid) {
-        int count = counts.getOrDefault(tid, 0);
+    private int incrementCounter(int timestamp) {
+        int count = counts.getOrDefault(timestamp, 0);
         count++;
-        counts.put(tid, count);
+        counts.put(timestamp, count);
         return count;
     }
 
-    private void updateCohorts(int tid, List<Address> newCohorts) {
-        cohortsByTID.putIfAbsent(tid, new LinkedList<>());
-        cohortsByTID.get(tid).addAll(newCohorts);
-    }
-
     @Override
-    public void flatMap(TwoPCData twoPCData, Collector<TwoPCData> collector) throws Exception {
-        int tid = twoPCData.tid;
-        updateCohorts(tid, twoPCData.cohorts);
+    public void flatMap(Metadata metadata, Collector<Metadata> collector) throws Exception {
+        int timestamp = metadata.timestamp;
 
-        TwoPCData accumulated = votes.get(tid);
+        Metadata accumulated = votes.get(timestamp);
         if (accumulated == null) {
-            accumulated = twoPCData;
+            // first one
+            accumulated = metadata;
         } else {
-            accumulated.vote = accumulated.vote.merge(twoPCData.vote);
+            accumulated.vote = accumulated.vote.merge(metadata.vote);
+            accumulated.cohorts.addAll(metadata.cohorts);
+            // TODO could be min or max...
+            accumulated.replayCause = Math.max(accumulated.replayCause, metadata.replayCause);
         }
-        votes.put(tid, accumulated);
+        votes.put(timestamp, accumulated);
 
-        if (incrementCounter(tid) >= twoPCData.batchSize) {
-            counts.remove(tid);
-            cohortsByTID.remove(tid);
-            collector.collect(votes.remove(tid));
+        if (incrementCounter(timestamp) >= metadata.batchSize) {
+            counts.remove(timestamp);
+            collector.collect(votes.remove(timestamp));
         }
     }
 }

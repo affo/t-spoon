@@ -1,0 +1,1 @@
+These classes where created to avoid messing up with Flink's type extraction and Java's generic type erasure.

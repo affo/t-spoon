@@ -6,7 +6,7 @@ import java.io.Serializable;
  * Created by affo on 14/07/17.
  */
 public class ObjectHandler<T> implements Serializable {
-    T object;
+    public T object;
     public boolean read, write;
 
     public ObjectHandler(T object) {

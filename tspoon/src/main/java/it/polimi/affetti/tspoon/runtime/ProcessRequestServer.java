@@ -12,7 +12,7 @@ public abstract class ProcessRequestServer extends AbstractServer {
         return new LoopingClientHandler(s) {
             @Override
             protected void step() throws Exception {
-                String request = in.readLine();
+                String request = receive();
 
                 if (request == null) {
                     stop();

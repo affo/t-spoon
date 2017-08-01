@@ -1,5 +1,6 @@
 package it.polimi.affetti.tspoon.common;
 
+import java.io.Serializable;
 import java.util.*;
 import java.util.function.Function;
 
@@ -12,7 +13,7 @@ import java.util.function.Function;
  * {@code OrderedElements} gives a linear time complexity (with the size of the sequence) on
  * adding in order and a constant complexity on removing the first element.
  */
-public class OrderedElements<E> implements Iterable<E> {
+public class OrderedElements<E> implements Iterable<E>, Serializable {
     private List<E> orderedElements;
     private Comparator<E> comparator;
 
@@ -70,6 +71,10 @@ public class OrderedElements<E> implements Iterable<E> {
      */
     public int size() {
         return orderedElements.size();
+    }
+
+    public boolean isEmpty() {
+        return orderedElements.isEmpty();
     }
 
     @Override

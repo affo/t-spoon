@@ -15,16 +15,16 @@ import org.apache.flink.util.OutputTag;
  * Created by affo on 17/07/17.
  */
 public interface TStream<T> {
-    <U> TStream<U> map(MapFunction<T, U> fn, int par);
+    <U> TStream<U> map(MapFunction<T, U> fn);
 
-    <U> TStream<U> flatMap(FlatMapFunction<T, U> flatMapFunction, int par);
+    <U> TStream<U> flatMap(FlatMapFunction<T, U> flatMapFunction);
 
-    TStream<T> filter(FilterFunction<T> filterFunction, int par);
+    TStream<T> filter(FilterFunction<T> filterFunction);
 
     <V> StateStream<T, V> state(
             String nameSpace, OutputTag<Update<V>> updatesTag,
             KeySelector<T, String> ks, StateFunction<T, V> stateFunction,
-            DataStream<QueryTuple> queryStream, int par);
+            DataStream<QueryTuple> queryStream, int partitioning);
 
     DataStream<Enriched<T>> getEnclosingStream();
 }

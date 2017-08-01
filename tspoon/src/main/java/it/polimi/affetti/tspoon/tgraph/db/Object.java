@@ -7,15 +7,18 @@ import java.util.Comparator;
 
 /**
  * Created by affo on 20/07/17.
+ * <p>
+ * Thread-safe
  */
 public class Object<T> implements Serializable {
     private OrderedElements<ObjectVersion<T>> versions;
+    private int lastCommittedVersion;
 
     public Object() {
         this.versions = new OrderedElements<>(Comparator.comparingInt(obj -> obj.version));
     }
 
-    public ObjectVersion<T> getLastVersionBefore(int tid) {
+    public synchronized ObjectVersion<T> getLastVersionBefore(int tid) {
         ObjectVersion<T> res = null;
         for (ObjectVersion<T> obj : versions) {
             if (obj.version > tid) {
@@ -31,11 +34,21 @@ public class Object<T> implements Serializable {
         return res;
     }
 
-    public void addVersion(String key, ObjectVersion<T> obj) {
+    public synchronized void addVersion(ObjectVersion<T> obj) {
         versions.addInOrder(obj);
     }
 
-    public void deleteVersion(String key, int version) {
+    public synchronized void deleteVersion(int version) {
         versions.remove(version, obj -> obj.version);
+    }
+
+    public synchronized void commit(int version) {
+        if (version > lastCommittedVersion) {
+            lastCommittedVersion = version;
+        }
+    }
+
+    public synchronized int getLastCommittedVersion() {
+        return lastCommittedVersion;
     }
 }

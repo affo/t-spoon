@@ -1,7 +1,6 @@
 package it.polimi.affetti.tspoon.tgraph.twopc;
 
 import it.polimi.affetti.tspoon.tgraph.OTStream;
-import it.polimi.affetti.tspoon.tgraph.TStream;
 import org.apache.flink.streaming.api.datastream.DataStream;
 
 /**
@@ -9,12 +8,7 @@ import org.apache.flink.streaming.api.datastream.DataStream;
  */
 public class OptimisticTwoPCFactory implements TwoPCFactory {
     @Override
-    public <T> TStream<T> open(DataStream<T> ds) {
+    public <T> OpenStream<T> open(DataStream<T> ds) {
         return OTStream.fromStream(ds);
-    }
-
-    @Override
-    public void close(DataStream<TwoPCData> voteStream) {
-        voteStream.addSink(new OptimisticCloseSink());
     }
 }

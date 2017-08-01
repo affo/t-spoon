@@ -10,7 +10,11 @@ public class TextClient extends AbstractClient {
         super(addr, port);
     }
 
-    public void text(String msg) throws IOException {
+    public void text(String msg) {
         send(msg);
+    }
+
+    public String receive() throws IOException {
+        return recv();
     }
 }

@@ -38,12 +38,12 @@ public abstract class AbstractClient {
         LOG.info("Connected to " + addr + ":" + port);
     }
 
-    protected void send(String req) throws IOException {
+    protected void send(String req) {
         out.println(req);
         out.flush();
     }
 
-    private String recv() throws IOException {
+    protected String recv() throws IOException {
         return in.readLine();
     }
 
