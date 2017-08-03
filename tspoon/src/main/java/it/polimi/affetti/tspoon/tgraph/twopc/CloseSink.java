@@ -1,8 +1,8 @@
 package it.polimi.affetti.tspoon.tgraph.twopc;
 
 import it.polimi.affetti.tspoon.common.Address;
-import it.polimi.affetti.tspoon.runtime.TextClient;
-import it.polimi.affetti.tspoon.runtime.TextClientsCache;
+import it.polimi.affetti.tspoon.runtime.StringClient;
+import it.polimi.affetti.tspoon.runtime.StringClientsCache;
 import it.polimi.affetti.tspoon.tgraph.Metadata;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.functions.sink.RichSinkFunction;
@@ -14,12 +14,12 @@ import java.util.List;
  * Created by affo on 18/07/17.
  */
 public class CloseSink extends RichSinkFunction<Metadata> {
-    private transient TextClientsCache clients;
+    private transient StringClientsCache clients;
 
     @Override
     public void open(Configuration parameters) throws Exception {
         super.open(parameters);
-        this.clients = new TextClientsCache();
+        this.clients = new StringClientsCache();
     }
 
     @Override
@@ -30,7 +30,7 @@ public class CloseSink extends RichSinkFunction<Metadata> {
 
     @Override
     public void invoke(Metadata metadata) throws Exception {
-        List<TextClient> cohorts = new LinkedList<>();
+        List<StringClient> cohorts = new LinkedList<>();
         for (Address cohort : metadata.cohorts) {
             cohorts.add(clients.getOrCreateClient(cohort));
         }
@@ -38,6 +38,6 @@ public class CloseSink extends RichSinkFunction<Metadata> {
         String message = metadata.timestamp + "," + metadata.vote.ordinal() + ","
                 + metadata.cohorts.size() + "," + metadata.replayCause;
 
-        cohorts.forEach((cohort) -> cohort.text(message));
+        cohorts.forEach((cohort) -> cohort.send(message));
     }
 }

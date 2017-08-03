@@ -89,4 +89,9 @@ public class OrderedElements<E> implements Iterable<E>, Serializable {
     public <T> boolean remove(T equal, Function<E, T> keyExtractor) {
         return orderedElements.removeIf(e -> equal.equals(keyExtractor.apply(e)));
     }
+
+    @Override
+    public String toString() {
+        return orderedElements.toString();
+    }
 }

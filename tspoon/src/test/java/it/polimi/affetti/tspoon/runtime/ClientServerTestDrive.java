@@ -44,16 +44,16 @@ public class ClientServerTestDrive {
         );
 
         s.addSink(new RichSinkFunction<Tuple3<String, Integer, Long>>() {
-            private TextClient textClient;
+            private StringClient textClient;
 
             @Override
             public void invoke(Tuple3<String, Integer, Long> e) throws Exception {
                 if (textClient == null) {
-                    textClient = new TextClient(e.f0, e.f1);
+                    textClient = new StringClient(e.f0, e.f1);
                     textClient.init();
                 }
 
-                textClient.text("From downstream: " + e.f2);
+                textClient.send("From downstream: " + e.f2);
             }
 
             @Override

@@ -13,8 +13,9 @@ import it.polimi.affetti.tspoon.tgraph.backed.TGraphOutput;
 import it.polimi.affetti.tspoon.tgraph.backed.Transfer;
 import it.polimi.affetti.tspoon.tgraph.backed.TransferSource;
 import it.polimi.affetti.tspoon.tgraph.db.ObjectHandler;
-import it.polimi.affetti.tspoon.tgraph.query.QuerySource;
-import it.polimi.affetti.tspoon.tgraph.query.QueryTuple;
+import it.polimi.affetti.tspoon.tgraph.query.FrequencyQuerySupplier;
+import it.polimi.affetti.tspoon.tgraph.query.PredefinedQuerySupplier;
+import it.polimi.affetti.tspoon.tgraph.query.RandomQuery;
 import it.polimi.affetti.tspoon.tgraph.state.StateFunction;
 import it.polimi.affetti.tspoon.tgraph.state.StateStream;
 import it.polimi.affetti.tspoon.tgraph.state.Update;
@@ -49,7 +50,7 @@ public class TransferTestDrive {
 
         final double startAmount = 100d;
         final Strategy strategy = Strategy.OPTIMISTIC;
-        final IsolationLevel isolationLevel = IsolationLevel.PL3;
+        final IsolationLevel isolationLevel = IsolationLevel.PL4;
         final boolean useDependencyTracking = true;
 
         TransactionEnvironment tEnv = TransactionEnvironment.get();
@@ -57,7 +58,6 @@ public class TransferTestDrive {
         tEnv.setIsolationLevel(isolationLevel);
         tEnv.setUseDependencyTracking(useDependencyTracking);
 
-        DataStream<QueryTuple> queries = env.addSource(new QuerySource());
         TransferSource transferSource = new TransferSource(100, 100, startAmount);
         DataStream<Transfer> transfers = env.addSource(transferSource).setParallelism(1);
 
@@ -70,6 +70,11 @@ public class TransferTestDrive {
                 });
 
         OpenStream<Transfer> open = tEnv.open(transfers);
+
+        tEnv.setQuerySupplier(
+                new FrequencyQuerySupplier(
+                        new PredefinedQuerySupplier(
+                                new RandomQuery("balances", 1)), 100));
 
         TStream<Movement> halves = open.opened.flatMap(
                 (FlatMapFunction<Transfer, Movement>) t -> Arrays.asList(t.getDeposit(), t.getWithdrawal()));
@@ -99,7 +104,7 @@ public class TransferTestDrive {
                         // r(x) w(x)
                         handler.write(handler.read() + element.f2);
                     }
-                }, queries, 4);
+                }, 4);
 
         balances.updates.print();
 

@@ -2,10 +2,9 @@ package it.polimi.affetti.tspoon.runtime;
 
 import org.apache.log4j.Logger;
 
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.PrintWriter;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.Socket;
 
 /**
@@ -19,8 +18,8 @@ public abstract class AbstractClient {
     private int port;
 
     protected Socket s;
-    protected BufferedReader in;
-    protected PrintWriter out;
+    protected InputStream in;
+    protected OutputStream out;
 
     public AbstractClient(String addr, int port) {
         this.addr = addr;
@@ -33,18 +32,9 @@ public abstract class AbstractClient {
         }
 
         s = new Socket(addr, port);
-        in = new BufferedReader(new InputStreamReader(s.getInputStream()));
-        out = new PrintWriter(s.getOutputStream());
+        in = s.getInputStream();
+        out = s.getOutputStream();
         LOG.info("Connected to " + addr + ":" + port);
-    }
-
-    protected void send(String req) {
-        out.println(req);
-        out.flush();
-    }
-
-    protected String recv() throws IOException {
-        return in.readLine();
     }
 
     public void close() throws IOException {

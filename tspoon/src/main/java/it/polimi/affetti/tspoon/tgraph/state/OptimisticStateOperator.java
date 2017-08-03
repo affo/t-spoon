@@ -15,8 +15,8 @@ import org.apache.flink.util.OutputTag;
 public class OptimisticStateOperator<T, V> extends StateOperator<T, V> {
     private ReadWriteStrategy rwStrategy;
 
-    public OptimisticStateOperator(StateFunction<T, V> stateFunction, OutputTag<Update<V>> updatesTag) {
-        super(stateFunction, updatesTag);
+    public OptimisticStateOperator(String nameSpace, StateFunction<T, V> stateFunction, OutputTag<Update<V>> updatesTag) {
+        super(nameSpace, stateFunction, updatesTag);
         switch (TransactionEnvironment.isolationLevel) {
             case PL0:
                 rwStrategy = new PL0Strategy();
@@ -73,6 +73,9 @@ public class OptimisticStateOperator<T, V> extends StateOperator<T, V> {
                 metadata.vote == Vote.REPLAY) {
             metadata.replayCause = lastVersion;
         }
+
+        // if the level is PL4, we should track the last timestamp that edited this record anyway. in this way
+        // a downstream operator can use it to understand if t2 happened before t1 and t2 -> t1.
 
         collector.safeCollect(Enriched.of(metadata, element));
     }

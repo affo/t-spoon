@@ -18,10 +18,10 @@ public class Object<T> implements Serializable {
         this.versions = new OrderedElements<>(Comparator.comparingInt(obj -> obj.version));
     }
 
-    public synchronized ObjectVersion<T> getLastVersionBefore(int tid) {
+    public synchronized ObjectVersion<T> getLastVersionBefore(int timestamp) {
         ObjectVersion<T> res = null;
         for (ObjectVersion<T> obj : versions) {
-            if (obj.version > tid) {
+            if (obj.version > timestamp) {
                 break;
             }
 
@@ -48,7 +48,15 @@ public class Object<T> implements Serializable {
         }
     }
 
-    public synchronized int getLastCommittedVersion() {
-        return lastCommittedVersion;
+    public synchronized ObjectVersion<T> getLastCommittedVersion() {
+        ObjectVersion<T> object = null;
+
+        for (ObjectVersion<T> version : versions) {
+            if (version.version == lastCommittedVersion) {
+                object = version;
+            }
+        }
+
+        return object;
     }
 }

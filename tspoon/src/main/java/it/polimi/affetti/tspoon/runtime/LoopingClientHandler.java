@@ -1,26 +1,33 @@
 package it.polimi.affetti.tspoon.runtime;
 
 import java.io.IOException;
-import java.net.Socket;
 
 /**
  * Created by affo on 12/07/17.
+ * <p>
+ * Decorates a ClientHandler by making its lifeCycle loop.
  */
-public abstract class LoopingClientHandler extends ClientHandler {
+public class LoopingClientHandler extends ClientHandler {
     private boolean stop;
+    private ClientHandler handler;
 
-    public LoopingClientHandler(Socket s) {
-        super(s);
+    public LoopingClientHandler(ClientHandler handler) {
+        super(handler.socket);
+        this.handler = handler;
+    }
+
+    @Override
+    protected void init() throws IOException {
+        super.init();
+        handler.init();
     }
 
     @Override
     protected void lifeCycle() throws Exception {
         while (!stop) {
-            step();
+            handler.lifeCycle();
         }
     }
-
-    protected abstract void step() throws Exception;
 
     protected void stop() {
         stop = true;
@@ -29,6 +36,7 @@ public abstract class LoopingClientHandler extends ClientHandler {
     @Override
     public void close() throws IOException {
         super.close();
+        handler.close();
         stop();
     }
 }

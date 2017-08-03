@@ -36,7 +36,6 @@ public abstract class TransferGraph extends TGraph<Movement, Double> {
         tEnv.setStrategy(strategy);
         tEnv.setIsolationLevel(isolationLevel);
 
-        DataStream<QueryTuple> queries = env.addSource(new QuerySource());
         TransferSource transferSource = getTransfers();
         DataStream<Transfer> transfers = env.addSource(transferSource);
 
@@ -70,7 +69,7 @@ public abstract class TransferGraph extends TGraph<Movement, Double> {
                         // r(x) w(x)
                         handler.write(handler.read() + element.f2);
                     }
-                }, queries, statePartitioning);
+                }, statePartitioning);
 
         balances.updates.print();
 

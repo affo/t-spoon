@@ -43,9 +43,6 @@ public class Address implements Serializable {
 
     @Override
     public String toString() {
-        return "Address{" +
-                "ip='" + ip + '\'' +
-                ", port=" + port +
-                '}';
+        return ip + ":" + port;
     }
 }

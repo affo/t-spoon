@@ -4,7 +4,6 @@ import it.polimi.affetti.tspoon.common.FlatMapFunction;
 import it.polimi.affetti.tspoon.tgraph.functions.FilterWrapper;
 import it.polimi.affetti.tspoon.tgraph.functions.FlatMapWrapper;
 import it.polimi.affetti.tspoon.tgraph.functions.MapWrapper;
-import it.polimi.affetti.tspoon.tgraph.query.QueryTuple;
 import it.polimi.affetti.tspoon.tgraph.state.*;
 import it.polimi.affetti.tspoon.tgraph.twopc.OpenStream;
 import it.polimi.affetti.tspoon.tgraph.twopc.OptimisticOpenOperator;
@@ -12,7 +11,6 @@ import org.apache.flink.api.common.functions.FilterFunction;
 import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.java.functions.KeySelector;
-import org.apache.flink.streaming.api.datastream.ConnectedStreams;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.util.OutputTag;
@@ -79,25 +77,17 @@ public class OTStream<T> implements TStream<T> {
 
     public <V> StateStream<T, V> state(
             String nameSpace, OutputTag<Update<V>> updatesTag, KeySelector<T, String> ks,
-            StateFunction<T, V> stateFunction, DataStream<QueryTuple> queryStream, int partitioning) {
-        ConnectedStreams<Enriched<T>, QueryTuple> connected = ds.connect(queryStream);
-        connected = connected.keyBy(
+            StateFunction<T, V> stateFunction, int partitioning) {
+        ds = ds.keyBy(
                 new KeySelector<Enriched<T>, String>() {
                     @Override
                     public String getKey(Enriched<T> e) throws Exception {
                         return ks.getKey(e.value);
                     }
-                },
-                new KeySelector<QueryTuple, String>() {
-                    @Override
-                    public String getKey(QueryTuple queryTuple) throws Exception {
-                        return queryTuple.getKey();
-                    }
-                }
-        );
+                });
 
-        StateOperator<T, V> stateOperator = new OptimisticStateOperator<>(stateFunction, updatesTag);
-        SingleOutputStreamOperator<Enriched<T>> mainStream = connected.transform(
+        StateOperator<T, V> stateOperator = new OptimisticStateOperator<>(nameSpace, stateFunction, updatesTag);
+        SingleOutputStreamOperator<Enriched<T>> mainStream = ds.transform(
                 "StateOperator: " + nameSpace, ds.getType(), stateOperator)
                 .name(nameSpace).setParallelism(partitioning);
 

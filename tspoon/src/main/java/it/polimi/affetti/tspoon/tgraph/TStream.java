@@ -1,7 +1,6 @@
 package it.polimi.affetti.tspoon.tgraph;
 
 import it.polimi.affetti.tspoon.common.FlatMapFunction;
-import it.polimi.affetti.tspoon.tgraph.query.QueryTuple;
 import it.polimi.affetti.tspoon.tgraph.state.StateFunction;
 import it.polimi.affetti.tspoon.tgraph.state.StateStream;
 import it.polimi.affetti.tspoon.tgraph.state.Update;
@@ -23,8 +22,7 @@ public interface TStream<T> {
 
     <V> StateStream<T, V> state(
             String nameSpace, OutputTag<Update<V>> updatesTag,
-            KeySelector<T, String> ks, StateFunction<T, V> stateFunction,
-            DataStream<QueryTuple> queryStream, int partitioning);
+            KeySelector<T, String> ks, StateFunction<T, V> stateFunction, int partitioning);
 
     DataStream<Enriched<T>> getEnclosingStream();
 }

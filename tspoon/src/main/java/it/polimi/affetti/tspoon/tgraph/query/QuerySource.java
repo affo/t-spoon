@@ -1,24 +1,37 @@
 package it.polimi.affetti.tspoon.tgraph.query;
 
-import org.apache.flink.streaming.api.functions.source.SourceFunction;
+import it.polimi.affetti.tspoon.common.ControlledSource;
 
 /**
- * Created by affo on 20/07/17.
+ * Created by affo on 16/03/17.
  */
-// TODO implement
-public class QuerySource implements SourceFunction<QueryTuple> {
-    private int limit = 10;
+// TODO implement server that gets query from the outside
+// TODO provide the possibility to create batches of queries with different strategies.
+// up to now, we provide only single-query MultiStateQueries
+public class QuerySource extends ControlledSource<MultiStateQuery> {
+    private QuerySupplier querySupplier = new NullQuerySupplier();
 
-    @Override
-    public void run(SourceContext<QueryTuple> sourceContext) throws Exception {
-        while (limit > 0) {
-            sourceContext.collect(new QueryTuple());
-            limit--;
-        }
+    public void setQuerySupplier(QuerySupplier querySupplier) {
+        this.querySupplier = querySupplier;
     }
 
     @Override
-    public void cancel() {
+    public void run(SourceContext<MultiStateQuery> sourceContext) throws Exception {
+        MultiStateQuery multiStateQuery = new MultiStateQuery();
+        Query query;
+        do {
+            query = querySupplier.getQuery();
+            if (query != null) {
+                multiStateQuery.addQuery(query);
+                sourceContext.collect(multiStateQuery);
+            }
+        } while (!stop && query != null);
 
+        //waitForFinish();
+    }
+
+    @Override
+    public void onJobFinish() {
+        stop = true;
     }
 }

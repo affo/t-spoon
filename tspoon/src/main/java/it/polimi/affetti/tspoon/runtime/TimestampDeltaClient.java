@@ -7,7 +7,7 @@ import java.io.IOException;
 /**
  * Created by affo on 01/08/17.
  */
-public class TimestampDeltaClient extends AbstractClient {
+public class TimestampDeltaClient extends StringClient {
     private final String beginFormat = ">%s.%s";
     private final String endFormat = "<%s.%s";
 

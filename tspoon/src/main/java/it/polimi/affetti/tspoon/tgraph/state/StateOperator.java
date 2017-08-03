@@ -1,30 +1,27 @@
 package it.polimi.affetti.tspoon.tgraph.state;
 
 import it.polimi.affetti.tspoon.common.SafeCollector;
-import it.polimi.affetti.tspoon.runtime.ProcessRequestServer;
-import it.polimi.affetti.tspoon.runtime.TextClient;
-import it.polimi.affetti.tspoon.runtime.TextClientsCache;
-import it.polimi.affetti.tspoon.runtime.WithServer;
+import it.polimi.affetti.tspoon.runtime.*;
 import it.polimi.affetti.tspoon.tgraph.Enriched;
 import it.polimi.affetti.tspoon.tgraph.Metadata;
 import it.polimi.affetti.tspoon.tgraph.Vote;
 import it.polimi.affetti.tspoon.tgraph.db.Object;
-import it.polimi.affetti.tspoon.tgraph.query.QueryTuple;
+import it.polimi.affetti.tspoon.tgraph.query.*;
+import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.runtime.state.StateInitializationContext;
 import org.apache.flink.runtime.state.StateSnapshotContext;
 import org.apache.flink.streaming.api.operators.AbstractStreamOperator;
-import org.apache.flink.streaming.api.operators.TwoInputStreamOperator;
+import org.apache.flink.streaming.api.operators.OneInputStreamOperator;
 import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
 import org.apache.flink.util.OutputTag;
 
 import java.io.IOException;
-import java.util.HashMap;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
 /**
@@ -32,40 +29,59 @@ import java.util.stream.Stream;
  */
 public abstract class StateOperator<T, V>
         extends AbstractStreamOperator<Enriched<T>>
-        implements TwoInputStreamOperator<Enriched<T>, QueryTuple, Enriched<T>> {
+        implements OneInputStreamOperator<Enriched<T>, Enriched<T>>,
+        QueryVisitor, QueryListener {
+    private final String nameSpace;
     public final OutputTag<Update<V>> updatesTag;
     // I suppose that the type for keys is String. This assumption is coherent,
     // for instance, with Redis implementation: https://redis.io/topics/data-types-intro
-    protected Map<String, Object<V>> state;
+    protected final Map<String, Object<V>> state;
     protected StateFunction<T, V> stateFunction;
     // list of timestamps ordered by execution order
     protected final List<Integer> executionOrder;
     // transaction contexts: timestamp -> context
     private Map<Integer, TransactionContext> transactions;
-    private transient TextClientsCache clientsCache;
+    private transient StringClientsCache clientsCache;
 
     protected transient SafeCollector<T, Update<V>> collector;
 
+    private transient JobControlClient jobControlClient;
+
     private transient WithServer srv;
+    private transient WithServer queryServer;
     private transient ExecutorService pool;
 
-    public StateOperator(StateFunction<T, V> stateFunction, OutputTag<Update<V>> updatesTag) {
+    // randomizer to build queries
+    private Random random = new Random(0);
+
+    public StateOperator(String nameSpace, StateFunction<T, V> stateFunction, OutputTag<Update<V>> updatesTag) {
+        this.nameSpace = nameSpace;
         this.stateFunction = stateFunction;
         this.updatesTag = updatesTag;
-        // custom keys-level concurrency control
-        this.state = new HashMap<>();
-        // handle concurrent insertion and deletion
+        this.state = new ConcurrentHashMap<>();
+        // handle concurrent insertion and deletion in synchronized blocks
         this.executionOrder = new LinkedList<>();
-        this.transactions = new HashMap<>();
+        this.transactions = new ConcurrentHashMap<>();
     }
 
     @Override
     public void open() throws Exception {
         super.open();
+        ParameterTool parameterTool = (ParameterTool)
+                getRuntimeContext().getExecutionConfig().getGlobalJobParameters();
+        jobControlClient = JobControlClient.get(parameterTool);
+
         srv = new WithServer(new TransactionCloseServer());
         srv.open();
 
-        clientsCache = new TextClientsCache();
+        queryServer = new WithServer(new QueryServer(this));
+        queryServer.open();
+
+        if (jobControlClient != null) {
+            jobControlClient.registerQueryServer(nameSpace, queryServer.getMyAddress());
+        }
+
+        clientsCache = new StringClientsCache();
         collector = new SafeCollector<>(output, updatesTag, new StreamRecord<>(null));
         pool = Executors.newCachedThreadPool();
     }
@@ -74,7 +90,11 @@ public abstract class StateOperator<T, V>
     public void close() throws Exception {
         super.close();
         srv.close();
+        queryServer.close();
         clientsCache.clear();
+        if (jobControlClient != null) {
+            jobControlClient.close();
+        }
         pool.shutdown();
     }
 
@@ -87,13 +107,13 @@ public abstract class StateOperator<T, V>
     }
 
     @Override
-    public void processElement1(StreamRecord<Enriched<T>> sr) throws Exception {
+    public void processElement(StreamRecord<Enriched<T>> sr) throws Exception {
         final String key = getCurrentKey().toString();
 
         T element = sr.getValue().value;
         Metadata metadata = sr.getValue().metadata;
         metadata.addCohort(srv.getMyAddress());
-        TextClient coordinatorClient = clientsCache.getOrCreateClient(metadata.coordinator);
+        StringClient coordinatorClient = clientsCache.getOrCreateClient(metadata.coordinator);
 
         Object<V> object = getObject(key);
         TransactionContext transaction = transactions.computeIfAbsent(metadata.timestamp,
@@ -106,9 +126,67 @@ public abstract class StateOperator<T, V>
 
     protected abstract void onTermination(int tid, Vote vote);
 
+
+    private Map<String, V> queryState(Iterable<String> keys, int timestamp) {
+        Map<String, V> queryResult = new HashMap<>();
+        for (String key : keys) {
+            queryResult.put(key, state.get(key).getLastVersionBefore(timestamp).object);
+        }
+
+        return queryResult;
+    }
+
     @Override
-    public void processElement2(StreamRecord<QueryTuple> sr) throws Exception {
-        // TODO implement querying... getUpdates
+    public void visit(Query query) {
+        // does nothing
+    }
+
+    @Override
+    public void visit(RandomQuery query) {
+        Integer noKeys = state.size();
+
+        if (state.isEmpty()) {
+            return;
+        }
+
+        Set<Integer> indexes;
+        if (noKeys > query.size) {
+            indexes = random.ints(0, noKeys).distinct().limit(query.size)
+                    .boxed().collect(Collectors.toSet());
+        } else {
+            indexes = IntStream.range(0, noKeys).boxed().collect(Collectors.toSet());
+        }
+
+        int i = 0;
+        for (String key : state.keySet()) {
+            if (indexes.contains(i)) {
+                query.addKey(key);
+            }
+            i++;
+        }
+    }
+
+    @Override
+    public <U> void visit(PredicateQuery<U> query) {
+        for (String key : state.keySet()) {
+            V value = state.get(key).getLastVersionBefore(query.watermark).object;
+            // hope that the predicate is coherent with the state
+            try {
+                if (query.test((U) value)) {
+                    query.addKey(key);
+                }
+            } catch (ClassCastException e) {
+                LOG.error("Problem with provided predicate...");
+            }
+        }
+    }
+
+    @Override
+    public Map<String, ?> onQuery(Query query) {
+        query.accept(this);
+        Map<String, V> result = queryState(query.getKeys(), query.watermark);
+
+        return result;
     }
 
     // TODO checkpoint consistent snapshot
@@ -154,10 +232,10 @@ public abstract class StateOperator<T, V>
             }
 
             // concurrent removals
-            TextClient coordinator = tContext.coordinator;
+            StringClient coordinator = tContext.coordinator;
 
             List<Update<V>> updates = tContext.applyChangesAndGatherUpdates();
-            coordinator.text(request + "," + updates);
+            coordinator.send(request + "," + updates);
             try {
                 String text = coordinator.receive();
                 updates.forEach(collector::safeCollect);
@@ -193,9 +271,9 @@ public abstract class StateOperator<T, V>
         Map<String, Object<V>> touchedObjects = new HashMap<>();
         private boolean registered;
 
-        TextClient coordinator;
+        StringClient coordinator;
 
-        public TransactionContext(int tid, int timestamp, TextClient coordinatorClient) {
+        public TransactionContext(int tid, int timestamp, StringClient coordinatorClient) {
             this.tid = tid;
             this.timestamp = timestamp;
             this.coordinator = coordinatorClient;
@@ -222,6 +300,7 @@ public abstract class StateOperator<T, V>
         public List<Update<V>> applyChangesAndGatherUpdates() {
             Stream<Update<V>> updates;
 
+            // NOTE that commit/abort on multiple objects is not atomic wrt external queries and internal operations
             if (vote == Vote.COMMIT) {
                 updates = getUpdates();
                 for (Object<V> object : touchedObjects.values()) {

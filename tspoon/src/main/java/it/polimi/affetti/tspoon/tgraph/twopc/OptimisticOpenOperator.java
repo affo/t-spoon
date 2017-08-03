@@ -23,6 +23,7 @@ public class OptimisticOpenOperator<T> extends OpenOperator<T> {
     // conflicting transaction has a timestamp greater than the last version saved).
     private AtomicInteger timestamp = new AtomicInteger(0);
     private int watermark = 0;
+    private int lastCommittedWatermak = 0;
     // NOTE: everything is indexed by transaction id (tid)
     private Map<Integer, T> elements = new HashMap<>();
     // set of tids depends on tid (tid -> [tids, ...])
@@ -63,9 +64,9 @@ public class OptimisticOpenOperator<T> extends OpenOperator<T> {
 
     @Override
     protected void openTransaction(Enriched<T> element) {
-        int timestamp = this.timestamp.incrementAndGet();
-
         Metadata metadata = element.metadata;
+
+        int timestamp = this.timestamp.incrementAndGet();
 
         metadata.coordinator = myAddress;
         metadata.timestamp = timestamp;
@@ -75,9 +76,9 @@ public class OptimisticOpenOperator<T> extends OpenOperator<T> {
         localContext.timestamp = timestamp;
         localContext.playedWithWatermark = watermark;
 
-        elements.put(element.metadata.tid, element.value);
-        executions.put(element.metadata.tid, localContext);
-        timestampTidMapping.put(timestamp, element.metadata.tid);
+        elements.put(metadata.tid, element.value);
+        executions.put(metadata.tid, localContext);
+        timestampTidMapping.put(timestamp, metadata.tid);
     }
 
     @Override
@@ -138,12 +139,11 @@ public class OptimisticOpenOperator<T> extends OpenOperator<T> {
 
         switch (vote) {
             case COMMIT:
-            case ABORT:
-                if (wmUpdate) {
-                    // TODO this does not mean that the watermark is for a committed transaction!
-                    collector.safeCollect(watermark);
+                if (timestamp > lastCommittedWatermak) {
+                    lastCommittedWatermak = timestamp;
+                    collector.safeCollect(lastCommittedWatermak);
                 }
-
+            case ABORT:
                 onTermination(tid);
                 break;
             case REPLAY:

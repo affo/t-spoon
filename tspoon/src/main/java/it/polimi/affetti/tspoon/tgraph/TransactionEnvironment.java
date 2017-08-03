@@ -1,9 +1,11 @@
 package it.polimi.affetti.tspoon.tgraph;
 
+import it.polimi.affetti.tspoon.tgraph.query.*;
 import it.polimi.affetti.tspoon.tgraph.twopc.*;
 import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.api.java.functions.KeySelector;
 import org.apache.flink.streaming.api.datastream.DataStream;
+import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -17,16 +19,20 @@ import static it.polimi.affetti.tspoon.tgraph.IsolationLevel.PL3;
  */
 public class TransactionEnvironment {
     private static TransactionEnvironment instance;
+    private QuerySource querySource;
+    private DataStream<MultiStateQuery> queryStream;
     private TwoPCFactory factory;
     public static IsolationLevel isolationLevel = PL3; // max level by default
     public static boolean useDependencyTracking;
 
-    private TransactionEnvironment() {
+    private TransactionEnvironment(StreamExecutionEnvironment env) {
+        this.querySource = new QuerySource();
+        this.queryStream = env.addSource(querySource);
     }
 
     public synchronized static TransactionEnvironment get() {
         if (instance == null) {
-            instance = new TransactionEnvironment();
+            instance = new TransactionEnvironment(StreamExecutionEnvironment.getExecutionEnvironment());
         }
         return instance;
     }
@@ -49,8 +55,17 @@ public class TransactionEnvironment {
         TransactionEnvironment.useDependencyTracking = useDependencyTracking;
     }
 
+    public void setQuerySupplier(QuerySupplier querySupplier) {
+        querySource.setQuerySupplier(querySupplier);
+    }
+
     public <T> OpenStream<T> open(DataStream<T> ds) {
-        return factory.open(ds);
+        OpenStream<T> openStream = factory.open(ds);
+        QuerySender querySender = new QuerySender();
+        querySender.setVerbose(true);
+        openStream.watermarks.connect(queryStream).flatMap(new QueryProcessor())
+                .addSink(querySender);
+        return openStream;
     }
 
     public <T> List<DataStream<TransactionResult<T>>> close(TStream<T>... exitPoints) {
