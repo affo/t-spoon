@@ -44,8 +44,7 @@ public class TwoPCTest {
                             @Override
                             public void flatMap(Integer integer, Collector<Metadata> collector) throws Exception {
                                 for (int i = 0; i < integer; i++) {
-                                    Metadata m = new Metadata();
-                                    m.tid = tid;
+                                    Metadata m = new Metadata(tid);
                                     m.batchSize = integer;
                                     m.vote = votes[i];
                                     collector.collect(m);

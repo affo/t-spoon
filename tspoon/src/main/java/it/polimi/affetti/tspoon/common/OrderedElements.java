@@ -2,6 +2,7 @@ package it.polimi.affetti.tspoon.common;
 
 import java.io.Serializable;
 import java.util.*;
+import java.util.function.BiFunction;
 import java.util.function.Function;
 
 /**
@@ -66,6 +67,27 @@ public class OrderedElements<E> implements Iterable<E>, Serializable {
         return e;
     }
 
+    public List<E> getContiguousElements(BiFunction<E, E, Boolean> isContiguous) {
+        List<E> result = new LinkedList<>();
+
+        if (!orderedElements.isEmpty()) {
+            Iterator<E> it = orderedElements.iterator();
+            E previous = it.next();
+            result.add(previous);
+            while (it.hasNext()) {
+                E current = it.next();
+                if (!isContiguous.apply(previous, current)) {
+                    // gapDetected
+                    break;
+                }
+                result.add(current);
+                previous = current;
+            }
+        }
+
+        return result;
+    }
+
     /**
      * @return The size of the list
      */
@@ -78,8 +100,8 @@ public class OrderedElements<E> implements Iterable<E>, Serializable {
     }
 
     @Override
-    public Iterator<E> iterator() {
-        return orderedElements.iterator();
+    public ListIterator<E> iterator() {
+        return orderedElements.listIterator();
     }
 
     public boolean remove(E equal) {

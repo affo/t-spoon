@@ -32,8 +32,7 @@ public class ReduceVotesFunction implements FlatMapFunction<Metadata, Metadata> 
         } else {
             accumulated.vote = accumulated.vote.merge(metadata.vote);
             accumulated.cohorts.addAll(metadata.cohorts);
-            // TODO could be min or max...
-            accumulated.replayCause = Math.max(accumulated.replayCause, metadata.replayCause);
+            accumulated.dependencyTracking.addAll(metadata.dependencyTracking);
         }
         votes.put(timestamp, accumulated);
 

@@ -19,7 +19,7 @@ public class Metadata implements Serializable {
     public int offset = 1;
     public int batchSize = 1;
     public int watermark = 0;
-    public int replayCause = -1;
+    public Set<Integer> dependencyTracking = new HashSet<>();
 
     public Metadata() {
     }
@@ -63,7 +63,22 @@ public class Metadata implements Serializable {
                 ", offset=" + offset +
                 ", batchSize=" + batchSize +
                 ", watermark=" + watermark +
-                ", replayCause=" + replayCause +
+                ", dependencyTracking=" + dependencyTracking +
                 '}';
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+
+        Metadata metadata = (Metadata) o;
+
+        return timestamp == metadata.timestamp;
+    }
+
+    @Override
+    public int hashCode() {
+        return timestamp;
     }
 }

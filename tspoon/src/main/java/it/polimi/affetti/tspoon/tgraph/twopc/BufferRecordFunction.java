@@ -19,18 +19,15 @@ public class BufferRecordFunction<T> implements
     private Map<Integer, Metadata> votes = new HashMap<>();
     private Map<Integer, Integer> counts = new HashMap<>();
 
-    private List<Enriched<T>> getOrCreateBatch(int tid, int size) {
-        return batches.computeIfAbsent(tid, k -> new ArrayList<>(size));
+    private void addElement(int timestamp, Enriched<T> element) {
+        int size = element.metadata.batchSize;
+        batches.computeIfAbsent(timestamp, k -> new ArrayList<>(size)).add(element);
     }
 
-    private void addElement(int tid, Enriched<T> element) {
-        getOrCreateBatch(tid, element.metadata.batchSize).add(element);
-    }
-
-    private int incrementCounter(int tid) {
-        int count = counts.getOrDefault(tid, 0);
+    private int incrementCounter(int timestamp) {
+        int count = counts.getOrDefault(timestamp, 0);
         count++;
-        counts.put(tid, count);
+        counts.put(timestamp, count);
         return count;
     }
 
@@ -67,9 +64,9 @@ public class BufferRecordFunction<T> implements
 
         int batchSize = batch.get(0).metadata.batchSize;
 
-        for (Enriched<T> record : batch) {
-            record.metadata.vote = metadata.vote;
-            collector.collect(record);
+        for (Enriched<T> element : batch) {
+            element.metadata.vote = metadata.vote;
+            collector.collect(element);
         }
 
         if (batch.size() >= batchSize) {

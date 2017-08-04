@@ -1,9 +1,6 @@
 package it.polimi.affetti.tspoon.tgraph.twopc;
 
-import it.polimi.affetti.tspoon.common.OrderedElements;
-import it.polimi.affetti.tspoon.tgraph.Enriched;
-import it.polimi.affetti.tspoon.tgraph.Metadata;
-import it.polimi.affetti.tspoon.tgraph.Vote;
+import it.polimi.affetti.tspoon.tgraph.*;
 
 import java.io.IOException;
 import java.util.*;
@@ -21,7 +18,7 @@ public class OptimisticOpenOperator<T> extends OpenOperator<T> {
     // transaction has to be replayed or not; on the other hand, I use the transaction ID
     // to track the dependencies among transactions (a dependency is specified only if the
     // conflicting transaction has a timestamp greater than the last version saved).
-    private AtomicInteger timestamp = new AtomicInteger(0);
+    private AtomicInteger currentTimestamp = new AtomicInteger(0);
     private int watermark = 0;
     private int lastCommittedWatermak = 0;
     // NOTE: everything is indexed by transaction id (tid)
@@ -34,13 +31,18 @@ public class OptimisticOpenOperator<T> extends OpenOperator<T> {
     // timestamp -> tid
     private Map<Integer, Integer> timestampTidMapping = new ConcurrentHashMap<>();
 
-    private transient OrderedElements<Integer> watermarks;
+    private transient WatermarkingStrategy watermarkingStrategy;
     private transient WAL wal;
 
     @Override
     public void open() throws Exception {
         super.open();
-        watermarks = new OrderedElements<>(Comparator.comparingInt(i -> i));
+
+        if (TransactionEnvironment.isolationLevel == IsolationLevel.PL4) {
+            watermarkingStrategy = new TidWatermarkingStrategy();
+        } else {
+            watermarkingStrategy = new StandardWatermarkingStrategy();
+        }
 
         // TODO send to kafka
         // up to now, we only introduce overhead by writing to disk
@@ -66,19 +68,17 @@ public class OptimisticOpenOperator<T> extends OpenOperator<T> {
     protected void openTransaction(Enriched<T> element) {
         Metadata metadata = element.metadata;
 
-        int timestamp = this.timestamp.incrementAndGet();
-
         metadata.coordinator = myAddress;
-        metadata.timestamp = timestamp;
         metadata.watermark = watermark;
+        metadata.timestamp = currentTimestamp.incrementAndGet();
 
         LocalTransactionContext localContext = new LocalTransactionContext();
-        localContext.timestamp = timestamp;
+        localContext.timestamp = metadata.timestamp;
         localContext.playedWithWatermark = watermark;
 
         elements.put(metadata.tid, element.value);
         executions.put(metadata.tid, localContext);
-        timestampTidMapping.put(timestamp, metadata.tid);
+        timestampTidMapping.put(metadata.timestamp, metadata.tid);
     }
 
     @Override
@@ -88,21 +88,6 @@ public class OptimisticOpenOperator<T> extends OpenOperator<T> {
         execution.replayCause = replayCause;
         execution.mergeUpdates(updates);
         execution.vote = vote;
-    }
-
-    private Integer getLastWM() {
-        Integer polled;
-        int previous = watermark;
-
-        do {
-            polled = watermarks.isEmpty() ? null :
-                    watermarks.pollFirstConditionally(watermark + 1, 0);
-            if (polled != null) {
-                previous = polled;
-            }
-        } while (polled != null);
-
-        return previous;
     }
 
     private void replayElement(Integer tid) {
@@ -127,9 +112,10 @@ public class OptimisticOpenOperator<T> extends OpenOperator<T> {
         updateStats(vote);
         Integer dependency = timestampTidMapping.get(execution.replayCause);
 
-        watermarks.addInOrder(timestamp);
+        watermarkingStrategy.notifyTermination(tid, timestamp, vote);
         int oldWM = watermark;
-        watermark = getLastWM();
+        Integer lastCompleted = watermarkingStrategy.getLastCompleted();
+        watermark = lastCompleted != null ? lastCompleted : watermark;
         boolean wmUpdate = watermark > oldWM;
 
         if (wmUpdate) {

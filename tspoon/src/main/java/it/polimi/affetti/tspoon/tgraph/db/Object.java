@@ -4,6 +4,9 @@ import it.polimi.affetti.tspoon.common.OrderedElements;
 
 import java.io.Serializable;
 import java.util.Comparator;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.ListIterator;
 
 /**
  * Created by affo on 20/07/17.
@@ -12,10 +15,14 @@ import java.util.Comparator;
  */
 public class Object<T> implements Serializable {
     private OrderedElements<ObjectVersion<T>> versions;
-    private int lastCommittedVersion;
+    private ObjectVersion<T> lastVersion = initObject();
 
     public Object() {
         this.versions = new OrderedElements<>(Comparator.comparingInt(obj -> obj.version));
+    }
+
+    private ObjectVersion<T> initObject() {
+        return ObjectVersion.of(0, null);
     }
 
     public synchronized ObjectVersion<T> getLastVersionBefore(int timestamp) {
@@ -29,34 +36,59 @@ public class Object<T> implements Serializable {
         }
 
         if (res == null) {
-            res = ObjectVersion.of(0, null);
+            res = initObject();
         }
         return res;
     }
 
-    public synchronized void addVersion(ObjectVersion<T> obj) {
-        versions.addInOrder(obj);
+    public synchronized ObjectVersion<T> getLastAvailableVersion() {
+        return lastVersion;
     }
 
-    public synchronized void deleteVersion(int version) {
-        versions.remove(version, obj -> obj.version);
-    }
+    public synchronized Iterable<ObjectVersion<T>> getVersionsWithin(int startExclusive, int endInclusive) {
+        List<ObjectVersion<T>> versions = new LinkedList<>();
 
-    public synchronized void commit(int version) {
-        if (version > lastCommittedVersion) {
-            lastCommittedVersion = version;
-        }
-    }
+        for (ObjectVersion<T> obj : this.versions) {
+            if (obj.version > startExclusive) {
+                if (obj.version > endInclusive) {
+                    break;
+                }
 
-    public synchronized ObjectVersion<T> getLastCommittedVersion() {
-        ObjectVersion<T> object = null;
-
-        for (ObjectVersion<T> version : versions) {
-            if (version.version == lastCommittedVersion) {
-                object = version;
+                versions.add(obj);
             }
         }
 
-        return object;
+        return versions;
+    }
+
+
+    public synchronized void addVersion(ObjectVersion<T> obj) {
+        versions.addInOrder(obj);
+
+        if (obj.version > lastVersion.version) {
+            lastVersion = obj;
+        }
+    }
+
+    public synchronized void deleteVersion(int version) {
+        ListIterator<ObjectVersion<T>> iterator = versions.iterator();
+
+        ObjectVersion<T> previous = null;
+        while (iterator.hasNext()) {
+            ObjectVersion<T> current = iterator.next();
+            if (current.version == version) {
+                iterator.remove();
+                break;
+            }
+            previous = current;
+        }
+
+        if (previous == null) {
+            previous = initObject();
+        }
+
+        if (version == lastVersion.version) {
+            lastVersion = previous;
+        }
     }
 }

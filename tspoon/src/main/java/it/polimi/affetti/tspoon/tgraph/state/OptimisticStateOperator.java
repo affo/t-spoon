@@ -13,22 +13,25 @@ import org.apache.flink.util.OutputTag;
  * Created by affo on 25/07/17.
  */
 public class OptimisticStateOperator<T, V> extends StateOperator<T, V> {
-    private ReadWriteStrategy rwStrategy;
+    private VersioningStrategy versioningStrategy;
 
     public OptimisticStateOperator(String nameSpace, StateFunction<T, V> stateFunction, OutputTag<Update<V>> updatesTag) {
         super(nameSpace, stateFunction, updatesTag);
         switch (TransactionEnvironment.isolationLevel) {
             case PL0:
-                rwStrategy = new PL0Strategy();
+                versioningStrategy = new PL0Strategy();
                 break;
             case PL1:
-                rwStrategy = new PL1Strategy();
+                versioningStrategy = new PL1Strategy();
                 break;
             case PL2:
-                rwStrategy = new PL2Strategy();
+                versioningStrategy = new PL2Strategy();
+                break;
+            case PL4:
+                versioningStrategy = new PL4Strategy();
                 break;
             default:
-                rwStrategy = new PL3Strategy();
+                versioningStrategy = new PL3Strategy();
                 break;
         }
     }
@@ -38,7 +41,7 @@ public class OptimisticStateOperator<T, V> extends StateOperator<T, V> {
         // very simple, optimistic directly executes
         registerExecution(metadata.timestamp);
 
-        ObjectVersion<V> version = rwStrategy.extractVersion(metadata, object);
+        ObjectVersion<V> version = versioningStrategy.extractObjectVersion(metadata, object);
         ObjectHandler<V> handler;
         if (version.object != null) {
             handler = new ObjectHandler<>(stateFunction.copyValue(version.object));
@@ -48,34 +51,23 @@ public class OptimisticStateOperator<T, V> extends StateOperator<T, V> {
 
         stateFunction.apply(element, handler);
 
-        int lastVersion = object.getLastVersionBefore(Integer.MAX_VALUE).version;
-
-        // add in any case, if replay it will be deleted later
-        ObjectVersion<V> nextVersion = handler.object(metadata.timestamp);
-        object.addVersion(nextVersion);
+        ObjectVersion<V> nextVersion = handler.object(versioningStrategy.getVersionIdentifier(metadata));
 
         metadata.vote = stateFunction.invariant(nextVersion.object) ? Vote.COMMIT : Vote.ABORT;
 
-        if (handler.read) {
-            if (!rwStrategy.isReadOK(metadata, lastVersion)) {
-                metadata.vote = Vote.REPLAY;
-            }
-        }
-
         if (handler.write) {
-            if (!rwStrategy.isWriteOK(metadata, lastVersion)) {
+            if (!versioningStrategy.isWritingAllowed(metadata, object)) {
                 metadata.vote = Vote.REPLAY;
             }
         }
 
         // add dependency
-        if (TransactionEnvironment.useDependencyTracking &&
-                metadata.vote == Vote.REPLAY) {
-            metadata.replayCause = lastVersion;
+        if (TransactionEnvironment.useDependencyTracking) {
+            metadata.dependencyTracking.addAll(versioningStrategy.extractDependencies(metadata, object));
         }
 
-        // if the level is PL4, we should track the last timestamp that edited this record anyway. in this way
-        // a downstream operator can use it to understand if t2 happened before t1 and t2 -> t1.
+        // add in any case, if replay it will be deleted later
+        object.addVersion(nextVersion);
 
         collector.safeCollect(Enriched.of(metadata, element));
     }

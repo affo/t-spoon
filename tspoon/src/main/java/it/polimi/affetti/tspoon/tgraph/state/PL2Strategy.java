@@ -10,7 +10,7 @@ import it.polimi.affetti.tspoon.tgraph.db.ObjectVersion;
 public class PL2Strategy extends PL1Strategy {
 
     @Override
-    public <V> ObjectVersion<V> extractVersion(Metadata metadata, Object<V> versions) {
+    public <V> ObjectVersion<V> extractObjectVersion(Metadata metadata, Object<V> versions) {
         return versions.getLastVersionBefore(metadata.watermark);
     }
 }

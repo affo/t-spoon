@@ -7,6 +7,7 @@ import it.polimi.affetti.tspoon.tgraph.Metadata;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.functions.sink.RichSinkFunction;
 
+import java.util.Collections;
 import java.util.LinkedList;
 import java.util.List;
 
@@ -35,8 +36,16 @@ public class CloseSink extends RichSinkFunction<Metadata> {
             cohorts.add(clients.getOrCreateClient(cohort));
         }
 
+        int dependency;
+        if (metadata.dependencyTracking.isEmpty()) {
+            dependency = -1;
+        } else {
+            // TODO could be min or max...
+            dependency = Collections.max(metadata.dependencyTracking);
+        }
+
         String message = metadata.timestamp + "," + metadata.vote.ordinal() + ","
-                + metadata.cohorts.size() + "," + metadata.replayCause;
+                + metadata.cohorts.size() + "," + dependency;
 
         cohorts.forEach((cohort) -> cohort.send(message));
     }

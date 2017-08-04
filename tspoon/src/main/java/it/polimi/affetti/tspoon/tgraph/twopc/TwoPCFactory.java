@@ -1,6 +1,6 @@
 package it.polimi.affetti.tspoon.tgraph.twopc;
 
-import it.polimi.affetti.tspoon.tgraph.twopc.OpenStream;
+import it.polimi.affetti.tspoon.tgraph.Metadata;
 import org.apache.flink.streaming.api.datastream.DataStream;
 
 import java.io.Serializable;
@@ -10,4 +10,6 @@ import java.io.Serializable;
  */
 public interface TwoPCFactory extends Serializable {
     <T> OpenStream<T> open(DataStream<T> ds);
+
+    DataStream<Metadata> onClosingSink(DataStream<Metadata> votesMerged);
 }

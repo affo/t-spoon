@@ -6,8 +6,11 @@ import org.junit.Test;
 import org.junit.rules.ExpectedException;
 
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Comparator;
+import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.function.BiFunction;
 
 import static org.junit.Assert.*;
 
@@ -90,6 +93,30 @@ public class OrderedElementsTest {
         assertEquals(24, orderedElements.pollFirstConditionally(0, -1).intValue());
         assertEquals(30, orderedElements.pollFirstConditionally(0, -1).intValue());
         assertEquals(50, orderedElements.pollFirstConditionally(0, -1).intValue());
+    }
+
+    @Test
+    public void testContinuous() {
+        BiFunction<Integer, Integer, Boolean> isContiguous = (pp, p) -> pp + 1 == p;
+
+        // when empty
+        assertEquals(Collections.emptyList(), orderedElements.getContiguousElements(isContiguous));
+
+        orderedElements.addInOrder(18);
+        orderedElements.addInOrder(20);
+        orderedElements.addInOrder(21);
+        orderedElements.addInOrder(19);
+
+        List<Integer> expected = Arrays.asList(18, 19, 20, 21);
+        assertEquals(expected, orderedElements.getContiguousElements(isContiguous));
+
+        orderedElements.addInOrder(50);
+        orderedElements.addInOrder(30);
+        orderedElements.addInOrder(24);
+        assertEquals(expected, orderedElements.getContiguousElements(isContiguous));
+
+        orderedElements.remove(19);
+        assertEquals(Collections.singletonList(18), orderedElements.getContiguousElements(isContiguous));
     }
 
     @Test

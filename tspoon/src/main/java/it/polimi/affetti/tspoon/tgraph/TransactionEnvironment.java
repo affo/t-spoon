@@ -11,6 +11,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static it.polimi.affetti.tspoon.tgraph.IsolationLevel.PL3;
+import static it.polimi.affetti.tspoon.tgraph.IsolationLevel.PL4;
 
 /**
  * Created by affo on 17/07/17.
@@ -49,9 +50,18 @@ public class TransactionEnvironment {
 
     public void setIsolationLevel(IsolationLevel isolationLevel) {
         TransactionEnvironment.isolationLevel = isolationLevel;
+
+        if (isolationLevel == PL4) {
+            TransactionEnvironment.useDependencyTracking = true;
+        }
     }
 
     public void setUseDependencyTracking(boolean useDependencyTracking) {
+        if (isolationLevel == PL4) {
+            // cannot change dependency tracking policy at level PL4
+            return;
+        }
+
         TransactionEnvironment.useDependencyTracking = useDependencyTracking;
     }
 
@@ -62,7 +72,7 @@ public class TransactionEnvironment {
     public <T> OpenStream<T> open(DataStream<T> ds) {
         OpenStream<T> openStream = factory.open(ds);
         QuerySender querySender = new QuerySender();
-        querySender.setVerbose(true);
+        querySender.setVerbose(false);
         openStream.watermarks.connect(queryStream).flatMap(new QueryProcessor())
                 .addSink(querySender);
         return openStream;
@@ -103,6 +113,7 @@ public class TransactionEnvironment {
 
         DataStream<Metadata> secondMerged = union.keyBy(m -> m.timestamp).flatMap(new ReduceVotesFunction());
         // close transactions
+        secondMerged = factory.onClosingSink(secondMerged);
         secondMerged.addSink(new CloseSink());
 
         // output valid records and unwrap

@@ -2,9 +2,7 @@ package it.polimi.affetti.tspoon.tgraph.state;
 
 import it.polimi.affetti.tspoon.common.SafeCollector;
 import it.polimi.affetti.tspoon.runtime.*;
-import it.polimi.affetti.tspoon.tgraph.Enriched;
-import it.polimi.affetti.tspoon.tgraph.Metadata;
-import it.polimi.affetti.tspoon.tgraph.Vote;
+import it.polimi.affetti.tspoon.tgraph.*;
 import it.polimi.affetti.tspoon.tgraph.db.Object;
 import it.polimi.affetti.tspoon.tgraph.query.*;
 import org.apache.flink.api.java.utils.ParameterTool;
@@ -218,17 +216,22 @@ public abstract class StateOperator<T, V>
 
         // impose in-order feedback in asynchronous task
         pool.submit(() -> {
-            synchronized (executionOrder) {
-                while (!executionOrder.get(0).equals(timestamp)) {
-                    try {
-                        executionOrder.wait();
-                    } catch (InterruptedException e) {
-                        LOG.error("Interrupted while waiting to send back to coordinator");
+            // at level PL4 it is non-sense to impose an in-order feedback,
+            // because, the StrictnessEnforcer already provides in-order feedback
+            // by transaction id.
+            if (TransactionEnvironment.isolationLevel != IsolationLevel.PL4) {
+                synchronized (executionOrder) {
+                    while (!executionOrder.get(0).equals(timestamp)) {
+                        try {
+                            executionOrder.wait();
+                        } catch (InterruptedException e) {
+                            LOG.error("Interrupted while waiting to send back to coordinator");
+                        }
                     }
-                }
 
-                executionOrder.remove(0);
-                executionOrder.notifyAll();
+                    executionOrder.remove(0);
+                    executionOrder.notifyAll();
+                }
             }
 
             // concurrent removals
@@ -303,9 +306,6 @@ public abstract class StateOperator<T, V>
             // NOTE that commit/abort on multiple objects is not atomic wrt external queries and internal operations
             if (vote == Vote.COMMIT) {
                 updates = getUpdates();
-                for (Object<V> object : touchedObjects.values()) {
-                    object.commit(timestamp);
-                }
             } else {
                 updates = Stream.empty();
                 for (Object<V> object : touchedObjects.values()) {
