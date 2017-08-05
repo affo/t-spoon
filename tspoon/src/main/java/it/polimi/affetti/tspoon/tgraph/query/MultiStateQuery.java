@@ -9,7 +9,7 @@ import java.util.Set;
  * Created by affo on 02/08/17.
  */
 public class MultiStateQuery implements Iterable<Query>, Serializable {
-    private Set<Query> queries = new HashSet<>();
+    public final Set<Query> queries = new HashSet<>();
 
     public void addQuery(Query query) {
         queries.add(query);

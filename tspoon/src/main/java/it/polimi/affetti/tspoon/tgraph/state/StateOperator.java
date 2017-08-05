@@ -1,5 +1,6 @@
 package it.polimi.affetti.tspoon.tgraph.state;
 
+import it.polimi.affetti.tspoon.common.RandomProvider;
 import it.polimi.affetti.tspoon.common.SafeCollector;
 import it.polimi.affetti.tspoon.runtime.*;
 import it.polimi.affetti.tspoon.tgraph.*;
@@ -50,7 +51,7 @@ public abstract class StateOperator<T, V>
     private transient ExecutorService pool;
 
     // randomizer to build queries
-    private Random random = new Random(0);
+    private Random random = RandomProvider.get();
 
     public StateOperator(String nameSpace, StateFunction<T, V> stateFunction, OutputTag<Update<V>> updatesTag) {
         this.nameSpace = nameSpace;
@@ -81,7 +82,8 @@ public abstract class StateOperator<T, V>
 
         clientsCache = new StringClientsCache();
         collector = new SafeCollector<>(output, updatesTag, new StreamRecord<>(null));
-        pool = Executors.newCachedThreadPool();
+
+        pool = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
     }
 
     @Override

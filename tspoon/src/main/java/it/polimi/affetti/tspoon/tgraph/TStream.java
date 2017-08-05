@@ -20,6 +20,8 @@ public interface TStream<T> {
 
     TStream<T> filter(FilterFunction<T> filterFunction);
 
+    TStream<T> keyBy(KeySelector<T, ?> keySelector);
+
     <V> StateStream<T, V> state(
             String nameSpace, OutputTag<Update<V>> updatesTag,
             KeySelector<T, String> ks, StateFunction<T, V> stateFunction, int partitioning);

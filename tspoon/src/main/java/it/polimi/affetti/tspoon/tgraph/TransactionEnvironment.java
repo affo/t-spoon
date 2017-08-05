@@ -28,7 +28,7 @@ public class TransactionEnvironment {
 
     private TransactionEnvironment(StreamExecutionEnvironment env) {
         this.querySource = new QuerySource();
-        this.queryStream = env.addSource(querySource);
+        this.queryStream = env.addSource(querySource).name("QuerySource");
     }
 
     public synchronized static TransactionEnvironment get() {
@@ -73,8 +73,8 @@ public class TransactionEnvironment {
         OpenStream<T> openStream = factory.open(ds);
         QuerySender querySender = new QuerySender();
         querySender.setVerbose(false);
-        openStream.watermarks.connect(queryStream).flatMap(new QueryProcessor())
-                .addSink(querySender);
+        openStream.watermarks.connect(queryStream).flatMap(new QueryProcessor()).name("QueryProcessor")
+                .addSink(querySender).name("QuerySender");
         return openStream;
     }
 
@@ -96,7 +96,10 @@ public class TransactionEnvironment {
                         }
                     }
             );
-            DataStream<Metadata> reduced = twoPC.keyBy(tpc -> tpc.timestamp).flatMap(new ReduceVotesFunction());
+            DataStream<Metadata> reduced = twoPC
+                    .keyBy(tpc -> tpc.timestamp)
+                    .flatMap(new ReduceVotesFunction())
+                    .name("FirstStepReduceVotes");
             firstStepMerged.add(reduced);
         }
 
@@ -111,10 +114,13 @@ public class TransactionEnvironment {
             union = union.union(unite.map(assignBatchSize));
         }
 
-        DataStream<Metadata> secondMerged = union.keyBy(m -> m.timestamp).flatMap(new ReduceVotesFunction());
+        DataStream<Metadata> secondMerged = union
+                .keyBy(m -> m.timestamp)
+                .flatMap(new ReduceVotesFunction())
+                .name("SecondStepReduceVotes");
         // close transactions
         secondMerged = factory.onClosingSink(secondMerged);
-        secondMerged.addSink(new CloseSink());
+        secondMerged.addSink(new CloseSink()).name("CloseSink");
 
         // output valid records and unwrap
         List<DataStream<TransactionResult<T>>> result = new ArrayList<>(n);
@@ -133,7 +139,7 @@ public class TransactionEnvironment {
                                     return m.timestamp;
                                 }
                             })
-                    .flatMap(new BufferRecordFunction<>());
+                    .flatMap(new BufferRecordFunction<>()).name("Buffer");
             DataStream<TransactionResult<T>> unwrapped = valid
                     .filter(enriched -> enriched.metadata.vote != Vote.REPLAY)
                     .map(

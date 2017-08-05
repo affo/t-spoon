@@ -50,7 +50,7 @@ public class TransferTestDrive {
 
         final double startAmount = 100d;
         final Strategy strategy = Strategy.OPTIMISTIC;
-        final IsolationLevel isolationLevel = IsolationLevel.PL4;
+        final IsolationLevel isolationLevel = IsolationLevel.PL3;
         final boolean useDependencyTracking = true;
 
         TransactionEnvironment tEnv = TransactionEnvironment.get();
@@ -58,7 +58,7 @@ public class TransferTestDrive {
         tEnv.setIsolationLevel(isolationLevel);
         tEnv.setUseDependencyTracking(useDependencyTracking);
 
-        TransferSource transferSource = new TransferSource(100, 100, startAmount);
+        TransferSource transferSource = new TransferSource(10000, 100, startAmount);
         DataStream<Transfer> transfers = env.addSource(transferSource).setParallelism(1);
 
         transfers = transfers.map(

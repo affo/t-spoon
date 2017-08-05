@@ -12,4 +12,6 @@ public class Movement extends Tuple3<Long, String, Double> {
     public Movement(Long id, String from, Double amount) {
         super(id, from, amount);
     }
+
+
 }

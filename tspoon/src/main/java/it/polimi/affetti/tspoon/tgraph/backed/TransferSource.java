@@ -1,6 +1,7 @@
 package it.polimi.affetti.tspoon.tgraph.backed;
 
 import it.polimi.affetti.tspoon.common.ControlledSource;
+import it.polimi.affetti.tspoon.common.RandomProvider;
 
 import java.util.Arrays;
 import java.util.List;
@@ -23,7 +24,7 @@ public class TransferSource extends ControlledSource<Transfer> {
         this.noElements = limit;
         this.noAccounts = noAccounts;
         this.startAmount = startAmount;
-        this.rand = new Random(0);
+        this.rand = RandomProvider.get();
     }
 
     public TransferSource(Transfer... elements) {

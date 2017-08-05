@@ -75,6 +75,17 @@ public class OTStream<T> implements TStream<T> {
         }));
     }
 
+    @Override
+    public TStream<T> keyBy(KeySelector<T, ?> keySelector) {
+        ds = ds.keyBy(new KeySelector<Enriched<T>, Object>() {
+            @Override
+            public Object getKey(Enriched<T> enriched) throws Exception {
+                return keySelector.getKey(enriched.value);
+            }
+        });
+        return this;
+    }
+
     public <V> StateStream<T, V> state(
             String nameSpace, OutputTag<Update<V>> updatesTag, KeySelector<T, String> ks,
             StateFunction<T, V> stateFunction, int partitioning) {

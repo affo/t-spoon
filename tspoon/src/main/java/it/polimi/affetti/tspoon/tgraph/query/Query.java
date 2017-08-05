@@ -8,9 +8,13 @@ import java.util.Set;
  * Created by affo on 02/08/17.
  */
 public class Query implements Serializable {
-    private String nameSpace;
-    private Set<String> keys = new HashSet<>();
+    public final String nameSpace;
+    public final Set<String> keys = new HashSet<>();
     public int watermark;
+
+    public Query() {
+        this.nameSpace = "";
+    }
 
     public Query(String nameSpace) {
         this.nameSpace = nameSpace;

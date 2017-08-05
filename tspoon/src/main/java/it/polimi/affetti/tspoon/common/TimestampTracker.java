@@ -47,7 +47,6 @@ public abstract class TimestampTracker<T> extends RichMapFunction<T, T> {
 
     @Override
     public T map(T t) throws Exception {
-
         if (timestampDeltaClient != null) {
             track(t);
         }

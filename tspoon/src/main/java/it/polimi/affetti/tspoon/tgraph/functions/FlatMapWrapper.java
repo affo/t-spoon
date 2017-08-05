@@ -16,9 +16,10 @@ public abstract class FlatMapWrapper<I, O> implements FlatMapFunction<Enriched<I
         List<O> outputList = doFlatMap(e.value);
 
         if (outputList == null || outputList.isEmpty()) {
-            outputList = Collections.singletonList(null);
+            return;
         }
 
+        // TODO the buffer size can decrease!
         e.metadata.multiplyBatchSize(outputList.size());
         for (O outElement : outputList) {
             collector.collect(e.replace(outElement));
