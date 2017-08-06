@@ -125,6 +125,7 @@ public class Evaluation {
 
         // >>> Composing
         EvaluationGraphComposer.startAmount = startAmount;
+        EvaluationGraphComposer.numberOfElements = numRecords;
 
         List<DataStream<Transfer>> outputs = new ArrayList<>(noTGraphs);
         int i = 0;
@@ -151,8 +152,8 @@ public class Evaluation {
         // >>> Closing
         out.filter(new SkipFirstN<>(sledLen)).setParallelism(1)
                 .map(new LatencyTracker(false)).setParallelism(1) // end tracker
-                .map(new ElapsedTimeCalculator<>(batchSize)).setParallelism(1)
-                .addSink(new FinishOnCountSink<>(numRecords)).setParallelism(1);
+                .map(new ElapsedTimeCalculator<>(batchSize)).setParallelism(1);
+                //.addSink(new FinishOnCountSink<>(numRecords)).setParallelism(1);
 
         // >>>>> Gathering Results
         JobExecutionResult result = env.execute();

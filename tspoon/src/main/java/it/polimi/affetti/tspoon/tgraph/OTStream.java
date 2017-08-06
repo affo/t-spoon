@@ -11,6 +11,7 @@ import org.apache.flink.api.common.functions.FilterFunction;
 import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.java.functions.KeySelector;
+import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.util.OutputTag;
@@ -43,7 +44,8 @@ public class OTStream<T> implements TStream<T> {
                 .setParallelism(1);
 
         DataStream<Integer> watermarks = enriched.getSideOutput(openOperator.watermarkTag);
-        return new OpenStream<>(new OTStream<>(enriched), watermarks);
+        DataStream<Tuple2<Integer, Vote>> wal = enriched.getSideOutput(openOperator.logTag);
+        return new OpenStream<>(new OTStream<>(enriched), watermarks, wal);
     }
 
     public <U> OTStream<U> map(MapFunction<T, U> fn) {

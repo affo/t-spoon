@@ -139,7 +139,7 @@ public class TransactionEnvironment {
                                     return m.timestamp;
                                 }
                             })
-                    .flatMap(new BufferRecordFunction<>()).name("Buffer");
+                    .flatMap(new BufferFunction<>()).name("Buffer");
             DataStream<TransactionResult<T>> unwrapped = valid
                     .filter(enriched -> enriched.metadata.vote != Vote.REPLAY)
                     .map(

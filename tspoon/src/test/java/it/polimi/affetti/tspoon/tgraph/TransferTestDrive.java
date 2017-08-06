@@ -7,7 +7,6 @@ import it.polimi.affetti.tspoon.metrics.Report;
 import it.polimi.affetti.tspoon.runtime.JobControlServer;
 import it.polimi.affetti.tspoon.runtime.NetUtils;
 import it.polimi.affetti.tspoon.runtime.TimestampDeltaServer;
-import it.polimi.affetti.tspoon.test.ResultUtils;
 import it.polimi.affetti.tspoon.tgraph.backed.Movement;
 import it.polimi.affetti.tspoon.tgraph.backed.TGraphOutput;
 import it.polimi.affetti.tspoon.tgraph.backed.Transfer;
@@ -32,9 +31,6 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 
-import static it.polimi.affetti.tspoon.test.TransferTestUtils.getUpdates;
-import static it.polimi.affetti.tspoon.test.TransferTestUtils.getWatermarks;
-
 /**
  * Created by affo on 29/07/17.
  */
@@ -58,7 +54,8 @@ public class TransferTestDrive {
         tEnv.setIsolationLevel(isolationLevel);
         tEnv.setUseDependencyTracking(useDependencyTracking);
 
-        TransferSource transferSource = new TransferSource(10000, 100, startAmount);
+        final int numberOfElements = 1000;
+        TransferSource transferSource = new TransferSource(numberOfElements, 1000, startAmount);
         DataStream<Transfer> transfers = env.addSource(transferSource).setParallelism(1);
 
         transfers = transfers.map(
@@ -117,20 +114,24 @@ public class TransferTestDrive {
                     }
                 })
                 .returns(new TypeHint<TransactionResult<Movement>>() {
-                })
-                .addSink(new FinishOnCountSink<>(transferSource.noElements * 2)).setParallelism(1);
+                });
         balances.updates.addSink(new MaterializedViewChecker(startAmount)).setParallelism(1);
 
         TGraphOutput<Movement, Double> tGraphOutput = new TGraphOutput<>(open.watermarks, balances.updates, output);
-        ResultUtils.addAccumulator(tGraphOutput.watermarks, "watermarks");
-        ResultUtils.addAccumulator(tGraphOutput.updates, "updates");
+        //ResultUtils.addAccumulator(tGraphOutput.watermarks, "watermarks");
+        //ResultUtils.addAccumulator(tGraphOutput.updates, "updates");
+
+        open.wal.print();
+        open.wal
+                .filter(entry -> entry.f1 != Vote.REPLAY)
+                .addSink(new FinishOnCountSink<>(numberOfElements)).setParallelism(1);
 
         JobExecutionResult result = env.execute();
         jobControlServer.close();
         timestampDeltaServer.close();
 
-        System.out.println(getWatermarks(result));
-        System.out.println(getUpdates(result));
+        //System.out.println(getWatermarks(result));
+        //System.out.println(getUpdates(result));
 
         Report report = new Report("report.json");
         report.addAccumulators(result);

@@ -5,6 +5,7 @@ import it.polimi.affetti.tspoon.common.Address;
 import java.io.IOException;
 import java.net.Socket;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /**
@@ -19,7 +20,7 @@ public class JobControlServer extends AbstractServer {
     public static final String discoverFormat = discoverPattern + ",%s";
 
     private List<StringClientHandler> observers = new LinkedList<>();
-    private Map<String, Set<Address>> queryServersRegistry = new HashMap<>();
+    private final Map<String, Set<Address>> queryServersRegistry = new ConcurrentHashMap<>();
 
     private synchronized void subscribe(StringClientHandler handler) {
         LOG.info("Subscription received: " + handler.socket);
@@ -33,14 +34,25 @@ public class JobControlServer extends AbstractServer {
         }
     }
 
-    private synchronized void registerForDiscovery(String nameSpace, Address address) {
+    private void registerForDiscovery(String nameSpace, Address address) {
         LOG.info("Registering " + nameSpace + " for discovery at " + address);
-        queryServersRegistry.computeIfAbsent(nameSpace, k -> new HashSet<>()).add(address);
+        synchronized (queryServersRegistry) {
+            queryServersRegistry.computeIfAbsent(nameSpace, k -> new HashSet<>()).add(address);
+            queryServersRegistry.notifyAll();
+        }
     }
 
-    private synchronized Set<Address> getAddressesForQueryServer(String nameSpace) {
+    private Set<Address> getAddressesForQueryServer(String nameSpace) throws InterruptedException {
         LOG.info("Discovery request for " + nameSpace);
-        return queryServersRegistry.get(nameSpace);
+        Set<Address> result;
+        synchronized (queryServersRegistry) {
+            result = queryServersRegistry.get(nameSpace);
+            while (result == null) {
+                queryServersRegistry.wait();
+                result = queryServersRegistry.get(nameSpace);
+            }
+        }
+        return result;
     }
 
     @Override

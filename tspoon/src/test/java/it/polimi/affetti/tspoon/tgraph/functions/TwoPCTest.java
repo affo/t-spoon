@@ -5,7 +5,7 @@ import it.polimi.affetti.tspoon.test.ResultUtils;
 import it.polimi.affetti.tspoon.tgraph.*;
 import it.polimi.affetti.tspoon.tgraph.backed.Graph;
 import it.polimi.affetti.tspoon.tgraph.backed.GraphOutput;
-import it.polimi.affetti.tspoon.tgraph.twopc.BufferRecordFunction;
+import it.polimi.affetti.tspoon.tgraph.twopc.BufferFunction;
 import it.polimi.affetti.tspoon.tgraph.twopc.ReduceVotesFunction;
 import org.apache.flink.api.common.JobExecutionResult;
 import org.apache.flink.api.common.functions.FlatMapFunction;
@@ -112,7 +112,7 @@ public class TwoPCTest {
                                 }
                         );
 
-                DataStream<Enriched<Integer>> out = connected.flatMap(new BufferRecordFunction<>()).setParallelism(4);
+                DataStream<Enriched<Integer>> out = connected.flatMap(new BufferFunction<>()).setParallelism(4);
 
                 return new GraphOutput<>(out);
             }

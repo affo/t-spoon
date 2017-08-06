@@ -3,7 +3,9 @@ package it.polimi.affetti.tspoon.tgraph.state;
 import it.polimi.affetti.tspoon.common.RandomProvider;
 import it.polimi.affetti.tspoon.common.SafeCollector;
 import it.polimi.affetti.tspoon.runtime.*;
-import it.polimi.affetti.tspoon.tgraph.*;
+import it.polimi.affetti.tspoon.tgraph.Enriched;
+import it.polimi.affetti.tspoon.tgraph.Metadata;
+import it.polimi.affetti.tspoon.tgraph.Vote;
 import it.polimi.affetti.tspoon.tgraph.db.Object;
 import it.polimi.affetti.tspoon.tgraph.query.*;
 import org.apache.flink.api.java.utils.ParameterTool;
@@ -130,7 +132,7 @@ public abstract class StateOperator<T, V>
     private Map<String, V> queryState(Iterable<String> keys, int timestamp) {
         Map<String, V> queryResult = new HashMap<>();
         for (String key : keys) {
-            queryResult.put(key, state.get(key).getLastVersionBefore(timestamp).object);
+            queryResult.put(key, getObject(key).getLastVersionBefore(timestamp).object);
         }
 
         return queryResult;
@@ -218,9 +220,13 @@ public abstract class StateOperator<T, V>
 
         // impose in-order feedback in asynchronous task
         pool.submit(() -> {
+            // TODO discovered that in-order feedback blocks everything. I still need
+            // TODO to understand why. Anyhow, for now it is disabled and I will investigate
+            // TODO if it is necessary
             // at level PL4 it is non-sense to impose an in-order feedback,
             // because, the StrictnessEnforcer already provides in-order feedback
             // by transaction id.
+            /*
             if (TransactionEnvironment.isolationLevel != IsolationLevel.PL4) {
                 synchronized (executionOrder) {
                     while (!executionOrder.get(0).equals(timestamp)) {
@@ -235,14 +241,17 @@ public abstract class StateOperator<T, V>
                     executionOrder.notifyAll();
                 }
             }
+            */
 
             // concurrent removals
             StringClient coordinator = tContext.coordinator;
 
             List<Update<V>> updates = tContext.applyChangesAndGatherUpdates();
             coordinator.send(request + "," + updates);
+
             try {
-                String text = coordinator.receive();
+                // wait for the ACK
+                coordinator.receive();
                 updates.forEach(collector::safeCollect);
             } catch (IOException e) {
                 LOG.error("Error on updates collection: " + e.getMessage());
@@ -263,7 +272,9 @@ public abstract class StateOperator<T, V>
 
             TransactionContext tContext = transactions.remove(timestamp);
             tContext.vote = vote;
+
             onTransactionClose(tContext, request);
+
         }
     }
 

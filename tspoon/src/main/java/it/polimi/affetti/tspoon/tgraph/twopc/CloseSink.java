@@ -1,15 +1,12 @@
 package it.polimi.affetti.tspoon.tgraph.twopc;
 
 import it.polimi.affetti.tspoon.common.Address;
-import it.polimi.affetti.tspoon.runtime.StringClient;
 import it.polimi.affetti.tspoon.runtime.StringClientsCache;
 import it.polimi.affetti.tspoon.tgraph.Metadata;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.functions.sink.RichSinkFunction;
 
 import java.util.Collections;
-import java.util.LinkedList;
-import java.util.List;
 
 /**
  * Created by affo on 18/07/17.
@@ -31,11 +28,6 @@ public class CloseSink extends RichSinkFunction<Metadata> {
 
     @Override
     public void invoke(Metadata metadata) throws Exception {
-        List<StringClient> cohorts = new LinkedList<>();
-        for (Address cohort : metadata.cohorts) {
-            cohorts.add(clients.getOrCreateClient(cohort));
-        }
-
         int dependency;
         if (metadata.dependencyTracking.isEmpty()) {
             dependency = -1;
@@ -47,6 +39,8 @@ public class CloseSink extends RichSinkFunction<Metadata> {
         String message = metadata.timestamp + "," + metadata.vote.ordinal() + ","
                 + metadata.cohorts.size() + "," + dependency;
 
-        cohorts.forEach((cohort) -> cohort.send(message));
+        for (Address cohort : metadata.cohorts) {
+            clients.getOrCreateClient(cohort).send(message);
+        }
     }
 }

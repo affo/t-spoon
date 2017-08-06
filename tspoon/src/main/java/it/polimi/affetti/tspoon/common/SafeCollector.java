@@ -34,4 +34,8 @@ public class SafeCollector<T, X> {
     public synchronized void safeCollect(X element) {
         out.collect(outputTag, streamRecord.replace(element));
     }
+
+    public synchronized <U> void safeCollect(OutputTag<U> outputTag, U element) {
+        out.collect(outputTag, streamRecord.replace(element));
+    }
 }

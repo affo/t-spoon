@@ -1,26 +1,27 @@
 package it.polimi.affetti.tspoon.runtime;
 
 import java.net.Socket;
-import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Created by affo on 24/07/17.
  */
 public abstract class BroadcastByKeyServer extends AbstractServer {
-    private final Map<String, List<StringClientHandler>> clientsPerKey = new HashMap<>();
+    private final Map<String, List<StringClientHandler>> clientsPerKey = new ConcurrentHashMap<>();
 
     protected abstract void parseRequest(String key, String request);
 
     protected abstract String extractKey(String request);
 
-    public synchronized void broadcastByKey(String key, String msg) {
-        for (StringClientHandler handler : clientsPerKey.get(key)) {
+    public void broadcastByKey(String key, String msg) {
+        List<StringClientHandler> clients = clientsPerKey.remove(key);
+        for (StringClientHandler handler : clients) {
             handler.send(msg);
         }
-        clientsPerKey.remove(key);
+
     }
 
     @Override
@@ -32,7 +33,7 @@ public abstract class BroadcastByKeyServer extends AbstractServer {
                         String request = receive();
 
                         String key = extractKey(request);
-                        synchronized (BroadcastByKeyServer.this) {
+                        synchronized (clientsPerKey) {
                             clientsPerKey.computeIfAbsent(key, k -> new LinkedList<>()).add(this);
                         }
                         parseRequest(key, request);

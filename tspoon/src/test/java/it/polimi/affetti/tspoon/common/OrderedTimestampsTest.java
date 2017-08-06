@@ -47,4 +47,26 @@ public class OrderedTimestampsTest {
         assertEquals(Arrays.asList(50, 51, 52), timestamps.removeContiguous());
         assertTrue(timestamps.isEmpty());
     }
+
+    @Test
+    public void testContiguousWith() throws IndexOutOfBoundsException {
+        timestamps.addInOrder(18);
+        timestamps.addInOrder(50);
+        timestamps.addInOrder(20);
+        timestamps.addInOrder(21);
+        timestamps.addInOrder(19);
+        timestamps.addInOrder(51);
+        timestamps.addInOrder(52);
+
+        assertEquals(Collections.emptyList(), timestamps.removeContiguousWith(0));
+        assertEquals(7, timestamps.size());
+        assertEquals(Collections.emptyList(), timestamps.removeContiguousWith(16));
+        assertEquals(7, timestamps.size());
+        assertEquals(Arrays.asList(18, 19, 20, 21), timestamps.removeContiguousWith(17));
+        assertEquals(3, timestamps.size());
+        assertEquals(Collections.emptyList(), timestamps.removeContiguousWith(42));
+        assertEquals(3, timestamps.size());
+        assertEquals(Arrays.asList(50, 51, 52), timestamps.removeContiguousWith(49));
+        assertTrue(timestamps.isEmpty());
+    }
 }

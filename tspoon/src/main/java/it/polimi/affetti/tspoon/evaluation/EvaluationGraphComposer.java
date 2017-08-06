@@ -1,14 +1,17 @@
 package it.polimi.affetti.tspoon.evaluation;
 
+import it.polimi.affetti.tspoon.common.FinishOnCountSink;
 import it.polimi.affetti.tspoon.tgraph.TStream;
 import it.polimi.affetti.tspoon.tgraph.TransactionEnvironment;
 import it.polimi.affetti.tspoon.tgraph.TransactionResult;
+import it.polimi.affetti.tspoon.tgraph.Vote;
 import it.polimi.affetti.tspoon.tgraph.backed.Movement;
 import it.polimi.affetti.tspoon.tgraph.backed.Transfer;
 import it.polimi.affetti.tspoon.tgraph.db.ObjectHandler;
 import it.polimi.affetti.tspoon.tgraph.state.StateFunction;
 import it.polimi.affetti.tspoon.tgraph.state.StateStream;
 import it.polimi.affetti.tspoon.tgraph.state.Update;
+import it.polimi.affetti.tspoon.tgraph.twopc.OpenStream;
 import org.apache.flink.api.common.functions.FlatMapFunction;
 import org.apache.flink.api.common.typeinfo.TypeHint;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
@@ -26,6 +29,7 @@ import java.util.stream.Collectors;
 public class EvaluationGraphComposer {
     private static int stateCount = 0;
     public static double startAmount = 100d;
+    public static int numberOfElements;
 
     public static DataStream<Transfer> generateTGraph(
             DataStream<Transfer> transfers, int noStates, int partitioning, boolean seriesOrParallel) {
@@ -59,7 +63,11 @@ public class EvaluationGraphComposer {
     }
 
     public static TStream<Transfer> openTGraph(DataStream<Transfer> transfers) {
-        return TransactionEnvironment.get().open(transfers).opened;
+        OpenStream<Transfer> open = TransactionEnvironment.get().open(transfers);
+        open.wal
+                .filter(entry -> entry.f1 != Vote.REPLAY)
+                .addSink(new FinishOnCountSink<>(numberOfElements)).setParallelism(1);
+        return open.opened;
     }
 
     public static TStream<Movement> toMovements(TStream<Transfer> transfers) {

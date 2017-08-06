@@ -14,23 +14,27 @@ public class OrderedTimestamps extends OrderedElements<Integer> {
         super(Comparator.comparingInt(i -> i));
     }
 
-    private List<Integer> operateOnContiguous(int threshold, boolean remove) {
+    @Override
+    public synchronized void addInOrder(Integer element) {
+        super.addInOrder(element);
+    }
+
+    private List<Integer> operateOnContiguous(Integer start, int threshold, boolean remove) {
         List<Integer> result = new LinkedList<>();
 
         if (!isEmpty()) {
             ListIterator<Integer> it = iterator();
-            Integer previous = null;
 
             while (it.hasNext()) {
                 int current = it.next();
-                if (previous != null && previous + 1 != current) {
+                if (start != null && start + 1 != current) {
                     // gapDetected
                     break;
                 }
-                previous = current;
+                start = current;
 
-                if (previous < threshold) {
-                    result.add(previous);
+                if (start < threshold) {
+                    result.add(start);
 
                     if (remove) {
                         it.remove();
@@ -42,15 +46,24 @@ public class OrderedTimestamps extends OrderedElements<Integer> {
         return result;
     }
 
-    public List<Integer> getContiguousElements() {
-        return operateOnContiguous(Integer.MAX_VALUE, false);
+    public synchronized List<Integer> getContiguousElements() {
+        return operateOnContiguous(null, Integer.MAX_VALUE, false);
     }
 
-    public List<Integer> removeContiguous(int threshold) {
-        return operateOnContiguous(threshold, true);
+    public synchronized List<Integer> removeContiguous(int threshold) {
+        return operateOnContiguous(null, threshold, true);
     }
 
-    public List<Integer> removeContiguous() {
-        return operateOnContiguous(Integer.MAX_VALUE, true);
+    public synchronized List<Integer> removeContiguous() {
+        return operateOnContiguous(null, Integer.MAX_VALUE, true);
+    }
+
+    public synchronized List<Integer> removeContiguousWith(int timestamp) {
+        return operateOnContiguous(timestamp, Integer.MAX_VALUE, true);
+    }
+
+    @Override
+    public synchronized String toString() {
+        return super.toString();
     }
 }

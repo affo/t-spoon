@@ -13,7 +13,7 @@ import java.util.Map;
 /**
  * Created by affo on 29/01/17.
  */
-public class BufferRecordFunction<T> implements
+public class BufferFunction<T> implements
         CoFlatMapFunction<Enriched<T>, Metadata, Enriched<T>> {
     private Map<Integer, List<Enriched<T>>> batches = new HashMap<>();
     private Map<Integer, Metadata> votes = new HashMap<>();

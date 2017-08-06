@@ -9,6 +9,7 @@ import it.polimi.affetti.tspoon.tgraph.Enriched;
 import it.polimi.affetti.tspoon.tgraph.Metadata;
 import it.polimi.affetti.tspoon.tgraph.Vote;
 import org.apache.flink.api.common.accumulators.IntCounter;
+import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.streaming.api.operators.AbstractStreamOperator;
 import org.apache.flink.streaming.api.operators.OneInputStreamOperator;
 import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
@@ -27,12 +28,12 @@ public abstract class OpenOperator<T>
         implements OneInputStreamOperator<T, Enriched<T>> {
     public final OutputTag<Integer> watermarkTag = new OutputTag<Integer>("watermark") {
     };
+    public final OutputTag<Tuple2<Integer, Vote>> logTag = new OutputTag<Tuple2<Integer, Vote>>("wal") {
+    };
     protected int count;
     private transient WithServer server;
-    private transient BroadcastByKeyServer broadcast;
     protected transient SafeCollector<T, Integer> collector;
-    // used only in synchronized block
-    private Map<Integer, Integer> counters = new HashMap<>();
+    private final Map<Integer, Integer> counters = new HashMap<>();
     protected Address myAddress;
 
     // stats
@@ -49,8 +50,7 @@ public abstract class OpenOperator<T>
     public void open() throws Exception {
         super.open();
         collector = new SafeCollector<>(output, watermarkTag, new StreamRecord<>(null));
-        broadcast = new OpenServer();
-        server = new WithServer(broadcast);
+        server = new WithServer(new OpenServer());
         server.open();
         myAddress = server.getMyAddress();
 
@@ -87,9 +87,8 @@ public abstract class OpenOperator<T>
     protected abstract void closeTransaction(int timestamp);
 
     private class OpenServer extends BroadcastByKeyServer {
-        // must be synchronized because of counters concurrent access
         @Override
-        protected synchronized void parseRequest(String key, String request) {
+        protected void parseRequest(String key, String request) {
             // LOG.info(request);
 
             String[] tokens = request.split(",");
@@ -99,16 +98,22 @@ public abstract class OpenOperator<T>
             int replayCause = Integer.parseInt(tokens[3]);
             // TODO JSON serialized
             String updates = String.join(",", Arrays.copyOfRange(tokens, 4, tokens.length));
-            counters.putIfAbsent(timestamp, batchSize);
 
-            int count = counters.get(timestamp);
-            count--;
-            counters.put(timestamp, count);
+            int count;
+            synchronized (counters) {
+                counters.putIfAbsent(timestamp, batchSize);
+                count = counters.get(timestamp);
+                count--;
+                if (count == 0) {
+                    counters.remove(timestamp);
+                } else {
+                    counters.put(timestamp, count);
+                }
+            }
 
             onAck(timestamp, vote, replayCause, updates);
 
             if (count == 0) {
-                counters.remove(timestamp);
                 try {
                     writeToWAL(timestamp);
                 } catch (IOException e) {
@@ -116,8 +121,11 @@ public abstract class OpenOperator<T>
                     throw new RuntimeException("Cannot persist to WAL");
                 }
 
-                broadcast.broadcastByKey(key, key);
+                broadcastByKey(key, "");
                 closeTransaction(timestamp);
+
+                Tuple2<Integer, Vote> logEntry = Tuple2.of(timestamp, vote);
+                collector.safeCollect(logTag, logEntry);
             }
         }
 
