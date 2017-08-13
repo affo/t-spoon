@@ -4,11 +4,12 @@ import it.polimi.affetti.tspoon.tgraph.*;
 
 import java.io.IOException;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Created by affo on 14/07/17.
+ * <p>
+ * Synchronization is offered by the OpenOperator class.
  */
 public class OptimisticOpenOperator<T> extends OpenOperator<T> {
     // I need a timestamp because a transaction can possibly be executed
@@ -27,9 +28,10 @@ public class OptimisticOpenOperator<T> extends OpenOperator<T> {
     private Map<Integer, Set<Integer>> dependencies = new HashMap<>();
     private Set<Integer> laterReplay = new HashSet<>();
 
-    private Map<Integer, LocalTransactionContext> executions = new ConcurrentHashMap<>();
+    private Map<Integer, LocalTransactionContext> executions = new HashMap<>();
     // timestamp -> tid
-    private Map<Integer, Integer> timestampTidMapping = new ConcurrentHashMap<>();
+    private Map<Integer, Integer> timestampTidMapping = new HashMap<>();
+    private Map<Integer, Set<Integer>> tidTimestampMapping = new HashMap<>();
 
     private transient WatermarkingStrategy watermarkingStrategy;
     private transient WAL wal;
@@ -37,7 +39,6 @@ public class OptimisticOpenOperator<T> extends OpenOperator<T> {
     @Override
     public void open() throws Exception {
         super.open();
-
         if (TransactionEnvironment.isolationLevel == IsolationLevel.PL4) {
             watermarkingStrategy = new TidWatermarkingStrategy();
         } else {
@@ -79,6 +80,7 @@ public class OptimisticOpenOperator<T> extends OpenOperator<T> {
         elements.put(metadata.tid, element.value);
         executions.put(metadata.tid, localContext);
         timestampTidMapping.put(metadata.timestamp, metadata.tid);
+        tidTimestampMapping.computeIfAbsent(metadata.tid, k -> new HashSet<>()).add(metadata.timestamp);
     }
 
     @Override
@@ -99,13 +101,13 @@ public class OptimisticOpenOperator<T> extends OpenOperator<T> {
         }
     }
 
-    private void addDependency(int tid, int dependency) {
-        dependencies.computeIfAbsent(dependency, k -> new HashSet<>()).add(tid);
+    private void addDependency(int dependsOn, int tid) {
+        dependencies.computeIfAbsent(tid, k -> new HashSet<>()).add(dependsOn);
     }
 
     @Override
     protected void closeTransaction(int timestamp) {
-        int tid = timestampTidMapping.remove(timestamp);
+        int tid = timestampTidMapping.get(timestamp);
         LocalTransactionContext execution = executions.get(tid);
 
         Vote vote = execution.vote;
@@ -127,6 +129,9 @@ public class OptimisticOpenOperator<T> extends OpenOperator<T> {
             case COMMIT:
                 if (timestamp > lastCommittedWatermak) {
                     lastCommittedWatermak = timestamp;
+                }
+
+                if (watermark > lastCommittedWatermak) {
                     collector.safeCollect(lastCommittedWatermak);
                 }
             case ABORT:
@@ -149,8 +154,11 @@ public class OptimisticOpenOperator<T> extends OpenOperator<T> {
     }
 
     private void onTermination(int tid) {
+        // cleanup
         elements.remove(tid);
         executions.remove(tid);
+        Set<Integer> timestamps = tidTimestampMapping.remove(tid);
+        timestamps.forEach(ts -> timestampTidMapping.remove(ts));
 
         Set<Integer> deps = dependencies.remove(tid);
         if (deps != null) {

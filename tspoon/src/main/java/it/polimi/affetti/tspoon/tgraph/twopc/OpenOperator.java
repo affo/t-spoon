@@ -32,6 +32,7 @@ public abstract class OpenOperator<T>
     };
     protected int count;
     private transient WithServer server;
+    private transient BroadcastByKeyServer broadcastServer;
     protected transient SafeCollector<T, Integer> collector;
     private final Map<Integer, Integer> counters = new HashMap<>();
     protected Address myAddress;
@@ -50,7 +51,9 @@ public abstract class OpenOperator<T>
     public void open() throws Exception {
         super.open();
         collector = new SafeCollector<>(output, watermarkTag, new StreamRecord<>(null));
-        server = new WithServer(new OpenServer());
+
+        broadcastServer = new OpenServer();
+        server = new WithServer(broadcastServer);
         server.open();
         myAddress = server.getMyAddress();
 
@@ -68,14 +71,41 @@ public abstract class OpenOperator<T>
     }
 
     @Override
-    public void processElement(StreamRecord<T> sr) throws Exception {
+    public synchronized void processElement(StreamRecord<T> sr) throws Exception {
         count++;
         Metadata metadata = new Metadata(count);
         metadata.coordinator = myAddress;
         Enriched<T> out = Enriched.of(metadata, sr.getValue());
-
         openTransaction(out);
         collector.safeCollect(sr.replace(out));
+    }
+
+    private synchronized void handleStateAck(int timestamp, int batchSize, Vote vote, int replayCause, String updates) {
+        int count;
+        counters.putIfAbsent(timestamp, batchSize);
+        count = counters.get(timestamp);
+        count--;
+        if (count == 0) {
+            counters.remove(timestamp);
+        } else {
+            counters.put(timestamp, count);
+        }
+
+        onAck(timestamp, vote, replayCause, updates);
+
+        if (count == 0) {
+            try {
+                writeToWAL(timestamp);
+            } catch (IOException e) {
+                // make it crash, we cannot avoid persisting the WAL
+                throw new RuntimeException("Cannot persist to WAL");
+            }
+
+            broadcastServer.broadcastByKey(String.valueOf(timestamp), "");
+            closeTransaction(timestamp);
+            Tuple2<Integer, Vote> logEntry = Tuple2.of(timestamp, vote);
+            collector.safeCollect(logTag, logEntry);
+        }
     }
 
     protected abstract void openTransaction(Enriched<T> element);
@@ -99,34 +129,7 @@ public abstract class OpenOperator<T>
             // TODO JSON serialized
             String updates = String.join(",", Arrays.copyOfRange(tokens, 4, tokens.length));
 
-            int count;
-            synchronized (counters) {
-                counters.putIfAbsent(timestamp, batchSize);
-                count = counters.get(timestamp);
-                count--;
-                if (count == 0) {
-                    counters.remove(timestamp);
-                } else {
-                    counters.put(timestamp, count);
-                }
-            }
-
-            onAck(timestamp, vote, replayCause, updates);
-
-            if (count == 0) {
-                try {
-                    writeToWAL(timestamp);
-                } catch (IOException e) {
-                    // make it crash, we cannot avoid persisting the WAL
-                    throw new RuntimeException("Cannot persist to WAL");
-                }
-
-                broadcastByKey(key, "");
-                closeTransaction(timestamp);
-
-                Tuple2<Integer, Vote> logEntry = Tuple2.of(timestamp, vote);
-                collector.safeCollect(logTag, logEntry);
-            }
+            handleStateAck(timestamp, batchSize, vote, replayCause, updates);
         }
 
         @Override

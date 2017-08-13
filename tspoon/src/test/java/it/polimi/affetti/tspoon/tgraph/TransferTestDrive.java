@@ -54,8 +54,8 @@ public class TransferTestDrive {
         tEnv.setIsolationLevel(isolationLevel);
         tEnv.setUseDependencyTracking(useDependencyTracking);
 
-        final int numberOfElements = 1000;
-        TransferSource transferSource = new TransferSource(numberOfElements, 1000, startAmount);
+        final int numberOfElements = 10000;
+        TransferSource transferSource = new TransferSource(numberOfElements, 100, startAmount);
         DataStream<Transfer> transfers = env.addSource(transferSource).setParallelism(1);
 
         transfers = transfers.map(
