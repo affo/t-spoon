@@ -1,26 +1,30 @@
 package it.polimi.affetti.tspoon.common;
 
 import java.io.Serializable;
-import java.util.*;
-import java.util.function.BiFunction;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.ListIterator;
 import java.util.function.Function;
 
 /**
  * This class represents a sequence of elements whose order is specified
- * by a {@code Comparator}. It offers methods to {@link OrderedElements#addInOrder(Object) add in order}
+ * by a TimestampExtractor, i.e. a function from E to Long.
+ * It offers methods to {@link OrderedElements#addInOrder(Object) add in order}
  * and to {@link OrderedElements#pollFirstConditionally remove the first element of the sequence}
- * if smaller than a given one.
+ * if smaller than a given one. It also offers methods to get and remove contiguous elements (by timestamp).
  * <p>
  * {@code OrderedElements} gives a linear time complexity (with the size of the sequence) on
  * adding in order and a constant complexity on removing the first element.
+ * <p>
+ * This class is thread-safe.
  */
 public class OrderedElements<E> implements Iterable<E>, Serializable {
     private List<E> orderedElements;
-    private Comparator<E> comparator;
+    private Function<E, Long> timestampExtractor;
 
-    public OrderedElements(Comparator<E> comparator) {
-        orderedElements = new LinkedList<>();
-        this.comparator = comparator;
+    public OrderedElements(Function<E, Long> timestampExtractor) {
+        this.orderedElements = new LinkedList<>();
+        this.timestampExtractor = timestampExtractor;
     }
 
     /**
@@ -29,12 +33,14 @@ public class OrderedElements<E> implements Iterable<E>, Serializable {
      *
      * @param element the element to add
      */
-    public void addInOrder(E element) {
+    public synchronized void addInOrder(E element) {
+        long timestamp = timestampExtractor.apply(element);
         ListIterator<E> it = orderedElements.listIterator();
         boolean added = false;
 
         while (it.hasNext() && !added) {
-            if (comparator.compare(it.next(), element) >= 0) {
+            long nextTimestamp = timestampExtractor.apply(it.next());
+            if (nextTimestamp >= timestamp) {
                 it.previous();
                 it.add(element);
                 added = true;
@@ -57,35 +63,58 @@ public class OrderedElements<E> implements Iterable<E>, Serializable {
      * element of the list. {@code null} otherwise.
      * @throws IndexOutOfBoundsException if the list is empty
      */
-    public E pollFirstConditionally(E threshold, int lge) {
+    public synchronized E pollFirstConditionally(long threshold, int lge) {
         E e = null;
 
-        if (comparator.compare(threshold, orderedElements.get(0)) == lge) {
+        if (Long.compare(threshold, timestampExtractor.apply(orderedElements.get(0))) == lge) {
             e = orderedElements.remove(0);
         }
 
         return e;
     }
 
-    public List<E> getContiguousElements(BiFunction<E, E, Boolean> isContiguous) {
+    private List<E> operateOnContiguous(Long startTimestamp, long threshold, boolean remove) {
         List<E> result = new LinkedList<>();
 
-        if (!orderedElements.isEmpty()) {
-            Iterator<E> it = orderedElements.iterator();
-            E previous = it.next();
-            result.add(previous);
+        if (!isEmpty()) {
+            ListIterator<E> it = iterator();
+
             while (it.hasNext()) {
-                E current = it.next();
-                if (!isContiguous.apply(previous, current)) {
+                E element = it.next();
+                long currentTimestamp = timestampExtractor.apply(element);
+                if (startTimestamp != null && startTimestamp + 1 != currentTimestamp) {
                     // gapDetected
                     break;
                 }
-                result.add(current);
-                previous = current;
+                startTimestamp = currentTimestamp;
+
+                if (startTimestamp < threshold) {
+                    result.add(element);
+
+                    if (remove) {
+                        it.remove();
+                    }
+                }
             }
         }
 
         return result;
+    }
+
+    public synchronized List<E> getContiguousElements() {
+        return operateOnContiguous(null, Long.MAX_VALUE, false);
+    }
+
+    public synchronized List<E> removeContiguous(int threshold) {
+        return operateOnContiguous(null, threshold, true);
+    }
+
+    public synchronized List<E> removeContiguous() {
+        return operateOnContiguous(null, Long.MAX_VALUE, true);
+    }
+
+    public synchronized List<E> removeContiguousWith(long timestamp) {
+        return operateOnContiguous(timestamp, Long.MAX_VALUE, true);
     }
 
     /**
@@ -104,16 +133,16 @@ public class OrderedElements<E> implements Iterable<E>, Serializable {
         return orderedElements.listIterator();
     }
 
-    public boolean remove(E equal) {
+    public synchronized boolean remove(E equal) {
         return orderedElements.removeIf(equal::equals);
     }
 
-    public <T> boolean remove(T equal, Function<E, T> keyExtractor) {
+    public synchronized <T> boolean remove(T equal, Function<E, T> keyExtractor) {
         return orderedElements.removeIf(e -> equal.equals(keyExtractor.apply(e)));
     }
 
     @Override
-    public String toString() {
+    public synchronized String toString() {
         return orderedElements.toString();
     }
 }

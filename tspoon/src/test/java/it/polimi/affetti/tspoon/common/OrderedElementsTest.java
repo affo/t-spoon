@@ -7,10 +7,8 @@ import org.junit.rules.ExpectedException;
 
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
-import java.util.function.BiFunction;
 
 import static org.junit.Assert.*;
 
@@ -19,7 +17,7 @@ public class OrderedElementsTest {
 
     @Before
     public void setUp() {
-        orderedElements = new OrderedElements<>(Comparator.comparingInt(i -> i));
+        orderedElements = new OrderedElements<>(Integer::longValue);
     }
 
     @Test(expected = IndexOutOfBoundsException.class)
@@ -97,10 +95,8 @@ public class OrderedElementsTest {
 
     @Test
     public void testContinuous() {
-        BiFunction<Integer, Integer, Boolean> isContiguous = (pp, p) -> pp + 1 == p;
-
         // when empty
-        assertEquals(Collections.emptyList(), orderedElements.getContiguousElements(isContiguous));
+        assertEquals(Collections.emptyList(), orderedElements.getContiguousElements());
 
         orderedElements.addInOrder(18);
         orderedElements.addInOrder(20);
@@ -108,15 +104,15 @@ public class OrderedElementsTest {
         orderedElements.addInOrder(19);
 
         List<Integer> expected = Arrays.asList(18, 19, 20, 21);
-        assertEquals(expected, orderedElements.getContiguousElements(isContiguous));
+        assertEquals(expected, orderedElements.getContiguousElements());
 
         orderedElements.addInOrder(50);
         orderedElements.addInOrder(30);
         orderedElements.addInOrder(24);
-        assertEquals(expected, orderedElements.getContiguousElements(isContiguous));
+        assertEquals(expected, orderedElements.getContiguousElements());
 
         orderedElements.remove(19);
-        assertEquals(Collections.singletonList(18), orderedElements.getContiguousElements(isContiguous));
+        assertEquals(Collections.singletonList(18), orderedElements.getContiguousElements());
     }
 
     @Test
