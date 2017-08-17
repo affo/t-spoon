@@ -132,7 +132,7 @@ public class OptimisticOpenOperator<T> extends OpenOperator<T> {
                 }
 
                 if (watermark > lastCommittedWatermak) {
-                    collector.safeCollect(lastCommittedWatermak);
+                    collector.safeCollect(watermarkTag, lastCommittedWatermak);
                 }
             case ABORT:
                 onTermination(tid);

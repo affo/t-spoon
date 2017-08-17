@@ -8,18 +8,13 @@ import org.apache.flink.util.OutputTag;
 /**
  * Created by affo on 20/07/17.
  */
-public class SafeCollector<T, X> {
+public class SafeCollector<T> {
     private Output<StreamRecord<Enriched<T>>> out;
-    private StreamRecord<Enriched<T>> streamRecord;
-    private OutputTag<X> outputTag;
+    private StreamRecord<?> streamRecord;
 
-    public SafeCollector(
-            Output<StreamRecord<Enriched<T>>> out,
-            OutputTag<X> outputTag,
-            StreamRecord<Enriched<T>> streamRecord) {
+    public SafeCollector(Output<StreamRecord<Enriched<T>>> out) {
         this.out = out;
-        this.streamRecord = streamRecord;
-        this.outputTag = outputTag;
+        this.streamRecord = new StreamRecord<>(null);
     }
 
     public synchronized void safeCollect(StreamRecord<Enriched<T>> streamRecord) {
@@ -28,14 +23,14 @@ public class SafeCollector<T, X> {
     }
 
     public synchronized void safeCollect(Enriched<T> element) {
+        streamRecord.setTimestamp(element.metadata.timestamp);
         out.collect(streamRecord.replace(element));
     }
 
-    public synchronized void safeCollect(X element) {
-        out.collect(outputTag, streamRecord.replace(element));
-    }
-
     public synchronized <U> void safeCollect(OutputTag<U> outputTag, U element) {
+        if (streamRecord == null) {
+            streamRecord = new StreamRecord<>(element);
+        }
         out.collect(outputTag, streamRecord.replace(element));
     }
 }

@@ -44,7 +44,7 @@ public abstract class StateOperator<T, V>
     private Map<Integer, TransactionContext> transactions;
     private transient StringClientsCache clientsCache;
 
-    protected transient SafeCollector<T, Update<V>> collector;
+    protected transient SafeCollector<T> collector;
 
     private transient JobControlClient jobControlClient;
 
@@ -83,7 +83,7 @@ public abstract class StateOperator<T, V>
         }
 
         clientsCache = new StringClientsCache();
-        collector = new SafeCollector<>(output, updatesTag, new StreamRecord<>(null));
+        collector = new SafeCollector<>(output);
 
         pool = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
     }
@@ -252,7 +252,7 @@ public abstract class StateOperator<T, V>
             try {
                 // wait for the ACK
                 coordinator.receive();
-                updates.forEach(collector::safeCollect);
+                updates.forEach(u -> collector.safeCollect(updatesTag, u));
             } catch (IOException e) {
                 LOG.error("Error on updates collection: " + e.getMessage());
             }

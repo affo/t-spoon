@@ -33,7 +33,7 @@ public abstract class OpenOperator<T>
     protected int count;
     private transient WithServer server;
     private transient BroadcastByKeyServer broadcastServer;
-    protected transient SafeCollector<T, Integer> collector;
+    protected transient SafeCollector<T> collector;
     private final Map<Integer, Integer> counters = new HashMap<>();
     protected Address myAddress;
 
@@ -50,7 +50,7 @@ public abstract class OpenOperator<T>
     @Override
     public void open() throws Exception {
         super.open();
-        collector = new SafeCollector<>(output, watermarkTag, new StreamRecord<>(null));
+        collector = new SafeCollector<>(output);
 
         broadcastServer = new OpenServer();
         server = new WithServer(broadcastServer);
@@ -85,15 +85,13 @@ public abstract class OpenOperator<T>
         counters.putIfAbsent(timestamp, batchSize);
         count = counters.get(timestamp);
         count--;
-        if (count == 0) {
-            counters.remove(timestamp);
-        } else {
-            counters.put(timestamp, count);
-        }
+        counters.put(timestamp, count);
 
         onAck(timestamp, vote, replayCause, updates);
 
         if (count == 0) {
+            counters.remove(timestamp);
+
             try {
                 writeToWAL(timestamp);
             } catch (IOException e) {
