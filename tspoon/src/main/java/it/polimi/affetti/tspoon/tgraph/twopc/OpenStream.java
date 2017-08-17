@@ -11,9 +11,9 @@ import org.apache.flink.streaming.api.datastream.DataStream;
 public class OpenStream<T> {
     public final TStream<T> opened;
     public final DataStream<Integer> watermarks;
-    public final DataStream<Tuple2<Integer, Vote>> wal;
+    public final DataStream<Tuple2<Long, Vote>> wal;
 
-    public OpenStream(TStream<T> opened, DataStream<Integer> watermarks, DataStream<Tuple2<Integer, Vote>> wal) {
+    public OpenStream(TStream<T> opened, DataStream<Integer> watermarks, DataStream<Tuple2<Long, Vote>> wal) {
         this.opened = opened;
         this.watermarks = watermarks;
         this.wal = wal;

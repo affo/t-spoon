@@ -44,7 +44,7 @@ public class OTStream<T> implements TStream<T> {
                 .setParallelism(1);
 
         DataStream<Integer> watermarks = enriched.getSideOutput(openOperator.watermarkTag);
-        DataStream<Tuple2<Integer, Vote>> wal = enriched.getSideOutput(openOperator.logTag);
+        DataStream<Tuple2<Long, Vote>> wal = enriched.getSideOutput(openOperator.logTag);
         return new OpenStream<>(new OTStream<>(enriched), watermarks, wal);
     }
 

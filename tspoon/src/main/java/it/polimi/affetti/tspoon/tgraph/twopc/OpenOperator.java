@@ -1,7 +1,7 @@
 package it.polimi.affetti.tspoon.tgraph.twopc;
 
 import it.polimi.affetti.tspoon.common.Address;
-import it.polimi.affetti.tspoon.common.SafeCollector;
+import it.polimi.affetti.tspoon.common.InOrderCollector;
 import it.polimi.affetti.tspoon.metrics.Report;
 import it.polimi.affetti.tspoon.runtime.BroadcastByKeyServer;
 import it.polimi.affetti.tspoon.runtime.WithServer;
@@ -28,12 +28,12 @@ public abstract class OpenOperator<T>
         implements OneInputStreamOperator<T, Enriched<T>> {
     public final OutputTag<Integer> watermarkTag = new OutputTag<Integer>("watermark") {
     };
-    public final OutputTag<Tuple2<Integer, Vote>> logTag = new OutputTag<Tuple2<Integer, Vote>>("wal") {
+    public final OutputTag<Tuple2<Long, Vote>> logTag = new OutputTag<Tuple2<Long, Vote>>("wal") {
     };
     protected int count;
     private transient WithServer server;
     private transient BroadcastByKeyServer broadcastServer;
-    protected transient SafeCollector<T> collector;
+    protected transient InOrderCollector<T, Tuple2<Long, Vote>> collector;
     private final Map<Integer, Integer> counters = new HashMap<>();
     protected Address myAddress;
 
@@ -50,7 +50,7 @@ public abstract class OpenOperator<T>
     @Override
     public void open() throws Exception {
         super.open();
-        collector = new SafeCollector<>(output);
+        collector = new InOrderCollector<>(output, logEntry -> logEntry.f0);
 
         broadcastServer = new OpenServer();
         server = new WithServer(broadcastServer);
@@ -101,8 +101,8 @@ public abstract class OpenOperator<T>
 
             broadcastServer.broadcastByKey(String.valueOf(timestamp), "");
             closeTransaction(timestamp);
-            Tuple2<Integer, Vote> logEntry = Tuple2.of(timestamp, vote);
-            collector.safeCollect(logTag, logEntry);
+            Tuple2<Long, Vote> logEntry = Tuple2.of((long) timestamp, vote);
+            collector.collectInOrder(logTag, logEntry);
         }
     }
 

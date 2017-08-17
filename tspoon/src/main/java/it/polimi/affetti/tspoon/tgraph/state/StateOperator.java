@@ -1,7 +1,7 @@
 package it.polimi.affetti.tspoon.tgraph.state;
 
+import it.polimi.affetti.tspoon.common.InOrderCollector;
 import it.polimi.affetti.tspoon.common.RandomProvider;
-import it.polimi.affetti.tspoon.common.SafeCollector;
 import it.polimi.affetti.tspoon.runtime.*;
 import it.polimi.affetti.tspoon.tgraph.Enriched;
 import it.polimi.affetti.tspoon.tgraph.Metadata;
@@ -38,13 +38,11 @@ public abstract class StateOperator<T, V>
     // for instance, with Redis implementation: https://redis.io/topics/data-types-intro
     protected final Map<String, Object<V>> state;
     protected StateFunction<T, V> stateFunction;
-    // list of timestamps ordered by execution order
-    protected final List<Integer> executionOrder;
     // transaction contexts: timestamp -> context
     private Map<Integer, TransactionContext> transactions;
     private transient StringClientsCache clientsCache;
 
-    protected transient SafeCollector<T> collector;
+    protected transient InOrderCollector<T, Update<V>> collector;
 
     private transient JobControlClient jobControlClient;
 
@@ -60,8 +58,6 @@ public abstract class StateOperator<T, V>
         this.stateFunction = stateFunction;
         this.updatesTag = updatesTag;
         this.state = new ConcurrentHashMap<>();
-        // handle concurrent insertion and deletion in synchronized blocks
-        this.executionOrder = new LinkedList<>();
         this.transactions = new ConcurrentHashMap<>();
     }
 
@@ -83,7 +79,7 @@ public abstract class StateOperator<T, V>
         }
 
         clientsCache = new StringClientsCache();
-        collector = new SafeCollector<>(output);
+        collector = new InOrderCollector<>(output, update -> update.f1);
 
         pool = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
     }
@@ -102,10 +98,6 @@ public abstract class StateOperator<T, V>
 
     protected synchronized Object<V> getObject(String key) {
         return state.computeIfAbsent(key, k -> new Object<>());
-    }
-
-    protected void registerExecution(int timestamp) {
-        transactions.get(timestamp).registerExecution();
     }
 
     @Override
@@ -216,33 +208,7 @@ public abstract class StateOperator<T, V>
 
 
     private void onTransactionClose(TransactionContext tContext, String request) {
-        int timestamp = tContext.timestamp;
-
-        // impose in-order feedback in asynchronous task
         pool.submit(() -> {
-            // TODO discovered that in-order feedback blocks everything. I still need
-            // TODO to understand why. Anyhow, for now it is disabled and I will investigate
-            // TODO if it is necessary
-            // at level PL4 it is non-sense to impose an in-order feedback,
-            // because, the StrictnessEnforcer already provides in-order feedback
-            // by transaction id.
-            /*
-            if (TransactionEnvironment.isolationLevel != IsolationLevel.PL4) {
-                synchronized (executionOrder) {
-                    while (!executionOrder.get(0).equals(timestamp)) {
-                        try {
-                            executionOrder.wait();
-                        } catch (InterruptedException e) {
-                            LOG.error("Interrupted while waiting to send back to coordinator");
-                        }
-                    }
-
-                    executionOrder.remove(0);
-                    executionOrder.notifyAll();
-                }
-            }
-            */
-
             // concurrent removals
             StringClient coordinator = tContext.coordinator;
 
@@ -252,7 +218,7 @@ public abstract class StateOperator<T, V>
             try {
                 // wait for the ACK
                 coordinator.receive();
-                updates.forEach(u -> collector.safeCollect(updatesTag, u));
+                updates.forEach(u -> collector.collectInOrder(updatesTag, u));
             } catch (IOException e) {
                 LOG.error("Error on updates collection: " + e.getMessage());
             }
@@ -274,7 +240,6 @@ public abstract class StateOperator<T, V>
             tContext.vote = vote;
 
             onTransactionClose(tContext, request);
-
         }
     }
 
@@ -301,16 +266,8 @@ public abstract class StateOperator<T, V>
 
         public Stream<Update<V>> getUpdates() {
             return touchedObjects.entrySet().stream().map(
-                    entry -> Update.of(tid, entry.getKey(), entry.getValue().getLastVersionBefore(timestamp).object));
-        }
-
-        public void registerExecution() {
-            if (!registered) {
-                synchronized (executionOrder) {
-                    executionOrder.add(timestamp);
-                }
-                registered = true;
-            }
+                    entry -> Update.of(tid, (long) timestamp, entry.getKey(),
+                            entry.getValue().getLastVersionBefore(timestamp).object));
         }
 
         public List<Update<V>> applyChangesAndGatherUpdates() {

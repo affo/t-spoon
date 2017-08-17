@@ -3,7 +3,6 @@ package it.polimi.affetti.tspoon.tgraph.db;
 import it.polimi.affetti.tspoon.common.OrderedElements;
 
 import java.io.Serializable;
-import java.util.Comparator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.ListIterator;
@@ -18,7 +17,7 @@ public class Object<T> implements Serializable {
     private ObjectVersion<T> lastVersion = initObject();
 
     public Object() {
-        this.versions = new OrderedElements<>(Comparator.comparingInt(obj -> obj.version));
+        this.versions = new OrderedElements<>(obj -> (long) obj.version);
     }
 
     private ObjectVersion<T> initObject() {

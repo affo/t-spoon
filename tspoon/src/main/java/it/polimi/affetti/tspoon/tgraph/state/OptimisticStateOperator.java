@@ -39,8 +39,6 @@ public class OptimisticStateOperator<T, V> extends StateOperator<T, V> {
     @Override
     protected void execute(Metadata metadata, String key, Object<V> object, T element) {
         // very simple, optimistic directly executes
-        registerExecution(metadata.timestamp);
-
         ObjectVersion<V> version = versioningStrategy.extractObjectVersion(metadata, object);
         ObjectHandler<V> handler;
         if (version.object != null) {

@@ -164,10 +164,13 @@ public class TransferTestDrive {
         public void invoke(Update<Double> update) throws Exception {
             Update<Double> first = firsts.remove(update.f0);
             if (first != null) {
-                balances.put(first.f1, first.f2);
-                balances.put(update.f1, update.f2);
+                balances.put(first.f2, first.f3);
+                balances.put(update.f2, update.f3);
 
-                assert nothingGetsCreatedNorDestroyed();
+                if (!nothingGetsCreatedNorDestroyed()) {
+                    throw new RuntimeException("Invariant violated");
+                }
+
                 System.out.println("CHECK PASSED: " + startAmount * balances.size());
             } else {
                 firsts.put(update.f0, update);
