@@ -1,6 +1,6 @@
 package it.polimi.affetti.tspoon.tgraph.state;
 
-import it.polimi.affetti.tspoon.common.InOrderCollector;
+import it.polimi.affetti.tspoon.common.InOrderSideCollector;
 import it.polimi.affetti.tspoon.common.RandomProvider;
 import it.polimi.affetti.tspoon.runtime.*;
 import it.polimi.affetti.tspoon.tgraph.Enriched;
@@ -32,6 +32,7 @@ public abstract class StateOperator<T, V>
         extends AbstractStreamOperator<Enriched<T>>
         implements OneInputStreamOperator<Enriched<T>, Enriched<T>>,
         QueryVisitor, QueryListener {
+    private long counter = 0;
     private final String nameSpace;
     public final OutputTag<Update<V>> updatesTag;
     // I suppose that the type for keys is String. This assumption is coherent,
@@ -42,7 +43,7 @@ public abstract class StateOperator<T, V>
     private Map<Integer, TransactionContext> transactions;
     private transient StringClientsCache clientsCache;
 
-    protected transient InOrderCollector<T, Update<V>> collector;
+    protected transient InOrderSideCollector<T, Update<V>> collector;
 
     private transient JobControlClient jobControlClient;
 
@@ -79,7 +80,7 @@ public abstract class StateOperator<T, V>
         }
 
         clientsCache = new StringClientsCache();
-        collector = new InOrderCollector<>(output, update -> update.f1);
+        collector = new InOrderSideCollector<>(output);
 
         pool = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
     }
@@ -111,7 +112,10 @@ public abstract class StateOperator<T, V>
 
         Object<V> object = getObject(key);
         TransactionContext transaction = transactions.computeIfAbsent(metadata.timestamp,
-                ts -> new TransactionContext(metadata.tid, ts, coordinatorClient));
+                ts -> {
+                    counter++;
+                    return new TransactionContext(counter, metadata.tid, ts, coordinatorClient);
+                });
         transaction.addObject(key, object);
         execute(metadata, key, object, element);
     }
@@ -218,7 +222,7 @@ public abstract class StateOperator<T, V>
             try {
                 // wait for the ACK
                 coordinator.receive();
-                updates.forEach(u -> collector.collectInOrder(updatesTag, u));
+                collector.collectInOrder(updatesTag, updates, tContext.localId);
             } catch (IOException e) {
                 LOG.error("Error on updates collection: " + e.getMessage());
             }
@@ -244,17 +248,17 @@ public abstract class StateOperator<T, V>
     }
 
     protected class TransactionContext {
+        long localId;
         int tid;
         // track versions
         int timestamp;
         Vote vote;
         // if the same key is edited twice the object is touched only once
         Map<String, Object<V>> touchedObjects = new HashMap<>();
-        private boolean registered;
-
         StringClient coordinator;
 
-        public TransactionContext(int tid, int timestamp, StringClient coordinatorClient) {
+        public TransactionContext(long localId, int tid, int timestamp, StringClient coordinatorClient) {
+            this.localId = localId;
             this.tid = tid;
             this.timestamp = timestamp;
             this.coordinator = coordinatorClient;
@@ -266,7 +270,7 @@ public abstract class StateOperator<T, V>
 
         public Stream<Update<V>> getUpdates() {
             return touchedObjects.entrySet().stream().map(
-                    entry -> Update.of(tid, (long) timestamp, entry.getKey(),
+                    entry -> Update.of(tid, entry.getKey(),
                             entry.getValue().getLastVersionBefore(timestamp).object));
         }
 

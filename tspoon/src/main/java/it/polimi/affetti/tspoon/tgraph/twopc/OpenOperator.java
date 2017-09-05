@@ -1,7 +1,7 @@
 package it.polimi.affetti.tspoon.tgraph.twopc;
 
 import it.polimi.affetti.tspoon.common.Address;
-import it.polimi.affetti.tspoon.common.InOrderCollector;
+import it.polimi.affetti.tspoon.common.InOrderSideCollector;
 import it.polimi.affetti.tspoon.metrics.Report;
 import it.polimi.affetti.tspoon.runtime.BroadcastByKeyServer;
 import it.polimi.affetti.tspoon.runtime.WithServer;
@@ -33,7 +33,7 @@ public abstract class OpenOperator<T>
     protected int count;
     private transient WithServer server;
     private transient BroadcastByKeyServer broadcastServer;
-    protected transient InOrderCollector<T, Tuple2<Long, Vote>> collector;
+    protected transient InOrderSideCollector<T, Tuple2<Long, Vote>> collector;
     private final Map<Integer, Integer> counters = new HashMap<>();
     protected Address myAddress;
 
@@ -50,7 +50,7 @@ public abstract class OpenOperator<T>
     @Override
     public void open() throws Exception {
         super.open();
-        collector = new InOrderCollector<>(output, logEntry -> logEntry.f0);
+        collector = new InOrderSideCollector<>(output);
 
         broadcastServer = new OpenServer();
         server = new WithServer(broadcastServer);
@@ -102,7 +102,7 @@ public abstract class OpenOperator<T>
             broadcastServer.broadcastByKey(String.valueOf(timestamp), "");
             closeTransaction(timestamp);
             Tuple2<Long, Vote> logEntry = Tuple2.of((long) timestamp, vote);
-            collector.collectInOrder(logTag, logEntry);
+            collector.collectInOrder(logTag, logEntry, (long) timestamp);
         }
     }
 
