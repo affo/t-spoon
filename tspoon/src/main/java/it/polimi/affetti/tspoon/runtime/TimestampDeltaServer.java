@@ -38,7 +38,7 @@ public class TimestampDeltaServer extends ProcessRequestServer {
 
         if (begin != null && end != null) {
             long delta = end - begin;
-            if (delta > 0) {
+            if (delta >= 0) {
                 metric.add((double) delta);
             } else {
                 LOG.warn("Negative timestamp calculated. This means that end came before beginning...");
