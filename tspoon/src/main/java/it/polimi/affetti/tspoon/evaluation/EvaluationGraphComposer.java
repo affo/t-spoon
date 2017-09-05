@@ -66,7 +66,7 @@ public class EvaluationGraphComposer {
         OpenStream<Transfer> open = TransactionEnvironment.get().open(transfers);
         open.wal
                 .filter(entry -> entry.f1 != Vote.REPLAY)
-                .addSink(new FinishOnCountSink<>(numberOfElements)).setParallelism(1);
+                .addSink(new FinishOnCountSink<>(numberOfElements)).setParallelism(1).name("FinishOnCount");
         return open.opened;
     }
 
@@ -116,7 +116,7 @@ public class EvaluationGraphComposer {
                 .map(tr -> tr.f2)
                 .returns(Movement.class)
                 .keyBy(m -> m.f0)
-                .flatMap(new InterTGraphMerger())
+                .flatMap(new InterTGraphMerger()).name("MovementsMerger")
                 .returns(TypeInformation.of(new TypeHint<Transfer>() {
                 }));
     }
