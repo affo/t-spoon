@@ -1,6 +1,5 @@
 package it.polimi.affetti.tspoon.evaluation;
 
-import it.polimi.affetti.tspoon.common.FinishOnCountSink;
 import it.polimi.affetti.tspoon.metrics.Report;
 import it.polimi.affetti.tspoon.runtime.JobControlServer;
 import it.polimi.affetti.tspoon.runtime.NetUtils;
@@ -80,7 +79,7 @@ public class Evaluation {
         tEnv.setUseDependencyTracking(useDependencyTracking);
 
         // >>> Source
-        int limit = numRecords;
+        int limit = numRecords + sledLen;
         if (!transfersOn) {
             limit = 0;
         }
@@ -153,7 +152,6 @@ public class Evaluation {
         out.filter(new SkipFirstN<>(sledLen)).setParallelism(1)
                 .map(new LatencyTracker(false)).setParallelism(1) // end tracker
                 .map(new ElapsedTimeCalculator<>(batchSize)).setParallelism(1);
-                //.addSink(new FinishOnCountSink<>(numRecords)).setParallelism(1);
 
         // >>>>> Gathering Results
         JobExecutionResult result = env.execute();
