@@ -20,9 +20,9 @@ import java.util.function.Function;
  */
 public class OrderedElements<E> implements Iterable<E>, Serializable {
     private List<E> orderedElements;
-    private Function<E, Long> timestampExtractor;
+    private TimestampExtractor<E> timestampExtractor;
 
-    public OrderedElements(Function<E, Long> timestampExtractor) {
+    public OrderedElements(TimestampExtractor<E> timestampExtractor) {
         this.orderedElements = new LinkedList<>();
         this.timestampExtractor = timestampExtractor;
     }
@@ -144,5 +144,8 @@ public class OrderedElements<E> implements Iterable<E>, Serializable {
     @Override
     public synchronized String toString() {
         return orderedElements.toString();
+    }
+
+    public interface TimestampExtractor<E> extends Function<E, Long>, Serializable {
     }
 }
