@@ -18,7 +18,7 @@ public class ClientsCache<C extends AbstractClient> {
         this.clientSupplier = clientSupplier;
     }
 
-    public C getOrCreateClient(Address address) throws IOException {
+    public synchronized C getOrCreateClient(Address address) throws IOException {
         C client = clients.get(address);
         if (client == null) {
             client = clientSupplier.apply(address);
@@ -28,7 +28,7 @@ public class ClientsCache<C extends AbstractClient> {
         return client;
     }
 
-    public void clear() throws IOException {
+    public synchronized void clear() throws IOException {
         for (C client : clients.values()) {
             client.close();
         }
