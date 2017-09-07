@@ -33,9 +33,11 @@ public abstract class BroadcastByKeyServer extends AbstractServer {
                         String request = receive();
 
                         String key = extractKey(request);
-                        synchronized (clientsPerKey) {
-                            clientsPerKey.computeIfAbsent(key, k -> new LinkedList<>()).add(this);
-                        }
+                        clientsPerKey.computeIfAbsent(key, k -> {
+                            LinkedList<StringClientHandler> handlers = new LinkedList<>();
+                            handlers.add(this);
+                            return handlers;
+                        });
                         parseRequest(key, request);
                     }
                 });
