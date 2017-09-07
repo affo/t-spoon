@@ -24,6 +24,16 @@ public class Object<T> implements Serializable {
         return ObjectVersion.of(0, null);
     }
 
+    public synchronized ObjectVersion<T> getVersion(int timestamp) {
+        for (ObjectVersion<T> obj : versions) {
+            if (obj.version == timestamp) {
+                return obj;
+            }
+        }
+
+        throw new IllegalArgumentException("Version not found: " + timestamp);
+    }
+
     public synchronized ObjectVersion<T> getLastVersionBefore(int timestamp) {
         ObjectVersion<T> res = null;
         for (ObjectVersion<T> obj : versions) {
