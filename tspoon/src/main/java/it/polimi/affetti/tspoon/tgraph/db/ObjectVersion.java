@@ -17,4 +17,12 @@ public class ObjectVersion<T> implements Serializable {
     public static <T> ObjectVersion<T> of(int version, T object) {
         return new ObjectVersion<>(version, object);
     }
+
+    @Override
+    public String toString() {
+        return "ObjectVersion{" +
+                "version=" + version +
+                ", object=" + object +
+                '}';
+    }
 }
