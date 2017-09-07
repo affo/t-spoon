@@ -212,13 +212,13 @@ public abstract class StateOperator<T, V>
 
 
     private void onTransactionClose(TransactionContext tContext, String request) {
+        // concurrent removals
+        StringClient coordinator = tContext.coordinator;
+
+        List<Update<V>> updates = tContext.applyChangesAndGatherUpdates();
+        coordinator.send(request + "," + updates);
+
         pool.submit(() -> {
-            // concurrent removals
-            StringClient coordinator = tContext.coordinator;
-
-            List<Update<V>> updates = tContext.applyChangesAndGatherUpdates();
-            coordinator.send(request + "," + updates);
-
             try {
                 // wait for the ACK
                 coordinator.receive();
@@ -271,7 +271,7 @@ public abstract class StateOperator<T, V>
         public Stream<Update<V>> getUpdates() {
             return touchedObjects.entrySet().stream().map(
                     entry -> Update.of(tid, entry.getKey(),
-                            entry.getValue().getLastVersionBefore(timestamp).object));
+                            entry.getValue().getVersion(timestamp).object));
         }
 
         public List<Update<V>> applyChangesAndGatherUpdates() {
