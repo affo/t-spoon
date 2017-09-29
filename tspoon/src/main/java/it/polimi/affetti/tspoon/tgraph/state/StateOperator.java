@@ -38,6 +38,7 @@ public abstract class StateOperator<T, V>
     // I suppose that the type for keys is String. This assumption is coherent,
     // for instance, with Redis implementation: https://redis.io/topics/data-types-intro
     protected final Map<String, Object<V>> state;
+    protected int maxNumberOfVersions;
     protected StateFunction<T, V> stateFunction;
     // transaction contexts: timestamp -> context
     private Map<Integer, TransactionContext> transactions;
@@ -67,6 +68,7 @@ public abstract class StateOperator<T, V>
         super.open();
         ParameterTool parameterTool = (ParameterTool)
                 getRuntimeContext().getExecutionConfig().getGlobalJobParameters();
+        maxNumberOfVersions = parameterTool.getInt("maxNoVersions", 100);
         jobControlClient = JobControlClient.get(parameterTool);
 
         srv = new WithServer(new TransactionCloseServer());
@@ -117,7 +119,16 @@ public abstract class StateOperator<T, V>
                     return new TransactionContext(counter, metadata.tid, ts, coordinatorClient);
                 });
         transaction.addObject(key, object);
+
+        //perform version cleanup
+        versionCleanup(object, metadata.watermark);
         execute(metadata, key, object, element);
+    }
+
+    private void versionCleanup(Object<V> object, int watermark) {
+        if (object.getVersionCount() > maxNumberOfVersions) {
+            object.clearVersionsUntil(watermark);
+        }
     }
 
     protected abstract void execute(Metadata metadata, String key, Object<V> object, T element);

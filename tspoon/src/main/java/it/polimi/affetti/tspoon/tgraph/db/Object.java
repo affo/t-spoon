@@ -24,6 +24,10 @@ public class Object<T> implements Serializable {
         return ObjectVersion.of(0, null);
     }
 
+    public synchronized int getVersionCount() {
+        return versions.size();
+    }
+
     public synchronized ObjectVersion<T> getVersion(int timestamp) {
         for (ObjectVersion<T> obj : versions) {
             if (obj.version == timestamp) {
@@ -99,5 +103,21 @@ public class Object<T> implements Serializable {
         if (version == lastVersion.version) {
             lastVersion = previous;
         }
+    }
+
+    public synchronized int clearVersionsUntil(int version) {
+        ListIterator<ObjectVersion<T>> iterator = versions.iterator();
+
+        int removedCount = 0;
+        while (iterator.hasNext()) {
+            ObjectVersion<T> current = iterator.next();
+            if (current.version >= version) {
+                break;
+            }
+            iterator.remove();
+            removedCount++;
+        }
+
+        return removedCount;
     }
 }
