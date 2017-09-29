@@ -1,0 +1,12 @@
+#!/bin/bash
+# move this file next to flink home directory
+FLINK_VERSION="1.3.2"
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+export FLINK_HOME=$DIR/flink-$FLINK_VERSION
+export PATH=$FLINK_HOME/bin:$PATH
+
+function flink_conf_update() {
+    no_cores="$(grep -c ^processor /proc/cpuinfo)"
+    sed -i "s/^taskmanager.numberOfTaskSlots:.*/taskmanager.numberOfTaskSlots: $no_cores/g" $FLINK_HOME/conf/flink-conf.yaml
+    echo "Flink numberOfSlots per Task Manager set to $no_cores"
+}

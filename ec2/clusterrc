@@ -1,0 +1,47 @@
+#!/bin/bash
+# remember to `aws configure` before running these functions
+
+function get_private_ips() {
+    aws ec2 describe-instances \
+        --query "Reservations[*].Instances[*].PrivateIpAddress" \
+        --output=text
+}
+
+function populate_ssh_config() {
+    ips=($@)
+    ssh_config=~/.ssh/config
+    mv $ssh_config $ssh_config".old"
+    touch $ssh_config
+    chmod 600 $ssh_config
+
+    for (( i=0; i<$#; i++ )); do
+      echo "Host tm$i" >> $ssh_config
+      echo "HostName ${ips[$i]}" >> $ssh_config
+      echo "IdentityFile ~/.ssh/identity.pem" >> $ssh_config
+      echo "User ec2-user" >> $ssh_config
+    done
+}
+
+function populate_flink_slaves_file() {
+    slaves=$FLINK_HOME/conf/slaves
+    mv $slaves $slaves".old"
+    touch $slaves
+
+    for (( i=0; i<$1; i++ )); do
+      echo "tm$i" >> $slaves
+    done
+}
+
+# Execute this to refresh cluster config
+function refresh_cluster_config() {
+    echo "Obtaining cluster ips..."
+    ips=(`get_private_ips`)
+    echo ${ips[@]}
+
+    echo "Generating .ssh/config"
+    populate_ssh_config "${ips[@]}"
+
+    echo "Generating flink slaves file"
+    populate_flink_slaves_file ${#ips[@]}
+}
+
