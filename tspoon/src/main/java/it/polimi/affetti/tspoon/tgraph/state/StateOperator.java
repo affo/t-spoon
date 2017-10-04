@@ -120,15 +120,16 @@ public abstract class StateOperator<T, V>
                 });
         transaction.addObject(key, object);
 
-        //perform version cleanup
+        // perform version cleanup
         versionCleanup(object, metadata.watermark);
         execute(metadata, key, object, element);
     }
 
-    private void versionCleanup(Object<V> object, int watermark) {
+    private int versionCleanup(Object<V> object, int watermark) {
         if (object.getVersionCount() > maxNumberOfVersions) {
-            object.clearVersionsUntil(watermark);
+            return object.clearVersionsUntil(watermark);
         }
+        return 0;
     }
 
     protected abstract void execute(Metadata metadata, String key, Object<V> object, T element);
@@ -291,6 +292,9 @@ public abstract class StateOperator<T, V>
             // NOTE that commit/abort on multiple objects is not atomic wrt external queries and internal operations
             if (vote == Vote.COMMIT) {
                 updates = getUpdates();
+                for (Object<V> object : touchedObjects.values()) {
+                    object.commitVersion(timestamp);
+                }
             } else {
                 updates = Stream.empty();
                 for (Object<V> object : touchedObjects.values()) {

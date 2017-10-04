@@ -15,6 +15,7 @@ import java.util.ListIterator;
 public class Object<T> implements Serializable {
     private OrderedElements<ObjectVersion<T>> versions;
     private ObjectVersion<T> lastVersion = initObject();
+    private ObjectVersion<T> lastCommittedVersion = initObject();
 
     public Object() {
         this.versions = new OrderedElements<>(obj -> (long) obj.version);
@@ -118,6 +119,21 @@ public class Object<T> implements Serializable {
             removedCount++;
         }
 
+        // we need to be sure to preserve at least the last committed version
+        if (getVersionCount() == 0) {
+            addVersion(lastCommittedVersion);
+        }
+
         return removedCount;
+    }
+
+    public synchronized void commitVersion(int timestamp) {
+        if (timestamp > lastCommittedVersion.version) {
+            lastCommittedVersion = getVersion(timestamp);
+        }
+    }
+
+    public synchronized ObjectVersion<T> getLastCommittedVersion() {
+        return lastCommittedVersion;
     }
 }
