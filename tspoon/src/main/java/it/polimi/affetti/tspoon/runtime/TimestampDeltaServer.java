@@ -43,7 +43,10 @@ public class TimestampDeltaServer extends ProcessRequestServer {
             } else {
                 LOG.warn("Negative timestamp calculated. This means that end came before beginning...");
             }
-        }
 
+            // when matching pair is found, remove
+            beginTimestamps.remove(key);
+            endTimestamps.remove(key);
+        }
     }
 }
