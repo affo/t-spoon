@@ -18,7 +18,8 @@ public class OptimisticTwoPCFactory implements TwoPCFactory {
     @Override
     public DataStream<Metadata> onClosingSink(DataStream<Metadata> votesMerged) {
         if (TransactionEnvironment.isolationLevel == IsolationLevel.PL4) {
-            return votesMerged.flatMap(new StrictnessEnforcer()).setParallelism(1);
+            return votesMerged.flatMap(new StrictnessEnforcer())
+                    .name("StrictnessEnforcer").setParallelism(1);
         }
 
         return votesMerged;

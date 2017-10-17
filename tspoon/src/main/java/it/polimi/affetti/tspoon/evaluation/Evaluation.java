@@ -44,7 +44,11 @@ public class Evaluation {
         final boolean transfersOn = parameters.getBoolean("transfersOn", true);
         final boolean optimisticOrPessimistic = parameters.getBoolean("optOrNot", true);
         final boolean useDependencyTracking = parameters.getBoolean("dependencyTracking", true);
+        // final int maxNumberOfVersions = parameters.getInt("maxNoVersions", 1000);
+        // TODO implement switchable durability
+        final boolean durable = parameters.getBoolean("durable", true);
         final int isolationLevelNumber = parameters.getInt("isolationLevel", 3);
+
 
         assert noStates > 0;
         assert noTGraphs > 0;
@@ -77,6 +81,7 @@ public class Evaluation {
         tEnv.setStrategy(strategy);
         tEnv.setIsolationLevel(isolationLevel);
         tEnv.setUseDependencyTracking(useDependencyTracking);
+        tEnv.setVerbose(false);
 
         // >>> Source
         int limit = numRecords + sledLen;
@@ -124,7 +129,7 @@ public class Evaluation {
 
         // >>> Composing
         EvaluationGraphComposer.startAmount = startAmount;
-        EvaluationGraphComposer.numberOfElements = numRecords;
+        EvaluationGraphComposer.numberOfElements = numRecords + sledLen;
 
         List<DataStream<Transfer>> outputs = new ArrayList<>(noTGraphs);
         int i = 0;

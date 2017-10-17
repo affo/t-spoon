@@ -42,7 +42,7 @@ public class TransferSource extends ControlledSource<Transfer> {
         do {
             to = "a" + rand.nextInt(noAccounts);
         } while (from.equals(to));
-        Double amount = rand.nextDouble() * startAmount;
+        Double amount = Math.ceil(rand.nextDouble() * startAmount);
 
         return new Transfer(id, from, to, amount);
     }

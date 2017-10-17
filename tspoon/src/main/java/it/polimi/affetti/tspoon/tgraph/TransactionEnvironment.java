@@ -24,7 +24,8 @@ public class TransactionEnvironment {
     private DataStream<MultiStateQuery> queryStream;
     private TwoPCFactory factory;
     public static IsolationLevel isolationLevel = PL3; // max level by default
-    public static boolean useDependencyTracking;
+    public static boolean useDependencyTracking = true;
+    private boolean verbose = false;
 
     private TransactionEnvironment(StreamExecutionEnvironment env) {
         this.querySource = new QuerySource();
@@ -36,6 +37,14 @@ public class TransactionEnvironment {
             instance = new TransactionEnvironment(StreamExecutionEnvironment.getExecutionEnvironment());
         }
         return instance;
+    }
+
+    public void setVerbose(boolean verbose) {
+        this.verbose = verbose;
+    }
+
+    public boolean isVerbose() {
+        return verbose;
     }
 
     public void setStrategy(Strategy strategy) {
@@ -127,12 +136,13 @@ public class TransactionEnvironment {
         for (DataStream<Enriched<T>> enclosed : encloseds) {
             DataStream<Enriched<T>> valid = enclosed
                     .connect(secondMerged)
-                    .keyBy(new KeySelector<Enriched<T>, Integer>() {
-                               @Override
-                               public Integer getKey(Enriched<T> e) throws Exception {
-                                   return e.metadata.timestamp;
-                               }
-                           },
+                    .keyBy(
+                            new KeySelector<Enriched<T>, Integer>() {
+                                @Override
+                                public Integer getKey(Enriched<T> e) throws Exception {
+                                    return e.metadata.timestamp;
+                                }
+                            },
                             new KeySelector<Metadata, Integer>() {
                                 @Override
                                 public Integer getKey(Metadata m) throws Exception {

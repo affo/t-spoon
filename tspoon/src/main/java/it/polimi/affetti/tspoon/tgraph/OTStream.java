@@ -104,9 +104,8 @@ public class OTStream<T> implements TStream<T> {
                 "StateOperator: " + nameSpace, ds.getType(), stateOperator)
                 .name(nameSpace).setParallelism(partitioning);
 
-        return new StateStream<>(
-                new OTStream<>(mainStream),
-                mainStream.getSideOutput(updatesTag));
+        DataStream<Update<V>> updates = mainStream.getSideOutput(updatesTag);
+        return new StateStream<>(new OTStream<>(mainStream), updates);
     }
 
     @Override

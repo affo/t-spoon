@@ -67,6 +67,11 @@ public class EvaluationGraphComposer {
         open.wal
                 .filter(entry -> entry.f1 != Vote.REPLAY)
                 .addSink(new FinishOnCountSink<>(numberOfElements)).setParallelism(1).name("FinishOnCount");
+
+        if (TransactionEnvironment.get().isVerbose()) {
+            open.wal.print();
+        }
+
         return open.opened;
     }
 
@@ -130,18 +135,11 @@ public class EvaluationGraphComposer {
      */
     private static class TransferMerger implements Serializable {
         private Map<Long, Movement> firsts = new HashMap<>();
-        private Set<Long> completed = new HashSet<>();
 
         public Transfer getTransfer(Movement movement) {
-            if (completed.contains(movement.f0)) {
-                return null;
-            }
-
             Movement first = firsts.remove(movement.f0);
 
             if (first != null && !first.equals(movement)) {
-                completed.add(first.f0);
-
                 String from = first.f2 < 0 ? first.f1 : movement.f1;
                 String to = first.f2 >= 0 ? first.f1 : movement.f1;
                 double amount = Math.abs(first.f2);

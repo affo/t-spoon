@@ -4,8 +4,6 @@ import it.polimi.affetti.tspoon.common.FinishOnCountSink;
 import it.polimi.affetti.tspoon.common.FlatMapFunction;
 import it.polimi.affetti.tspoon.tgraph.*;
 import it.polimi.affetti.tspoon.tgraph.db.ObjectHandler;
-import it.polimi.affetti.tspoon.tgraph.query.QuerySource;
-import it.polimi.affetti.tspoon.tgraph.query.QueryTuple;
 import it.polimi.affetti.tspoon.tgraph.state.StateFunction;
 import it.polimi.affetti.tspoon.tgraph.state.StateStream;
 import it.polimi.affetti.tspoon.tgraph.state.Update;
