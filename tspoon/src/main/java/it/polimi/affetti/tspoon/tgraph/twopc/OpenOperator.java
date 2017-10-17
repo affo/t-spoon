@@ -101,8 +101,7 @@ public abstract class OpenOperator<T>
 
             broadcastServer.broadcastByKey(String.valueOf(timestamp), "");
             closeTransaction(timestamp);
-            Tuple2<Long, Vote> logEntry = Tuple2.of((long) timestamp, vote);
-            collector.collectInOrder(logTag, logEntry, (long) timestamp);
+            logTransaction(timestamp, vote);
         }
     }
 
@@ -113,6 +112,8 @@ public abstract class OpenOperator<T>
     protected abstract void writeToWAL(int timestamp) throws IOException;
 
     protected abstract void closeTransaction(int timestamp);
+
+    protected abstract void logTransaction(long timestamp, Vote vote);
 
     private class OpenServer extends BroadcastByKeyServer {
         @Override
