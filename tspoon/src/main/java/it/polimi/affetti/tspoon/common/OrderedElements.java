@@ -73,6 +73,14 @@ public class OrderedElements<E> implements Iterable<E>, Serializable {
         return e;
     }
 
+    /**
+     * Threshold not included
+     *
+     * @param startTimestamp
+     * @param threshold
+     * @param remove
+     * @return
+     */
     private List<E> operateOnContiguous(Long startTimestamp, long threshold, boolean remove) {
         List<E> result = new LinkedList<>();
 
@@ -82,18 +90,17 @@ public class OrderedElements<E> implements Iterable<E>, Serializable {
             while (it.hasNext()) {
                 E element = it.next();
                 long currentTimestamp = timestampExtractor.apply(element);
-                if (startTimestamp != null && startTimestamp + 1 != currentTimestamp) {
-                    // gapDetected
+                if (currentTimestamp >= threshold ||
+                        startTimestamp != null && startTimestamp + 1 != currentTimestamp) {
+                    // gapDetected or above threshold, exit
                     break;
                 }
                 startTimestamp = currentTimestamp;
 
-                if (startTimestamp < threshold) {
-                    result.add(element);
+                result.add(element);
 
-                    if (remove) {
-                        it.remove();
-                    }
+                if (remove) {
+                    it.remove();
                 }
             }
         }
@@ -115,6 +122,14 @@ public class OrderedElements<E> implements Iterable<E>, Serializable {
 
     public synchronized List<E> removeContiguousWith(long timestamp) {
         return operateOnContiguous(timestamp, Long.MAX_VALUE, true);
+    }
+
+    public synchronized List<E> removeContiguousWith(long timestamp, int threshold) {
+        return operateOnContiguous(timestamp, threshold, true);
+    }
+
+    public synchronized List<E> getContiguousWith(long timestamp) {
+        return operateOnContiguous(timestamp, Long.MAX_VALUE, false);
     }
 
     /**
@@ -144,6 +159,16 @@ public class OrderedElements<E> implements Iterable<E>, Serializable {
     @Override
     public synchronized String toString() {
         return orderedElements.toString();
+    }
+
+    public synchronized E getFirst() {
+        E first = null;
+
+        if (!orderedElements.isEmpty()) {
+            first = orderedElements.get(0);
+        }
+
+        return first;
     }
 
     public interface TimestampExtractor<E> extends Function<E, Long>, Serializable {
