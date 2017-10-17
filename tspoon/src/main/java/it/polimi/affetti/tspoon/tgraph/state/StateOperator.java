@@ -1,5 +1,6 @@
 package it.polimi.affetti.tspoon.tgraph.state;
 
+import it.polimi.affetti.tspoon.common.Address;
 import it.polimi.affetti.tspoon.common.InOrderSideCollector;
 import it.polimi.affetti.tspoon.common.RandomProvider;
 import it.polimi.affetti.tspoon.runtime.*;
@@ -110,19 +111,18 @@ public abstract class StateOperator<T, V>
         T element = sr.getValue().value;
         Metadata metadata = sr.getValue().metadata;
         metadata.addCohort(srv.getMyAddress());
-        StringClient coordinatorClient = clientsCache.getOrCreateClient(metadata.coordinator);
 
         Object<V> object = getObject(key);
         TransactionContext transaction = transactions.computeIfAbsent(metadata.timestamp,
                 ts -> {
                     counter++;
-                    return new TransactionContext(counter, metadata.tid, ts, coordinatorClient);
+                    return new TransactionContext(counter, metadata.tid, ts, metadata.coordinator);
                 });
         transaction.addObject(key, object);
 
         // perform version cleanup
         versionCleanup(object, metadata.watermark);
-        execute(metadata, key, object, element);
+        execute(transaction, key, object, metadata, element);
     }
 
     private int versionCleanup(Object<V> object, int watermark) {
@@ -132,7 +132,7 @@ public abstract class StateOperator<T, V>
         return 0;
     }
 
-    protected abstract void execute(Metadata metadata, String key, Object<V> object, T element);
+    protected abstract void execute(TransactionContext tContext, String key, Object<V> object, Metadata metadata, T element);
 
     protected abstract void onTermination(int tid, Vote vote);
 
@@ -224,23 +224,26 @@ public abstract class StateOperator<T, V>
 
 
     private void onTransactionClose(TransactionContext tContext, String request) {
-        // concurrent removals
-        StringClient coordinator = tContext.coordinator;
+        try {
+            StringClient coordinator = clientsCache.getOrCreateClient(tContext.coordinator);
 
-        List<Update<V>> updates = tContext.applyChangesAndGatherUpdates();
-        coordinator.send(request + "," + updates);
+            List<Update<V>> updates = tContext.applyChangesAndGatherUpdates();
+            coordinator.send(request + "," + updates);
 
-        pool.submit(() -> {
-            try {
-                // wait for the ACK
-                coordinator.receive();
-                collector.collectInOrder(updatesTag, updates, tContext.localId);
-            } catch (IOException e) {
-                LOG.error("Error on updates collection: " + e.getMessage());
-            }
+            pool.submit(() -> {
+                try {
+                    // wait for the ACK
+                    coordinator.receive();
+                    collector.collectInOrder(updatesTag, updates, tContext.localId);
+                } catch (IOException e) {
+                    LOG.error("Error on updates collection: " + e.getMessage());
+                }
 
-            onTermination(tContext.tid, tContext.vote);
-        });
+                onTermination(tContext.tid, tContext.vote);
+            });
+        } catch (IOException e) {
+            throw new RuntimeException("Cannot create connection to coordinator " + tContext.coordinator);
+        }
     }
 
     private class TransactionCloseServer extends ProcessRequestServer {
@@ -263,17 +266,18 @@ public abstract class StateOperator<T, V>
         long localId;
         int tid;
         // track versions
-        int timestamp;
+        int version;
         Vote vote;
         // if the same key is edited twice the object is touched only once
         Map<String, Object<V>> touchedObjects = new HashMap<>();
-        StringClient coordinator;
+        Address coordinator;
 
-        public TransactionContext(long localId, int tid, int timestamp, StringClient coordinatorClient) {
+        public TransactionContext(long localId, int tid, int timestamp, Address coordinator) {
             this.localId = localId;
             this.tid = tid;
-            this.timestamp = timestamp;
-            this.coordinator = coordinatorClient;
+            // defaults to timestamp
+            this.version = timestamp;
+            this.coordinator = coordinator;
         }
 
         public void addObject(String key, Object<V> object) {
@@ -283,7 +287,7 @@ public abstract class StateOperator<T, V>
         public Stream<Update<V>> getUpdates() {
             return touchedObjects.entrySet().stream().map(
                     entry -> Update.of(tid, entry.getKey(),
-                            entry.getValue().getVersion(timestamp).object));
+                            entry.getValue().getVersion(version).object));
         }
 
         public List<Update<V>> applyChangesAndGatherUpdates() {
@@ -293,12 +297,12 @@ public abstract class StateOperator<T, V>
             if (vote == Vote.COMMIT) {
                 updates = getUpdates();
                 for (Object<V> object : touchedObjects.values()) {
-                    object.commitVersion(timestamp);
+                    object.commitVersion(version);
                 }
             } else {
                 updates = Stream.empty();
                 for (Object<V> object : touchedObjects.values()) {
-                    object.deleteVersion(timestamp);
+                    object.deleteVersion(version);
                 }
             }
 

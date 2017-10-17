@@ -37,8 +37,8 @@ public class OptimisticStateOperator<T, V> extends StateOperator<T, V> {
     }
 
     @Override
-    protected void execute(Metadata metadata, String key, Object<V> object, T element) {
-        // very simple, optimistic directly executes
+    protected void execute(TransactionContext tContext, String key, Object<V> object, Metadata metadata, T element) {
+        // very simple. Optimistic directly executes
         ObjectVersion<V> version = versioningStrategy.extractObjectVersion(metadata, object);
         ObjectHandler<V> handler;
         if (version.object != null) {
@@ -49,7 +49,10 @@ public class OptimisticStateOperator<T, V> extends StateOperator<T, V> {
 
         stateFunction.apply(element, handler);
 
-        ObjectVersion<V> nextVersion = handler.object(versioningStrategy.getVersionIdentifier(metadata));
+        int versionId = versioningStrategy.getVersionIdentifier(metadata);
+        tContext.version = versionId;
+
+        ObjectVersion<V> nextVersion = handler.object(versionId);
 
         metadata.vote = stateFunction.invariant(nextVersion.object) ? Vote.COMMIT : Vote.ABORT;
 
@@ -64,8 +67,10 @@ public class OptimisticStateOperator<T, V> extends StateOperator<T, V> {
             metadata.dependencyTracking.addAll(versioningStrategy.extractDependencies(metadata, object));
         }
 
-        // add in any case, if replay it will be deleted later
-        object.addVersion(nextVersion);
+        // avoid wasting memory in case we generated an invalid version
+        if (metadata.vote != Vote.REPLAY) {
+            object.addVersion(nextVersion);
+        }
 
         collector.safeCollect(Enriched.of(metadata, element));
     }

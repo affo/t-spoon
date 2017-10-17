@@ -8,7 +8,6 @@ import org.junit.Test;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
-import java.util.stream.Collectors;
 
 import static org.junit.Assert.assertEquals;
 
@@ -49,31 +48,27 @@ public class DependencyTrackerTest {
 
         dependencyTracker.addMetadata(m1);
         dependencyTracker.addMetadata(m2);
-        assertEquals(Collections.emptyList(), dependencyTracker.next()); // no idea what 4 is
-
-        Metadata m4 = new Metadata(4);
-        dependencyTracker.addMetadata(m4);
         assertEquals(Arrays.asList(m1, m2), dependencyTracker.next());
-
-        Metadata m3 = new Metadata(3);
-        dependencyTracker.addMetadata(m3);
-        List<Metadata> next = dependencyTracker.next();
-        List<Integer> expected = Arrays.asList(3, 4);
-        List<Integer> actual = next.stream().map(m -> m.tid).collect(Collectors.toList());
-        assertEquals(expected, actual); // ok, now 3 is there!
-
-        assertEquals(Vote.COMMIT, next.get(0).vote);
-        assertEquals(Vote.REPLAY, next.get(1).vote); // 2 saw it, now it needs replay!
-
-        assertEquals(Collections.emptyList(), dependencyTracker.next());
+        assertEquals(Collections.emptyList(), dependencyTracker.next()); // empty...
 
         Metadata m5 = new Metadata(5);
         dependencyTracker.addMetadata(m5);
-        assertEquals(Collections.emptyList(), dependencyTracker.next()); // still have a hole for 4
+        assertEquals(Collections.emptyList(), dependencyTracker.next()); // 5 is not contiguous! Still waiting for 3
 
-        // ok, now we have a replay:
-        Metadata mReplayed = new Metadata(4);
-        dependencyTracker.addMetadata(mReplayed);
-        assertEquals(Arrays.asList(mReplayed, m5), dependencyTracker.next());
+        Metadata m4 = new Metadata(4);
+        dependencyTracker.addMetadata(m4);
+        List<Metadata> actual = dependencyTracker.next();
+        assertEquals(Collections.singletonList(m4), actual);
+        assertEquals(Vote.REPLAY, actual.get(0).vote); // 2 saw it, now it needs replay!
+
+
+        Metadata m3 = new Metadata(3);
+        dependencyTracker.addMetadata(m3);
+        assertEquals(Collections.singletonList(m3), dependencyTracker.next()); // contiguous with 2, but still waiting for 4
+
+        // m4 is a commit
+        m4.vote = Vote.COMMIT;
+        dependencyTracker.addMetadata(m4); // 4 has been replayed
+        assertEquals(Arrays.asList(m4, m5), dependencyTracker.next()); // OK
     }
 }

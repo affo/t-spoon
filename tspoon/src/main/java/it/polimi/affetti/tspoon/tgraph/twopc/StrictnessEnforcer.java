@@ -8,7 +8,6 @@ import org.apache.flink.configuration.Configuration;
 import org.apache.flink.util.Collector;
 
 import java.util.*;
-import java.util.stream.Collectors;
 
 /**
  * Created by affo on 03/08/17.
@@ -41,78 +40,90 @@ public class StrictnessEnforcer extends RichFlatMapFunction<Metadata, Metadata> 
     public static class DependencyTracker {
         private OrderedTimestamps tids = new OrderedTimestamps();
         private Map<Integer, Metadata> metas = new HashMap<>();
-        private Set<Integer> collected = new HashSet<>();
+        //private Set<Integer> collected = new HashSet<>();
+        private Set<Integer> toReplay = new HashSet<>();
         private int lastRemoved = 0;
 
+        /**
+         * Every time that a new value comes, it is added to the internal tids.
+         *
+         * @param metadata
+         */
         public void addMetadata(Metadata metadata) {
-            tids.addInOrder(metadata.tid);
             metas.put(metadata.tid, metadata);
-        }
+            tids.addInOrder(metadata.tid);
 
-        public List<Metadata> next() {
-            List<Metadata> result = new LinkedList<>();
-
-            // consider the last removed as part of the tids
-            // to enforce contiguity with the last batch removed
-            tids.addInOrder(lastRemoved);
-            List<Integer> batch = tids.getContiguousElements();
-            tids.remove(lastRemoved);
-            batch.remove(0);
-
-            if (batch.isEmpty()) {
-                return Collections.emptyList();
+            if (metadata.vote == Vote.REPLAY) {
+                toReplay.add(metadata.tid);
             }
 
-            int offset = batch.get(0);
-            // the firstReplay is outside of the batch
-            int firstReplay = offset + batch.size();
-
-            for (Integer tid : batch) {
-                if (!collected.contains(tid)) {
-                    Metadata metadata = metas.get(tid);
-                    result.add(metadata);
-
-                    if (metadata.vote == Vote.REPLAY) {
-                        firstReplay = Math.min(firstReplay, tid);
-                    }
-
-                    for (Integer aboveWatermark : metadata.dependencyTracking) {
-                        Metadata otherMetadata = metas.get(aboveWatermark);
-
-                        if (otherMetadata == null) {
-                            // don't know nothing about this transaction, we need to wait...
-                            return Collections.emptyList();
-                        }
-
-                        if (aboveWatermark > tid) {
-                            // this means that the current transaction could see the version
-                            // of a later transaction (real transaction execution does not respect timestamps) --- or,
-                            // the other way around, the later transaction acted as if the current one never happened.
-                            // This implies that the later transaction should be replayed!
-                            otherMetadata.vote = Vote.REPLAY;
-
-                            firstReplay = Math.min(firstReplay, aboveWatermark);
-                        }
-                    }
-
-                    // transform the dependencies of metadata in timestamps for proper use in OpenOperator
-                    metadata.dependencyTracking = metadata.dependencyTracking.stream().map(
-                            dependencyTid -> metas.get(dependencyTid).timestamp).collect(Collectors.toSet());
+            for (Integer aboveWatermark : metadata.dependencyTracking) {
+                if (aboveWatermark > metadata.tid) {
+                    // this means that the current transaction could see the version
+                    // of a later transaction (real transaction execution does not respect timestamps) --- or,
+                    // the other way around, the later transaction acted as if the current one never happened.
+                    // This implies that the later transaction should be replayed!
+                    toReplay.add(aboveWatermark);
                 }
             }
 
-            List<Integer> removed = tids.removeContiguous(firstReplay);
-            for (Integer r : removed) {
-                collected.remove(r);
-                lastRemoved = r;
+        }
+
+        // cut out forward dependencies for proper use in OpenOperator
+        private void updateDependencies(Metadata metadata) {
+            metadata.dependencyTracking.removeIf(tid -> tid >= metadata.tid);
+        }
+
+        /**
+         * The idea is that you cannot allow a value to be returned if you haven't processed every record before it.
+         * <p>
+         * Once you get a contiguous sequence, you can return it entirely, plus the records to be replayed.
+         * The algorithm keeps the list of order tids consistent with the fact that REPLAY happends.
+         * For instance, if we have 1 -> 2 -> 3 -> 4 and 3 must be replayed, we can't remove the entire sequence.
+         * Otherwise, when 3 will be replayed, it will be alone (no 2 and 4 will come back) and block the processing.
+         *
+         * @return
+         */
+        public List<Metadata> next() {
+            // every record contiguous with the last remove can be sent out
+            // the problem is to keep it in the ordered timestamp not to create holes
+            Set<Integer> toCollect = new HashSet<>(tids.getContiguousWith(lastRemoved));
+
+            // we update the lastRemoved only in case we detected a new contiguous batch
+            if (!toCollect.isEmpty()) {
+                // set the remove threshold to the minimum of the replays
+                int minReplay = toReplay.isEmpty() ? Integer.MAX_VALUE : Collections.min(toReplay);
+                int maxCollect = Collections.max(toCollect);
+                int removeThreshold = Math.min(minReplay, maxCollect + 1);
+
+                // remove until first replay (avoid holes for when replays will come)
+                tids.removeContiguousWith(lastRemoved, removeThreshold);
+                lastRemoved = removeThreshold - 1;
             }
 
-            for (Metadata toCollect : result) {
-                if (toCollect.vote != Vote.REPLAY) {
-                    collected.add(toCollect.tid);
-                } else {
-                    // remove from metadata because it will come back
-                    tids.remove(toCollect.tid);
+            List<Metadata> result = new LinkedList<>();
+
+            toCollect.addAll(toReplay);
+
+            for (Integer tid : toCollect) {
+                Metadata metadata = metas.remove(tid);
+
+                // it could be a tuple that we have never seen before,
+                // or it could be something that had already been collected and not replayed
+                // so, check for null!
+                if (metadata != null) {
+                    if (toReplay.contains(tid)) {
+                        metadata.vote = Vote.REPLAY;
+                        toReplay.remove(tid);
+                    }
+
+                    if (metadata.vote == Vote.REPLAY) {
+                        // remove from ids because it will come back
+                        tids.remove(tid);
+                    }
+
+                    updateDependencies(metadata);
+                    result.add(metadata);
                 }
             }
 
