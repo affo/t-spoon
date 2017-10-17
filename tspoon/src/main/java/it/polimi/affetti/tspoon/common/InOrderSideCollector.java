@@ -44,4 +44,8 @@ public class InOrderSideCollector<T, X> extends SafeCollector<T> {
             lastRemoved = t.f0;
         }
     }
+
+    public synchronized int getCount() {
+        return elements.size();
+    }
 }
