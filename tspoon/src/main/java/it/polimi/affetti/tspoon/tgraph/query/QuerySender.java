@@ -7,21 +7,38 @@ import it.polimi.affetti.tspoon.runtime.ObjectClient;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.functions.sink.RichSinkFunction;
+import org.apache.log4j.Logger;
 
 import java.io.IOException;
+import java.io.Serializable;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Consumer;
 
 /**
  * Created by affo on 02/08/17.
  */
 public class QuerySender extends RichSinkFunction<Query> {
+    private transient Logger LOG;
     private transient JobControlClient jobControlClient;
     private transient ClientsCache<ObjectClient> queryServers;
     private Map<String, Set<Address>> addressesCache = new HashMap<>();
+    private final OnQueryResult onQueryResult;
 
     private boolean verbose = true;
+
+    public QuerySender() {
+        onQueryResult = queryResult -> {
+            if (verbose) {
+                System.out.println(queryResult.toString());
+            }
+        };
+    }
+
+    public QuerySender(OnQueryResult onQueryResult) {
+        this.onQueryResult = onQueryResult;
+    }
 
     public void setVerbose(boolean verbose) {
         this.verbose = verbose;
@@ -30,6 +47,8 @@ public class QuerySender extends RichSinkFunction<Query> {
     @Override
     public void open(Configuration parameters) throws Exception {
         super.open(parameters);
+        LOG = Logger.getLogger(QuerySender.class);
+
         ParameterTool parameterTool = (ParameterTool)
                 getRuntimeContext().getExecutionConfig().getGlobalJobParameters();
         jobControlClient = JobControlClient.get(parameterTool);
@@ -46,6 +65,7 @@ public class QuerySender extends RichSinkFunction<Query> {
     }
 
     @Override
+    @SuppressWarnings("unchecked")
     public void invoke(Query query) throws Exception {
         Set<Address> addresses = addressesCache.computeIfAbsent(query.getNameSpace(),
                 nameSpace -> {
@@ -62,18 +82,24 @@ public class QuerySender extends RichSinkFunction<Query> {
                 });
 
         // TODO send back to somewhere
-        StringBuilder log = new StringBuilder(">>> BEGIN QUERY: " + query + "\n");
-        for (Address address : addresses) {
-            // could raise NPE
-            ObjectClient queryServer = queryServers.getOrCreateClient(address);
+        try {
+            Map<String, Object> queryResult = new HashMap<>();
+            for (Address address : addresses) {
+                // could raise NPE
+                ObjectClient queryServer = queryServers.getOrCreateClient(address);
 
-            queryServer.send(query);
-            Object result = queryServer.receive();
-            log.append("\t").append(result).append("\n");
+                queryServer.send(query);
+                Map<String, Object> partialResult = (Map<String, Object>) queryServer.receive();
+                queryResult.putAll(partialResult);
+            }
+
+            onQueryResult.accept(queryResult);
+        } catch (IOException e) {
+            LOG.info("Query discarded because of IOException. Query: " + query
+                    + ", Exception message: " + e.getMessage() + ".");
         }
-        log.append("<<< END QUERY");
-        if (verbose) {
-            System.out.println(log);
-        }
+    }
+
+    public interface OnQueryResult extends Consumer<Map<String, Object>>, Serializable {
     }
 }

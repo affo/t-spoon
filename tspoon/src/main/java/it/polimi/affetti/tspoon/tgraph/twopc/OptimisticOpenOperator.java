@@ -120,7 +120,7 @@ public class OptimisticOpenOperator<T> extends OpenOperator<T> {
                     lastCommittedWatermark = timestamp;
                 }
 
-                if (watermark > lastCommittedWatermark) {
+                if (watermark >= lastCommittedWatermark) {
                     collector.safeCollect(watermarkTag, lastCommittedWatermark);
                 }
             case ABORT:

@@ -79,9 +79,18 @@ public class TransactionEnvironment {
     }
 
     public <T> OpenStream<T> open(DataStream<T> ds) {
+        return open(ds, null);
+    }
+
+    public <T> OpenStream<T> open(DataStream<T> ds, QuerySender.OnQueryResult onQueryResult) {
         OpenStream<T> openStream = factory.open(ds);
-        QuerySender querySender = new QuerySender();
-        querySender.setVerbose(false);
+        QuerySender querySender;
+        if (onQueryResult == null) {
+            querySender = new QuerySender();
+        } else {
+            querySender = new QuerySender(onQueryResult);
+        }
+
         openStream.watermarks.connect(queryStream).flatMap(new QueryProcessor()).name("QueryProcessor")
                 .addSink(querySender).name("QuerySender");
         return openStream;

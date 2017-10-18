@@ -140,7 +140,10 @@ public abstract class StateOperator<T, V>
     private Map<String, V> queryState(Iterable<String> keys, int timestamp) {
         Map<String, V> queryResult = new HashMap<>();
         for (String key : keys) {
-            queryResult.put(key, getObject(key).getLastVersionBefore(timestamp).object);
+            V object = getObject(key).getLastVersionBefore(timestamp).object;
+            if (object != null) {
+                queryResult.put(key, object);
+            }
         }
 
         return queryResult;
@@ -194,9 +197,7 @@ public abstract class StateOperator<T, V>
     @Override
     public Map<String, ?> onQuery(Query query) {
         query.accept(this);
-        Map<String, V> result = queryState(query.getKeys(), query.watermark);
-
-        return result;
+        return queryState(query.getKeys(), query.watermark);
     }
 
     // TODO checkpoint consistent snapshot
