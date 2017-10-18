@@ -8,13 +8,13 @@ import it.polimi.affetti.tspoon.runtime.JobControlServer;
 import it.polimi.affetti.tspoon.runtime.NetUtils;
 import it.polimi.affetti.tspoon.runtime.TimestampDeltaServer;
 import it.polimi.affetti.tspoon.tgraph.backed.Movement;
-import it.polimi.affetti.tspoon.tgraph.backed.TGraphOutput;
 import it.polimi.affetti.tspoon.tgraph.backed.Transfer;
 import it.polimi.affetti.tspoon.tgraph.backed.TransferSource;
 import it.polimi.affetti.tspoon.tgraph.db.ObjectHandler;
 import it.polimi.affetti.tspoon.tgraph.query.FrequencyQuerySupplier;
 import it.polimi.affetti.tspoon.tgraph.query.PredefinedQuerySupplier;
-import it.polimi.affetti.tspoon.tgraph.query.RandomQuery;
+import it.polimi.affetti.tspoon.tgraph.query.PredicateQuery;
+import it.polimi.affetti.tspoon.tgraph.query.QuerySender;
 import it.polimi.affetti.tspoon.tgraph.state.StateFunction;
 import it.polimi.affetti.tspoon.tgraph.state.StateStream;
 import it.polimi.affetti.tspoon.tgraph.state.Update;
@@ -37,26 +37,31 @@ import java.util.Map;
 public class TransferTestDrive {
     public static void main(String[] args) throws Exception {
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
-        env.setParallelism(1);
         env.setBufferTimeout(0);
         ParameterTool parameters = ParameterTool.fromArgs(args);
         JobControlServer jobControlServer = NetUtils.launchJobControlServer(parameters);
         TimestampDeltaServer timestampDeltaServer = NetUtils.launchTimestampDeltaServer(parameters);
         env.getConfig().setGlobalJobParameters(parameters);
 
+        final int baseParallelism = 4;
+        final int partitioning = 4;
         final double startAmount = 100d;
         final Strategy strategy = Strategy.OPTIMISTIC;
         final IsolationLevel isolationLevel = IsolationLevel.PL3;
         final boolean useDependencyTracking = true;
+
+        env.setParallelism(baseParallelism);
 
         TransactionEnvironment tEnv = TransactionEnvironment.get();
         tEnv.setStrategy(strategy);
         tEnv.setIsolationLevel(isolationLevel);
         tEnv.setUseDependencyTracking(useDependencyTracking);
 
-        final int numberOfElements = 10000;
-        TransferSource transferSource = new TransferSource(numberOfElements, 100, startAmount);
+        final int numberOfElements = 100000;
+        TransferSource transferSource = new TransferSource(numberOfElements, 100000, startAmount);
         DataStream<Transfer> transfers = env.addSource(transferSource).setParallelism(1);
+
+        //transfers.print();
 
         transfers = transfers.map(
                 new TimestampTracker<Transfer>("responseTime", true) {
@@ -66,12 +71,14 @@ public class TransferTestDrive {
                     }
                 });
 
-        OpenStream<Transfer> open = tEnv.open(transfers);
+        OpenStream<Transfer> open = tEnv.open(transfers, new ConsistencyCheck(startAmount));
 
         tEnv.setQuerySupplier(
                 new FrequencyQuerySupplier(
                         new PredefinedQuerySupplier(
-                                new RandomQuery("balances", 1)), 100));
+                                // select * from balances
+                                new PredicateQuery<Double>("balances", new SelectAll()) {
+                                }), 1));
 
         TStream<Movement> halves = open.opened.flatMap(
                 (FlatMapFunction<Transfer, Movement>) t -> Arrays.asList(t.getDeposit(), t.getWithdrawal()));
@@ -92,7 +99,7 @@ public class TransferTestDrive {
 
                     @Override
                     public boolean invariant(Double balance) {
-                        return balance > 0;
+                        return balance >= 0;
                     }
 
                     @Override
@@ -101,9 +108,9 @@ public class TransferTestDrive {
                         // r(x) w(x)
                         handler.write(handler.read() + element.f2);
                     }
-                }, 4);
+                }, partitioning);
 
-        balances.updates.print();
+        //balances.updates.print();
 
         DataStream<TransactionResult<Movement>> output = tEnv.close(balances.leftUnchanged).get(0);
         output.map(
@@ -115,16 +122,20 @@ public class TransferTestDrive {
                 })
                 .returns(new TypeHint<TransactionResult<Movement>>() {
                 });
-        balances.updates.addSink(new MaterializedViewChecker(startAmount)).setParallelism(1);
+        //balances.updates.addSink(new MaterializedViewChecker(startAmount, false)).setParallelism(1);
 
+        /*
         TGraphOutput<Movement, Double> tGraphOutput = new TGraphOutput<>(open.watermarks, balances.updates, output);
-        //ResultUtils.addAccumulator(tGraphOutput.watermarks, "watermarks");
-        //ResultUtils.addAccumulator(tGraphOutput.updates, "updates");
+        ResultUtils.addAccumulator(tGraphOutput.watermarks, "watermarks");
+        ResultUtils.addAccumulator(tGraphOutput.updates, "updates");
+        */
 
-        open.wal.print();
         open.wal
                 .filter(entry -> entry.f1 != Vote.REPLAY)
                 .addSink(new FinishOnCountSink<>(numberOfElements)).setParallelism(1);
+
+        //open.wal.print();
+        //open.watermarks.print();
 
         JobExecutionResult result = env.execute();
         jobControlServer.close();
@@ -149,32 +160,63 @@ public class TransferTestDrive {
      */
     private static class MaterializedViewChecker implements SinkFunction<Update<Double>> {
         private final double startAmount;
-        private Map<String, Double> balances = new HashMap<>();
-        private Map<Integer, Update<Double>> firsts = new HashMap<>();
+        private final Map<String, Double> balances = new HashMap<>();
+        private final Map<Integer, String> incomplete = new HashMap<>();
+        private final boolean verbose;
 
-        public MaterializedViewChecker(double startAmount) {
+        public MaterializedViewChecker(double startAmount, boolean verbose) {
             this.startAmount = startAmount;
-        }
-
-        private boolean nothingGetsCreatedNorDestroyed() {
-            return balances.values().stream().mapToDouble(d -> d).sum() == startAmount * balances.size();
+            this.verbose = verbose;
         }
 
         @Override
         public void invoke(Update<Double> update) throws Exception {
-            Update<Double> first = firsts.remove(update.f0);
-            if (first != null) {
-                balances.put(first.f2, first.f3);
-                balances.put(update.f2, update.f3);
+            balances.put(update.f1, update.f2);
 
-                if (!nothingGetsCreatedNorDestroyed()) {
-                    throw new RuntimeException("Invariant violated");
-                }
-
-                System.out.println("CHECK PASSED: " + startAmount * balances.size());
+            if (incomplete.containsKey(update.f0)) {
+                incomplete.remove(update.f0);
             } else {
-                firsts.put(update.f0, update);
+                incomplete.put(update.f0, update.f1);
             }
+
+            // check on consistent cut
+            double total = balances.entrySet().stream()
+                    .filter(e -> !incomplete.containsValue(e.getKey())).mapToDouble(Map.Entry::getValue).sum();
+            if (total % startAmount != 0) {
+                throw new RuntimeException(
+                        "Invariant violated on transaction " + update.f0 + ": " + total);
+            }
+
+            if (verbose) {
+                System.out.println("Check OK: " + total);
+            }
+        }
+    }
+
+    private static class ConsistencyCheck implements QuerySender.OnQueryResult {
+        private final double startAmount;
+
+        public ConsistencyCheck(double startAmount) {
+            this.startAmount = startAmount;
+        }
+
+        @Override
+        public void accept(Map<String, Object> queryResult) {
+            double totalAmount = queryResult.values().stream().mapToDouble(o -> (Double) o).sum();
+            if (totalAmount % startAmount != 0) {
+                throw new RuntimeException(
+                        "Invariant violated: " + totalAmount);
+            } else {
+                System.out.println("Invariant verified on " + queryResult.size() + " keys");
+            }
+        }
+    }
+
+    private static class SelectAll implements PredicateQuery.QueryPredicate<Double> {
+
+        @Override
+        public boolean test(Double aDouble) {
+            return true;
         }
     }
 }
