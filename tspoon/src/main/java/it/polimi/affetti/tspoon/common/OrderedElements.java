@@ -112,7 +112,7 @@ public class OrderedElements<E> implements Iterable<E>, Serializable {
         return operateOnContiguous(null, Long.MAX_VALUE, false);
     }
 
-    public synchronized List<E> removeContiguous(int threshold) {
+    public synchronized List<E> removeContiguous(long threshold) {
         return operateOnContiguous(null, threshold, true);
     }
 
@@ -124,7 +124,7 @@ public class OrderedElements<E> implements Iterable<E>, Serializable {
         return operateOnContiguous(timestamp, Long.MAX_VALUE, true);
     }
 
-    public synchronized List<E> removeContiguousWith(long timestamp, int threshold) {
+    public synchronized List<E> removeContiguousWith(long timestamp, long threshold) {
         return operateOnContiguous(timestamp, threshold, true);
     }
 

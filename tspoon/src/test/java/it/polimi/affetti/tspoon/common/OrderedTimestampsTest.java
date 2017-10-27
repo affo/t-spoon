@@ -69,4 +69,34 @@ public class OrderedTimestampsTest {
         assertEquals(Arrays.asList(50, 51, 52), timestamps.removeContiguousWith(49));
         assertTrue(timestamps.isEmpty());
     }
+
+    @Test
+    public void testNoRepetitions() {
+        assertEquals(0, timestamps.size());
+        timestamps.addInOrderWithoutRepetition(42);
+        assertEquals(1, timestamps.size());
+        timestamps.addInOrderWithoutRepetition(42);
+        assertEquals(1, timestamps.size());
+        timestamps.addInOrderWithoutRepetition(43);
+        assertEquals(2, timestamps.size());
+        timestamps.addInOrderWithoutRepetition(43);
+        assertEquals(2, timestamps.size());
+    }
+
+    @Test
+    public void testNoRepetitionsBig() {
+        assertEquals(0, timestamps.size());
+
+        for (int i = 0; i < 1000; i++) {
+            timestamps.addInOrderWithoutRepetition(i);
+        }
+
+        assertEquals(1000, timestamps.size());
+
+        for (int i = 0; i < 1000; i++) {
+            timestamps.addInOrderWithoutRepetition(i);
+        }
+
+        assertEquals(1000, timestamps.size());
+    }
 }
