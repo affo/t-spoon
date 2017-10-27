@@ -120,8 +120,6 @@ public abstract class StateOperator<T, V>
                 });
         transaction.addObject(key, object);
 
-        // perform version cleanup
-        versionCleanup(object, metadata.watermark);
         execute(transaction, key, object, metadata, element);
     }
 
@@ -299,6 +297,8 @@ public abstract class StateOperator<T, V>
                 updates = getUpdates();
                 for (Object<V> object : touchedObjects.values()) {
                     object.commitVersion(version);
+                    // perform version cleanup
+                    versionCleanup(object, version);
                 }
             } else {
                 updates = Stream.empty();
