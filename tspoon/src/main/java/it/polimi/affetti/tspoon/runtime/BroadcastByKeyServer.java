@@ -21,7 +21,6 @@ public abstract class BroadcastByKeyServer extends AbstractServer {
         for (StringClientHandler handler : clients) {
             handler.send(msg);
         }
-
     }
 
     @Override
