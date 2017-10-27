@@ -53,8 +53,6 @@ public class StrictnessEnforcer extends RichFlatMapFunction<Metadata, Metadata> 
             Integer forwardDependencyCause = toReplay.remove(metadata.tid);
             replaying.add(metadata.tid);
 
-            // cut out forward dependencies for proper use in OpenOperator
-            metadata.dependencyTracking.removeIf(tid -> tid >= metadata.tid);
             // add the forward dependency cause
             metadata.dependencyTracking.add(forwardDependencyCause);
 
@@ -89,7 +87,9 @@ public class StrictnessEnforcer extends RichFlatMapFunction<Metadata, Metadata> 
                 replaying.add(metadata.tid);
             }
 
-            for (Integer aboveWatermark : metadata.dependencyTracking) {
+            Iterator<Integer> iterator = metadata.dependencyTracking.iterator();
+            while (iterator.hasNext()) {
+                Integer aboveWatermark = iterator.next();
                 if (aboveWatermark > metadata.tid) {
                     // this means that the current transaction could see the version
                     // of a later transaction (real transaction execution does not respect timestamps) --- or,
@@ -99,6 +99,9 @@ public class StrictnessEnforcer extends RichFlatMapFunction<Metadata, Metadata> 
 
                     // update consistently metadata's vote if present
                     metas.computeIfPresent(aboveWatermark, (tid, meta) -> moveToReplaying(meta));
+
+                    // cut out forward dependencies for proper use in OpenOperator
+                    iterator.remove();
                 }
             }
 
