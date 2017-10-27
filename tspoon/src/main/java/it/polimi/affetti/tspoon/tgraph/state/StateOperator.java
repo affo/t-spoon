@@ -236,11 +236,11 @@ public abstract class StateOperator<T, V>
                     // wait for the ACK
                     coordinator.receive();
                     collector.collectInOrder(updatesTag, updates, tContext.localId);
+                    onTermination(tContext.tid, tContext.vote);
                 } catch (IOException e) {
-                    LOG.error("Error on updates collection: " + e.getMessage());
+                    LOG.error("StateOperator - transaction (" + tContext.tid + ", " + tContext.vote +
+                            ") - error on receiving ACK from coordinator: " + e.getMessage());
                 }
-
-                onTermination(tContext.tid, tContext.vote);
             });
         } catch (IOException e) {
             throw new RuntimeException("Cannot create connection to coordinator " + tContext.coordinator);
