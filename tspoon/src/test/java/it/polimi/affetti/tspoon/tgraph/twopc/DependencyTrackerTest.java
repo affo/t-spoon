@@ -61,7 +61,6 @@ public class DependencyTrackerTest {
         assertEquals(Collections.singletonList(m4), actual);
         assertEquals(Vote.REPLAY, actual.get(0).vote); // 2 saw it, now it needs replay!
 
-
         Metadata m3 = new Metadata(3);
         dependencyTracker.addMetadata(m3);
         assertEquals(Collections.singletonList(m3), dependencyTracker.next()); // contiguous with 2, but still waiting for 4
@@ -70,5 +69,7 @@ public class DependencyTrackerTest {
         m4.vote = Vote.COMMIT;
         dependencyTracker.addMetadata(m4); // 4 has been replayed
         assertEquals(Arrays.asList(m4, m5), dependencyTracker.next()); // OK
+
+        assertEquals(Collections.emptyList(), dependencyTracker.next()); // empty...
     }
 }
