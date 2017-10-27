@@ -32,7 +32,6 @@ public abstract class OpenOperator<T>
     };
     protected int count;
     private transient WithServer server;
-    private transient BroadcastByKeyServer broadcastServer;
     protected transient InOrderSideCollector<T, Tuple2<Long, Vote>> collector;
     private final Map<Integer, Integer> counters = new HashMap<>();
     protected Address myAddress;
@@ -52,8 +51,7 @@ public abstract class OpenOperator<T>
         super.open();
         collector = new InOrderSideCollector<>(output);
 
-        broadcastServer = new OpenServer();
-        server = new WithServer(broadcastServer);
+        server = new WithServer(new OpenServer());
         server.open();
         myAddress = server.getMyAddress();
 
@@ -80,7 +78,7 @@ public abstract class OpenOperator<T>
         collector.safeCollect(sr.replace(out));
     }
 
-    private synchronized void handleStateAck(int timestamp, int batchSize, Vote vote, int replayCause, String updates) {
+    private synchronized boolean handleStateAck(int timestamp, int batchSize, Vote vote, int replayCause, String updates) {
         int count;
         counters.putIfAbsent(timestamp, batchSize);
         count = counters.get(timestamp);
@@ -99,10 +97,12 @@ public abstract class OpenOperator<T>
                 throw new RuntimeException("Cannot persist to WAL");
             }
 
-            broadcastServer.broadcastByKey(String.valueOf(timestamp), "");
             closeTransaction(timestamp);
             logTransaction(timestamp, vote);
+            return true;
         }
+
+        return false;
     }
 
     protected abstract void openTransaction(Enriched<T> element);
@@ -128,7 +128,10 @@ public abstract class OpenOperator<T>
             // TODO JSON serialized
             String updates = String.join(",", Arrays.copyOfRange(tokens, 4, tokens.length));
 
-            handleStateAck(timestamp, batchSize, vote, replayCause, updates);
+            boolean closed = handleStateAck(timestamp, batchSize, vote, replayCause, updates);
+            if (closed) {
+                broadcastByKey(key, "");
+            }
         }
 
         @Override
