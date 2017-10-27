@@ -26,14 +26,10 @@ public class QuerySender extends RichSinkFunction<Query> {
     private Map<String, Set<Address>> addressesCache = new HashMap<>();
     private final OnQueryResult onQueryResult;
 
-    private boolean verbose = true;
+    private static boolean verbose = true;
 
     public QuerySender() {
-        onQueryResult = queryResult -> {
-            if (verbose) {
-                System.out.println(queryResult.toString());
-            }
-        };
+        onQueryResult = new PrintQueryResult();
     }
 
     public QuerySender(OnQueryResult onQueryResult) {
@@ -101,5 +97,15 @@ public class QuerySender extends RichSinkFunction<Query> {
     }
 
     public interface OnQueryResult extends Consumer<Map<String, Object>>, Serializable {
+    }
+
+    public static class PrintQueryResult implements OnQueryResult {
+
+        @Override
+        public void accept(Map<String, Object> queryResult) {
+            if (verbose) {
+                System.out.println(queryResult.toString());
+            }
+        }
     }
 }
