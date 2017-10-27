@@ -2,3 +2,6 @@
 *.iml
 *.jar
 target
+
+results/*
+launchrc

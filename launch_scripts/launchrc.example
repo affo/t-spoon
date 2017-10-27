@@ -1,0 +1,21 @@
+#!/bin/bash
+export FLINK_HOME=/opt/flink-1.1.4
+export TARGET_JAR=../tspoon/target/tspoon-research-artifact.jar
+export PACKAGE_BASE=it.polimi.affetti.tspoon
+
+# Class for the evaluation.
+# Used in launch_all.sh, appended to PACKAGE_BASE.
+export EVAL_CLASS=evaluation.Evaluation
+
+# Base Directory for results
+export RESULTS_DIR=./results
+
+# If set to true only outputs commands
+export DEBUG=false
+
+# Local defaults
+# If running locally, then use default options for every job
+export LOCAL=false
+export NREC=50000
+export SLED=0
+

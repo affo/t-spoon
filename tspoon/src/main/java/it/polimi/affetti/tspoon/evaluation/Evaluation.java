@@ -36,7 +36,7 @@ public class Evaluation {
         final int par = parameters.getInt("par", 4);
         final int partitioning = parameters.getInt("partitioning", 4);
         final int keySpaceSize = parameters.getInt("ks", 100000);
-        final String outputFile = parameters.getRequired("output");
+        final String outputWithoutExtension = parameters.getRequired("output");
         final int noTGraphs = parameters.getInt("noTG");
         final int noStates = parameters.getInt("noStates");
         final boolean seriesOrParallel = parameters.getBoolean("series");
@@ -181,12 +181,12 @@ public class Evaluation {
             printWriter.print(executionPlan);
         } else {
             // >>>>> Gathering Results
-            JobExecutionResult result = env.execute();
+            JobExecutionResult result = env.execute("Evaluation - " + outputWithoutExtension);
             // close servers
             jobControlServer.close();
             timestampDeltaServer.close();
 
-            Report report = new Report(outputFile);
+            Report report = new Report(outputWithoutExtension);
             report.addAccumulators(result);
             report.addField("parameters", parameters.toMap());
             report.addFields(timestampDeltaServer.getMetrics());

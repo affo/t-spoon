@@ -20,8 +20,12 @@ public class Report {
     private Map<String, Object> fields = new HashMap<>();
     private static List<String> accumulatorNames = new LinkedList<>();
 
-    public Report(String fileName) {
-        this.fileName = fileName;
+    /**
+     * Without extension.
+     * .json will be added automatically
+     */
+    public Report(String fileNameWithoutExtension) {
+        this.fileName = fileNameWithoutExtension + ".json";
     }
 
     public void addField(String key, Object field) {
