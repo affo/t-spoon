@@ -14,8 +14,10 @@ import org.apache.flink.api.common.JobExecutionResult;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.streaming.api.TimeCharacteristic;
 import org.apache.flink.streaming.api.datastream.DataStream;
+import org.apache.flink.streaming.api.datastream.SplitStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 
+import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -49,6 +51,8 @@ public class Evaluation {
         final boolean durable = parameters.getBoolean("durable", true);
         final int isolationLevelNumber = parameters.getInt("isolationLevel", 3);
 
+        final boolean printPlan = parameters.getBoolean("printPlan", false);
+
 
         assert noStates > 0;
         assert noTGraphs > 0;
@@ -71,8 +75,15 @@ public class Evaluation {
         System.out.println(parameters.toMap());
         System.out.println("<<<\n");
 
-        JobControlServer jobControlServer = NetUtils.launchJobControlServer(parameters);
-        TimestampDeltaServer timestampDeltaServer = NetUtils.launchTimestampDeltaServer(parameters);
+        JobControlServer jobControlServer = null;
+        TimestampDeltaServer timestampDeltaServer = null;
+
+        // do not launch servers in case of printing the plan
+        if (!printPlan) {
+            jobControlServer = NetUtils.launchJobControlServer(parameters);
+            timestampDeltaServer = NetUtils.launchTimestampDeltaServer(parameters);
+        }
+
         env.getConfig().setGlobalJobParameters(parameters);
         env.setParallelism(par);
 
@@ -122,8 +133,9 @@ public class Evaluation {
         transfers.filter(new SkipFirstN<>(sledLen)).setParallelism(1)
                 .map(new LatencyTracker(true)).setParallelism(1);
         // in case of parallel tgraphs, split the original stream for load balancing
+        SplitStream<Transfer> splitTransfers = null;
         if (!seriesOrParallel) {
-            transfers = transfers.split(
+            splitTransfers = transfers.split(
                     t -> Collections.singletonList(String.valueOf(t.f0 % noTGraphs)));
         }
 
@@ -134,6 +146,10 @@ public class Evaluation {
         List<DataStream<Transfer>> outputs = new ArrayList<>(noTGraphs);
         int i = 0;
         do {
+            if (!seriesOrParallel) {
+                // select the portion of the source stream relevant to this state
+                transfers = splitTransfers.select(String.valueOf(i));
+            }
             DataStream<Transfer> out = EvaluationGraphComposer
                     .generateTGraph(transfers, noStates, partitioning, seriesOrParallel);
             outputs.add(out);
@@ -158,16 +174,23 @@ public class Evaluation {
                 .map(new LatencyTracker(false)).setParallelism(1) // end tracker
                 .map(new ElapsedTimeCalculator<>(batchSize)).setParallelism(1);
 
-        // >>>>> Gathering Results
-        JobExecutionResult result = env.execute();
-        // close servers
-        jobControlServer.close();
-        timestampDeltaServer.close();
+        if (printPlan) {
+            PrintWriter printWriter = new PrintWriter("plan.json");
+            String executionPlan = env.getExecutionPlan();
+            System.out.println(executionPlan);
+            printWriter.print(executionPlan);
+        } else {
+            // >>>>> Gathering Results
+            JobExecutionResult result = env.execute();
+            // close servers
+            jobControlServer.close();
+            timestampDeltaServer.close();
 
-        Report report = new Report(outputFile);
-        report.addAccumulators(result);
-        report.addField("parameters", parameters.toMap());
-        report.addFields(timestampDeltaServer.getMetrics());
-        report.writeToFile();
+            Report report = new Report(outputFile);
+            report.addAccumulators(result);
+            report.addField("parameters", parameters.toMap());
+            report.addFields(timestampDeltaServer.getMetrics());
+            report.writeToFile();
+        }
     }
 }
