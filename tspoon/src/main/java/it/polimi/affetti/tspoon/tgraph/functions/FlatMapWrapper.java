@@ -4,7 +4,6 @@ import it.polimi.affetti.tspoon.tgraph.Enriched;
 import org.apache.flink.api.common.functions.FlatMapFunction;
 import org.apache.flink.util.Collector;
 
-import java.util.Collections;
 import java.util.List;
 
 /**
@@ -19,8 +18,7 @@ public abstract class FlatMapWrapper<I, O> implements FlatMapFunction<Enriched<I
             return;
         }
 
-        // TODO the buffer size can decrease!
-        e.metadata.multiplyBatchSize(outputList.size());
+        e.metadata.setBatchSize(outputList.size());
         for (O outElement : outputList) {
             collector.collect(e.replace(outElement));
         }
