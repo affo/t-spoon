@@ -36,7 +36,7 @@ public class Object<T> implements Serializable {
             }
         }
 
-        throw new IllegalArgumentException("Version not found: " + timestamp);
+        throw new IllegalArgumentException("Version " + timestamp + " not found for Object " + this);
     }
 
     public synchronized ObjectVersion<T> getLastVersionBefore(int timestamp) {
