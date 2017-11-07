@@ -110,6 +110,13 @@ public abstract class StateOperator<T, V>
 
         T element = sr.getValue().value;
         Metadata metadata = sr.getValue().metadata;
+
+        // do not even process aborted or replayed stuff!
+        if (metadata.vote != Vote.COMMIT) {
+            collector.safeCollect(Enriched.of(metadata, element));
+            return;
+        }
+
         metadata.addCohort(srv.getMyAddress());
 
         Object<V> object = getObject(key);
