@@ -1,9 +1,11 @@
 package it.polimi.affetti.tspoon.tgraph;
 
 import it.polimi.affetti.tspoon.common.FlatMapFunction;
+import it.polimi.affetti.tspoon.common.TWindowFunction;
 import it.polimi.affetti.tspoon.tgraph.functions.FilterWrapper;
 import it.polimi.affetti.tspoon.tgraph.functions.FlatMapWrapper;
 import it.polimi.affetti.tspoon.tgraph.functions.MapWrapper;
+import it.polimi.affetti.tspoon.tgraph.functions.WindowWrapper;
 import it.polimi.affetti.tspoon.tgraph.state.*;
 import it.polimi.affetti.tspoon.tgraph.twopc.OpenStream;
 import it.polimi.affetti.tspoon.tgraph.twopc.OptimisticOpenOperator;
@@ -66,6 +68,23 @@ public class OTStream<T> implements TStream<T> {
                     }
                 }
         ));
+    }
+
+    @Override
+    public <U> TStream<U> window(TWindowFunction<T, U> windowFunction) {
+        DataStream<Enriched<U>> windowed = ds.keyBy(
+                new KeySelector<Enriched<T>, Integer>() {
+                    @Override
+                    public Integer getKey(Enriched<T> enriched) throws Exception {
+                        return enriched.metadata.timestamp;
+                    }
+                }).flatMap(new WindowWrapper<T, U>() {
+            @Override
+            protected U apply(List<T> value) throws Exception {
+                return windowFunction.apply(value);
+            }
+        });
+        return new OTStream<>(windowed);
     }
 
     public OTStream<T> filter(FilterFunction<T> filterFunction) {
