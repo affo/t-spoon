@@ -44,8 +44,8 @@ public class Metadata implements Serializable {
         return cohorts.iterator();
     }
 
-    public void multiplyBatchSize(int factor) {
-        batchSize *= factor;
+    public void setBatchSize(int batchSize) {
+        this.batchSize = batchSize;
     }
 
     public boolean isCollectable() {
