@@ -1,6 +1,7 @@
 package it.polimi.affetti.tspoon.evaluation;
 
 import it.polimi.affetti.tspoon.common.FinishOnCountSink;
+import it.polimi.affetti.tspoon.common.TWindowFunction;
 import it.polimi.affetti.tspoon.tgraph.TStream;
 import it.polimi.affetti.tspoon.tgraph.TransactionEnvironment;
 import it.polimi.affetti.tspoon.tgraph.TransactionResult;
@@ -20,7 +21,10 @@ import org.apache.flink.util.Collector;
 import org.apache.flink.util.OutputTag;
 
 import java.io.Serializable;
-import java.util.*;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -113,7 +117,7 @@ public class EvaluationGraphComposer {
     }
 
     public static TStream<Transfer> toSource(TStream<Movement> movements) {
-        return movements.keyBy(m -> m.f0).flatMap(new IntraTGraphMerger());
+        return movements.window(new IntraTGraphMerger());
     }
 
     public static DataStream<Transfer> toSource(DataStream<TransactionResult<Movement>> movements) {
@@ -151,15 +155,17 @@ public class EvaluationGraphComposer {
         }
     }
 
-    private static class IntraTGraphMerger implements it.polimi.affetti.tspoon.common.FlatMapFunction<Movement, Transfer> {
+    private static class IntraTGraphMerger implements TWindowFunction<Movement, Transfer> {
         private TransferMerger merger = new TransferMerger();
 
         @Override
-        public List<Transfer> flatMap(Movement movement) throws Exception {
-            Transfer transfer = merger.getTransfer(movement);
-            return transfer == null ?
-                    Collections.emptyList() :
-                    Collections.singletonList(transfer);
+        public Transfer apply(List<Movement> batch) {
+            Transfer result = null;
+
+            for (Movement movement : batch) {
+                result = merger.getTransfer(movement);
+            }
+            return result;
         }
     }
 
