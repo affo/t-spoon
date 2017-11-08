@@ -101,7 +101,7 @@ public abstract class StateOperator<T, V>
     }
 
     protected synchronized Object<V> getObject(String key) {
-        return state.computeIfAbsent(key, k -> new Object<>());
+        return state.computeIfAbsent(key, k -> new Object<>(stateFunction.defaultValue()));
     }
 
     @Override

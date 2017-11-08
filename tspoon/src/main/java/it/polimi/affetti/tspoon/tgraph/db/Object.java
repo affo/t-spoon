@@ -13,16 +13,21 @@ import java.util.ListIterator;
  * Thread-safe
  */
 public class Object<T> implements Serializable {
+    private final T defaultValue;
     private OrderedElements<ObjectVersion<T>> versions;
     private ObjectVersion<T> lastVersion = initObject();
     private ObjectVersion<T> lastCommittedVersion = initObject();
 
-    public Object() {
+    /**
+     * @param defaultValue could be null
+     */
+    public Object(T defaultValue) {
+        this.defaultValue = defaultValue;
         this.versions = new OrderedElements<>(obj -> (long) obj.version);
     }
 
     private ObjectVersion<T> initObject() {
-        return ObjectVersion.of(0, null);
+        return ObjectVersion.of(0, defaultValue);
     }
 
     public synchronized int getVersionCount() {
