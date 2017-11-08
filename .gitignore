@@ -3,5 +3,5 @@
 *.jar
 target
 
-results/*
+launch_scripts/results/**/*.json
 launchrc
