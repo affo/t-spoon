@@ -13,9 +13,12 @@ export RESULTS_DIR=./results
 # If set to true only outputs commands
 export DEBUG=false
 
-# Local defaults
-# If running locally, then use default options for every job
-export LOCAL=false
-export NREC=50000
-export SLED=0
+# Isolation level and concurrency control strategy
+export ISOLATION=3
+export IS_OPTIMISTIC=true
+
+# Defaults
+# parameters appended as default options for every job
+# (could be empty)
+export DEFAULT="--nRec 100000 --sled 20000"
 

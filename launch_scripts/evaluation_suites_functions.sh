@@ -98,10 +98,10 @@ function launch_keyspace {
 # - 4500 updates/s and variable querying frequency (10, 100, 1000, 3000, 5000)
 #   measure PUT and GET latency
 function launch_query {
-    launch --queryOn true --transfersOn false --queryPerc 0.1 --ks 50 \
-        --output $RESULTS_DIR/query_throughput --noTG 1 --noStates 1 --series true
+    #launch --queryOn true --transfersOn false --queryPerc 0.1 --ks 50 \
+    #    --output $RESULTS_DIR/query_throughput --noTG 1 --noStates 1 --series true
 
-    sleep 2
+    #sleep 2
 
     launch_suite_query 0.1 10,100,1000,3000,5000 \
         $RESULTS_DIR/query --noTG 1 --noStates 1 --ks 50 --inputRate 4500 --series true

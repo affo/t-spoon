@@ -26,11 +26,7 @@ function launch {
         return 1
     fi
 
-    cmd="$FLINK_BIN run -c "$PACKAGE_BASE.$1" $TARGET_JAR ${@:2}"
-
-    if [[ $LOCAL ]]; then
-        cmd="$cmd --nRec $NREC --sled $SLED"
-    fi
+    cmd="$FLINK_BIN run -c "$PACKAGE_BASE.$1" $TARGET_JAR ${@:2} --isolationLevel $ISOLATION --optOrNot $IS_OPTIMISTIC $DEFAULT"
 
     echo $cmd
     if [[ $DEBUG != true ]]; then
