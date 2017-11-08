@@ -4,24 +4,26 @@ import it.polimi.affetti.tspoon.metrics.MetricAccumulator;
 import it.polimi.affetti.tspoon.metrics.Report;
 import org.apache.flink.api.common.accumulators.IntCounter;
 import org.apache.flink.api.common.functions.RichMapFunction;
-import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.configuration.Configuration;
 
 /**
  * Created by affo on 07/06/17.
  */
-public class ElapsedTimeCalculator<T> extends RichMapFunction<T, T> {
+public class ThroughputCalculator<T> extends RichMapFunction<T, T> {
     public static final String ELAPSED_TIME_ACC = "elapsed-time";
+    public static final String THROUGHPUT_ACC = "throughput";
     public static final String COUNTER_ACC = "number-of-elements-at-sink";
-    private int batchSize;
+    private final int batchSize;
 
     private Long lastTS;
     private IntCounter count = new IntCounter();
     private MetricAccumulator elapsedTime = new MetricAccumulator();
+    private MetricAccumulator throughput = new MetricAccumulator();
 
-    public ElapsedTimeCalculator(int batchSize) {
+    public ThroughputCalculator(int batchSize) {
         this.batchSize = batchSize;
         Report.registerAccumulator(ELAPSED_TIME_ACC);
+        Report.registerAccumulator(THROUGHPUT_ACC);
         Report.registerAccumulator(COUNTER_ACC);
     }
 
@@ -29,6 +31,7 @@ public class ElapsedTimeCalculator<T> extends RichMapFunction<T, T> {
     public void open(Configuration parameters) throws Exception {
         super.open(parameters);
         getRuntimeContext().addAccumulator(ELAPSED_TIME_ACC, elapsedTime);
+        getRuntimeContext().addAccumulator(THROUGHPUT_ACC, throughput);
         getRuntimeContext().addAccumulator(COUNTER_ACC, count);
     }
 
@@ -50,8 +53,9 @@ public class ElapsedTimeCalculator<T> extends RichMapFunction<T, T> {
 
         if (c % batchSize == 0) {
             long now = System.currentTimeMillis();
-            Tuple2<Integer, Long> out = Tuple2.of(c, now - lastTS);
-            elapsedTime.add(Double.valueOf(out.f1));
+            double elapsedTime = (double) (now - lastTS);
+            this.elapsedTime.add(elapsedTime);
+            this.throughput.add(batchSize / (elapsedTime / 1000));
             lastTS = now;
         }
         return element;
