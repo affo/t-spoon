@@ -17,6 +17,12 @@ public class TimestampDeltaServer extends ProcessRequestServer {
         return metrics;
     }
 
+    public void clearMetrics() {
+        beginTimestamps = new HashMap<>();
+        endTimestamps = new HashMap<>();
+        metrics = new HashMap<>();
+    }
+
     @Override
     protected synchronized void parseRequest(String request) {
         // something like >latency.1
