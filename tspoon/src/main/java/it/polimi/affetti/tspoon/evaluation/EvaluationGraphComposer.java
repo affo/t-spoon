@@ -1,6 +1,5 @@
 package it.polimi.affetti.tspoon.evaluation;
 
-import it.polimi.affetti.tspoon.common.FinishOnCountSink;
 import it.polimi.affetti.tspoon.common.TWindowFunction;
 import it.polimi.affetti.tspoon.tgraph.TStream;
 import it.polimi.affetti.tspoon.tgraph.TransactionEnvironment;
@@ -16,6 +15,7 @@ import it.polimi.affetti.tspoon.tgraph.twopc.OpenStream;
 import org.apache.flink.api.common.functions.FlatMapFunction;
 import org.apache.flink.api.common.typeinfo.TypeHint;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
+import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.util.Collector;
 import org.apache.flink.util.OutputTag;
@@ -33,11 +33,13 @@ import java.util.stream.Collectors;
 public class EvaluationGraphComposer {
     private static int stateCount = 0;
     public static double startAmount = 100d;
-    public static int numberOfElements;
 
-    public static DataStream<Transfer> generateTGraph(
+    public static TGraph generateTGraph(
             DataStream<Transfer> transfers, int noStates, int partitioning, boolean seriesOrParallel) {
-        TStream<Transfer> open = openTGraph(transfers);
+        TGraph result = new TGraph();
+        OpenStream<Transfer> openStream = openTGraph(transfers);
+        result.wal = openStream.wal;
+        TStream<Transfer> open = openStream.opened;
         TStream<Movement> source = toMovements(open);
 
         int i = 0;
@@ -63,20 +65,12 @@ public class EvaluationGraphComposer {
             }
         }
 
-        return out;
+        result.out = out;
+        return result;
     }
 
-    public static TStream<Transfer> openTGraph(DataStream<Transfer> transfers) {
-        OpenStream<Transfer> open = TransactionEnvironment.get().open(transfers);
-        open.wal
-                .filter(entry -> entry.f1 != Vote.REPLAY)
-                .addSink(new FinishOnCountSink<>(numberOfElements)).setParallelism(1).name("FinishOnCount");
-
-        if (TransactionEnvironment.get().isVerbose()) {
-            open.wal.print();
-        }
-
-        return open.opened;
+    public static OpenStream<Transfer> openTGraph(DataStream<Transfer> transfers) {
+        return TransactionEnvironment.get().open(transfers);
     }
 
     public static TStream<Movement> toMovements(TStream<Transfer> transfers) {
@@ -132,6 +126,19 @@ public class EvaluationGraphComposer {
 
     public static DataStream<TransactionResult<Movement>> closeGraph(TStream<Movement> movements) {
         return TransactionEnvironment.get().close(movements).get(0);
+    }
+
+    public static class TGraph {
+        private DataStream<Tuple2<Long, Vote>> wal;
+        private DataStream<Transfer> out;
+
+        public DataStream<Transfer> getOut() {
+            return out;
+        }
+
+        public DataStream<Tuple2<Long, Vote>> getWal() {
+            return wal;
+        }
     }
 
     /**

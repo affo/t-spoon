@@ -1,5 +1,6 @@
 package it.polimi.affetti.tspoon.evaluation;
 
+import it.polimi.affetti.tspoon.common.FinishOnCountSink;
 import it.polimi.affetti.tspoon.metrics.Report;
 import it.polimi.affetti.tspoon.runtime.JobControlServer;
 import it.polimi.affetti.tspoon.runtime.NetUtils;
@@ -7,10 +8,12 @@ import it.polimi.affetti.tspoon.runtime.TimestampDeltaServer;
 import it.polimi.affetti.tspoon.tgraph.IsolationLevel;
 import it.polimi.affetti.tspoon.tgraph.Strategy;
 import it.polimi.affetti.tspoon.tgraph.TransactionEnvironment;
+import it.polimi.affetti.tspoon.tgraph.Vote;
 import it.polimi.affetti.tspoon.tgraph.backed.Transfer;
 import it.polimi.affetti.tspoon.tgraph.backed.TransferSource;
 import it.polimi.affetti.tspoon.tgraph.query.*;
 import org.apache.flink.api.common.JobExecutionResult;
+import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.streaming.api.TimeCharacteristic;
 import org.apache.flink.streaming.api.datastream.DataStream;
@@ -141,18 +144,19 @@ public class Evaluation {
 
         // >>> Composing
         EvaluationGraphComposer.startAmount = startAmount;
-        EvaluationGraphComposer.numberOfElements = numRecords + sledLen;
+        int numberOfElements = numRecords + sledLen;
 
-        List<DataStream<Transfer>> outputs = new ArrayList<>(noTGraphs);
+        List<EvaluationGraphComposer.TGraph> tGraphs = new ArrayList<>(noTGraphs);
         int i = 0;
         do {
             if (!seriesOrParallel) {
                 // select the portion of the source stream relevant to this state
                 transfers = splitTransfers.select(String.valueOf(i));
             }
-            DataStream<Transfer> out = EvaluationGraphComposer
+            EvaluationGraphComposer.TGraph tGraph = EvaluationGraphComposer
                     .generateTGraph(transfers, noStates, partitioning, seriesOrParallel);
-            outputs.add(out);
+            tGraphs.add(tGraph);
+            DataStream<Transfer> out = tGraph.getOut();
             if (seriesOrParallel) {
                 transfers = out;
             }
@@ -160,12 +164,18 @@ public class Evaluation {
         } while (i < noTGraphs);
 
         DataStream<Transfer> out;
+        DataStream<Tuple2<Long, Vote>> wal;
         if (seriesOrParallel) {
-            out = outputs.get(noTGraphs - 1);
+            EvaluationGraphComposer.TGraph lastTGraph = tGraphs.get(noTGraphs - 1);
+            out = lastTGraph.getOut();
+            wal = lastTGraph.getWal();
         } else {
-            out = outputs.get(0);
-            for (DataStream<Transfer> o : outputs.subList(1, noTGraphs)) {
-                out = out.union(o);
+            EvaluationGraphComposer.TGraph firstTGraph = tGraphs.get(0);
+            out = firstTGraph.getOut();
+            wal = firstTGraph.getWal();
+            for (EvaluationGraphComposer.TGraph tg : tGraphs.subList(1, noTGraphs)) {
+                out = out.union(tg.getOut());
+                wal = wal.union(tg.getWal());
             }
         }
 
@@ -173,6 +183,16 @@ public class Evaluation {
         out.filter(new SkipFirstN<>(sledLen)).setParallelism(1)
                 .map(new LatencyTracker(false)).setParallelism(1) // end tracker
                 .map(new ElapsedTimeCalculator<>(batchSize)).setParallelism(1);
+
+        // >>> Add FinishOnCount
+        wal
+                .filter(entry -> entry.f1 != Vote.REPLAY)
+                .addSink(new FinishOnCountSink<>(numberOfElements))
+                .setParallelism(1).name("FinishOnCount");
+
+        if (TransactionEnvironment.get().isVerbose()) {
+            wal.print();
+        }
 
         if (printPlan) {
             PrintWriter printWriter = new PrintWriter("plan.json");
