@@ -39,6 +39,11 @@ public class TransactionEnvironment {
         return instance;
     }
 
+    // only to run 2 jobs
+    public synchronized static void clear() {
+        instance = null;
+    }
+
     public void setVerbose(boolean verbose) {
         this.verbose = verbose;
     }
@@ -83,6 +88,9 @@ public class TransactionEnvironment {
     }
 
     public <T> OpenStream<T> open(DataStream<T> ds, QuerySender.OnQueryResult onQueryResult) {
+        // TODO every tGraph should receive queries only for the states it is responsible for!
+        // In this implementation every tGraph receives every query...
+        // NOTE: for the Evaluation it is ok, because we only query on a single tGraph (on a single state)
         OpenStream<T> openStream = factory.open(ds);
         QuerySender querySender;
         if (onQueryResult == null) {
@@ -91,7 +99,13 @@ public class TransactionEnvironment {
             querySender = new QuerySender(onQueryResult);
         }
 
+
         openStream.watermarks.connect(queryStream).flatMap(new QueryProcessor()).name("QueryProcessor")
+                // TODO it should be:
+                //      processed = queryStream.flatMap(new QueryProcessor()).select(... byStateName ...)
+                // outside of this function, in TransactionEnvironment.get()
+                // and later:
+                //      processed.select(... the stateNames of this tGraph ...).connect(watermarks).addSink(querySender)
                 .addSink(querySender).name("QuerySender");
         return openStream;
     }
