@@ -31,6 +31,7 @@ import java.util.stream.Collectors;
  * Created by affo on 04/08/17.
  */
 public class EvaluationGraphComposer {
+    public static final String STATE_BASE_NAME = "state";
     private static int stateCount = 0;
     public static double startAmount = 100d;
 
@@ -78,7 +79,7 @@ public class EvaluationGraphComposer {
     }
 
     public static TStream<Movement> addState(TStream<Movement> movements, int partitioning) {
-        String nameSpace = "state" + stateCount;
+        String nameSpace = STATE_BASE_NAME + stateCount;
         stateCount++;
         StateStream<Movement, Double> balances = movements.state(
                 nameSpace, new OutputTag<Update<Double>>(nameSpace) {
