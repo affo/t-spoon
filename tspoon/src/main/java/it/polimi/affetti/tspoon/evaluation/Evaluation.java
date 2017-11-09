@@ -57,6 +57,7 @@ public class Evaluation {
         final boolean useDependencyTracking = parameters.getBoolean("dependencyTracking", true);
         // TODO implement switchable durability
         final boolean durable = parameters.getBoolean("durable", true);
+        final boolean noLatency = parameters.getBoolean("noLatency", false);
         final int isolationLevelNumber = parameters.getInt("isolationLevel", 3);
 
         final boolean printPlan = parameters.getBoolean("printPlan", false);
@@ -227,7 +228,7 @@ public class Evaluation {
 
         // This means you have to launch a latency test,
         // because the first one hadn't been made for that purpose!
-        if (waitPeriodMicro < 0) {
+        if (waitPeriodMicro < 0 && !noLatency) {
             // >>>>> Launching a latency job
             Metric throughputMetric = result.getAccumulatorResult(ThroughputCalculator.THROUGHPUT_ACC);
             double meanThroughput = throughputMetric.toMap().get("mean");

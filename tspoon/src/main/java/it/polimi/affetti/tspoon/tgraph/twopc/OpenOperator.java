@@ -16,9 +16,10 @@ import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
 import org.apache.flink.util.OutputTag;
 
 import java.io.IOException;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
+
+import static it.polimi.affetti.tspoon.tgraph.twopc.TransactionsIndex.LocalTransactionContext;
 
 /**
  * Created by affo on 14/07/17.
@@ -30,26 +31,31 @@ public abstract class OpenOperator<T>
     };
     public final OutputTag<Tuple2<Long, Vote>> logTag = new OutputTag<Tuple2<Long, Vote>>("wal") {
     };
-    protected int count;
+
     private transient WithServer server;
     protected transient InOrderSideCollector<T, Tuple2<Long, Vote>> collector;
     private final Map<Integer, Integer> counters = new HashMap<>();
     protected Address myAddress;
 
+    protected final TransactionsIndex transactionsIndex;
+    private transient WAL wal;
+
     // stats
     protected Map<Vote, IntCounter> stats = new HashMap<>();
 
-    public OpenOperator() {
+    public OpenOperator(TransactionsIndex transactionsIndex) {
         for (Vote vote : Vote.values()) {
             stats.put(vote, new IntCounter());
             Report.registerAccumulator(vote.toString().toLowerCase() + "-counter");
         }
+
+        this.transactionsIndex = transactionsIndex;
     }
 
     @Override
     public void open() throws Exception {
         super.open();
-        collector = new InOrderSideCollector<>(output);
+        collector = new InOrderSideCollector<>(output, logTag);
 
         server = new WithServer(new OpenServer());
         server.open();
@@ -60,77 +66,101 @@ public abstract class OpenOperator<T>
             Vote vote = s.getKey();
             getRuntimeContext().addAccumulator(vote.toString().toLowerCase() + "-counter", s.getValue());
         }
+
+        // TODO send to kafka
+        // up to now, we only introduce overhead by writing to disk
+        wal = new DummyWAL("wal.log");
+        wal.open();
     }
 
     @Override
     public void close() throws Exception {
         super.close();
         server.close();
+        wal.close();
     }
 
     @Override
     public synchronized void processElement(StreamRecord<T> sr) throws Exception {
-        count++;
-        Metadata metadata = new Metadata(count);
-        metadata.coordinator = myAddress;
-        Enriched<T> out = Enriched.of(metadata, sr.getValue());
-        openTransaction(out);
-        collector.safeCollect(sr.replace(out));
+        LocalTransactionContext tContext = transactionsIndex.newTransaction();
+        Metadata metadata = getMetadataFromContext(tContext);
+        onOpenTransaction(sr.getValue(), metadata);
+        collector.safeCollect(sr.replace(Enriched.of(metadata, sr.getValue())));
     }
 
-    private synchronized boolean handleStateAck(int timestamp, int batchSize, Vote vote, int replayCause, String updates) {
+    protected Metadata getMetadataFromContext(LocalTransactionContext tContext) {
+        Metadata metadata = new Metadata(tContext.tid);
+        metadata.timestamp = tContext.timestamp;
+        metadata.coordinator = myAddress;
+        metadata.watermark = transactionsIndex.getCurrentWatermark();
+        return metadata;
+    }
+
+    protected abstract void onOpenTransaction(T recordValue, Metadata metadata);
+
+    private synchronized boolean handleStateAck(CloseTransactionNotification notification) {
+        int timestamp = notification.timestamp;
+        int batchSize = notification.batchSize;
+        int replayCause = notification.replayCause;
+        Vote vote = notification.vote;
+        String updates = notification.updates;
+
         int count;
         counters.putIfAbsent(timestamp, batchSize);
         count = counters.get(timestamp);
         count--;
         counters.put(timestamp, count);
 
-        onAck(timestamp, vote, replayCause, updates);
+        LocalTransactionContext localTransactionContext = transactionsIndex.getTransactionByTimestamp(timestamp);
+        localTransactionContext.replayCause = replayCause;
+        localTransactionContext.mergeUpdates(updates);
+        localTransactionContext.vote = vote;
 
         if (count == 0) {
             counters.remove(timestamp);
 
             try {
-                writeToWAL(timestamp);
+                writeToWAL(localTransactionContext);
             } catch (IOException e) {
                 // make it crash, we cannot avoid persisting the WAL
                 throw new RuntimeException("Cannot persist to WAL");
             }
 
-            closeTransaction(timestamp);
-            logTransaction(timestamp, vote);
+            closeTransaction(localTransactionContext);
+            long ts = (long) timestamp;
+            collector.collectInOrder(Tuple2.of(ts, vote), ts);
             return true;
         }
 
         return false;
     }
 
-    protected abstract void openTransaction(Enriched<T> element);
+    // durability
+    protected void writeToWAL(LocalTransactionContext tContext) throws IOException {
+        int timestamp = tContext.timestamp;
+        switch (tContext.vote) {
+            case REPLAY:
+                wal.replay(timestamp);
+                break;
+            case ABORT:
+                wal.abort(timestamp);
+                break;
+            default:
+                wal.commit(timestamp, tContext.updates);
+        }
+    }
 
-    protected abstract void onAck(int timestamp, Vote vote, int replayCause, String updates);
-
-    protected abstract void writeToWAL(int timestamp) throws IOException;
-
-    protected abstract void closeTransaction(int timestamp);
-
-    protected abstract void logTransaction(long timestamp, Vote vote);
+    protected abstract void closeTransaction(LocalTransactionContext transactionContext);
 
     private class OpenServer extends BroadcastByKeyServer {
         @Override
         protected void parseRequest(String key, String request) {
             // LOG.info(request);
-
-            String[] tokens = request.split(",");
-            int timestamp = Integer.parseInt(key);
-            Vote vote = Vote.values()[Integer.parseInt(tokens[1])];
-            int batchSize = Integer.parseInt(tokens[2]);
-            int replayCause = Integer.parseInt(tokens[3]);
-            // TODO JSON serialized
-            String updates = String.join(",", Arrays.copyOfRange(tokens, 4, tokens.length));
-
-            boolean closed = handleStateAck(timestamp, batchSize, vote, replayCause, updates);
+            CloseTransactionNotification notification = CloseTransactionNotification.deserialize(request);
+            boolean closed = handleStateAck(notification);
             if (closed) {
                 broadcastByKey(key, "");
+                collector.flushOrdered(transactionsIndex.getCurrentWatermark());
             }
         }
 

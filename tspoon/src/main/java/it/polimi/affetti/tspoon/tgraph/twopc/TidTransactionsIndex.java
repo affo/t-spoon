@@ -1,30 +1,19 @@
 package it.polimi.affetti.tspoon.tgraph.twopc;
 
 import it.polimi.affetti.tspoon.tgraph.Vote;
-import org.apache.flink.api.java.tuple.Tuple2;
-
-import java.util.Collections;
-import java.util.Set;
 
 /**
  * Created by affo on 04/08/17.
  */
 public class TidTransactionsIndex extends TransactionsIndex {
     @Override
-    public void updateWatermark(int tid, int timestamp, Vote vote) {
+    public int updateWatermark(int timestamp, Vote vote) {
         if (vote != Vote.REPLAY) {
-            timestamps.addInOrder(tid);
+            return super.updateWatermark(timestamp, vote);
         }
-    }
 
-    @Override
-    public Set<Integer> getTimestamps(int tid) {
-        return Collections.singleton(tid);
-    }
-
-    @Override
-    public Integer newTimestamps(int tid) {
-        return tid;
+        // no update
+        return getCurrentWatermark();
     }
 
     @Override
@@ -33,21 +22,12 @@ public class TidTransactionsIndex extends TransactionsIndex {
     }
 
     @Override
-    public void addTransaction(int tid, int timestamp) {
-        // does nothing
-    }
-
-    @Override
-    public void deleteTransaction(int tid) {
-        // does nothing
-    }
-
-    @Override
-    public Tuple2<Long, Vote> getLogEntryFor(long timestamp, Vote vote) {
-        if (vote == Vote.REPLAY) {
-            return null;
-        }
-
-        return Tuple2.of(timestamp, vote);
+    // total override, no super()
+    public LocalTransactionContext newTransaction(int tid) {
+        LocalTransactionContext localTransactionContext = new LocalTransactionContext();
+        localTransactionContext.tid = tid;
+        localTransactionContext.timestamp = tid; // same tid <-> ts
+        executions.put(tid, localTransactionContext);
+        return localTransactionContext;
     }
 }

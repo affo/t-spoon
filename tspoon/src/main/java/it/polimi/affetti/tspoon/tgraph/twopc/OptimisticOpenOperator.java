@@ -1,10 +1,12 @@
 package it.polimi.affetti.tspoon.tgraph.twopc;
 
-import it.polimi.affetti.tspoon.tgraph.*;
-import org.apache.flink.api.java.tuple.Tuple2;
+import it.polimi.affetti.tspoon.tgraph.Enriched;
+import it.polimi.affetti.tspoon.tgraph.Metadata;
+import it.polimi.affetti.tspoon.tgraph.Vote;
 
-import java.io.IOException;
 import java.util.*;
+
+import static it.polimi.affetti.tspoon.tgraph.twopc.TransactionsIndex.LocalTransactionContext;
 
 /**
  * Created by affo on 14/07/17.
@@ -12,77 +14,40 @@ import java.util.*;
  * Synchronization is offered by the OpenOperator class.
  */
 public class OptimisticOpenOperator<T> extends OpenOperator<T> {
-    private int watermark = 0;
     private int lastCommittedWatermark = 0;
     // NOTE: everything is indexed by transaction id (tid)
     private Map<Integer, T> elements = new HashMap<>();
     // set of tids depends on tid (tid -> [tids, ...])
     private Map<Integer, Set<Integer>> dependencies = new HashMap<>();
+    // timestamp -> current watermark
+    private Map<Integer, Integer> playedWithWatermark = new HashMap<>();
     private Set<Integer> laterReplay = new HashSet<>();
 
-    private Map<Integer, LocalTransactionContext> executions = new HashMap<>();
-
-    private transient TransactionsIndex transactionsIndex;
-    private transient WAL wal;
-
-    @Override
-    public void open() throws Exception {
-        super.open();
-        if (TransactionEnvironment.isolationLevel == IsolationLevel.PL4) {
-            transactionsIndex = new TidTransactionsIndex();
-        } else {
-            transactionsIndex = new StandardTransactionsIndex();
-        }
-
-        // TODO send to kafka
-        // up to now, we only introduce overhead by writing to disk
-        wal = new DummyWAL("wal.log");
-        wal.open();
+    public OptimisticOpenOperator(TransactionsIndex transactionsIndex) {
+        super(transactionsIndex);
     }
 
-    @Override
-    public void close() throws Exception {
-        super.close();
-        wal.close();
-    }
-
+    // replay
     private void collect(int tid) {
-        Metadata metadata = new Metadata(tid);
-        metadata.coordinator = myAddress;
-        Enriched<T> out = Enriched.of(metadata, elements.get(tid));
-        openTransaction(out);
-        collector.safeCollect(out);
+        T value = elements.get(tid);
+        TransactionsIndex.LocalTransactionContext tContext = transactionsIndex.newTransaction(tid);
+        Metadata metadata = getMetadataFromContext(tContext);
+        onOpenTransaction(value, metadata);
+        collector.safeCollect(Enriched.of(metadata, value));
     }
 
+    // called by OpenOperator#processElement
+    // and by collect
     @Override
-    protected void openTransaction(Enriched<T> element) {
-        Metadata metadata = element.metadata;
-
-        metadata.coordinator = myAddress;
-        metadata.watermark = watermark;
-        metadata.timestamp = transactionsIndex.newTimestamps(metadata.tid);
-
-        LocalTransactionContext localContext = new LocalTransactionContext();
-        localContext.timestamp = metadata.timestamp;
-        localContext.playedWithWatermark = watermark;
-
-        elements.put(metadata.tid, element.value);
-        executions.put(metadata.tid, localContext);
-        transactionsIndex.addTransaction(metadata.tid, metadata.timestamp);
-    }
-
-    @Override
-    protected void onAck(int timestamp, Vote vote, int replayCause, String updates) {
-        int tid = transactionsIndex.getTransactionId(timestamp);
-        LocalTransactionContext execution = executions.get(tid);
-        execution.replayCause = replayCause;
-        execution.mergeUpdates(updates);
-        execution.vote = vote;
+    protected void onOpenTransaction(T recordValue, Metadata metadata) {
+        playedWithWatermark.put(metadata.tid, metadata.watermark);
+        elements.put(metadata.tid, recordValue);
     }
 
     private void replayElement(Integer tid) {
         // do not replay with the same watermark...
-        if (executions.get(tid).playedWithWatermark < watermark) {
+        int playedWithWatermark = this.playedWithWatermark.remove(tid);
+        if (playedWithWatermark < transactionsIndex.getCurrentWatermark()) {
             collect(tid);
         } else {
             laterReplay.add(tid);
@@ -93,21 +58,20 @@ public class OptimisticOpenOperator<T> extends OpenOperator<T> {
         dependencies.computeIfAbsent(tid, k -> new HashSet<>()).add(dependsOn);
     }
 
-    @Override
     // thread-safe
-    protected void closeTransaction(int timestamp) {
-        int tid = transactionsIndex.getTransactionId(timestamp);
-        LocalTransactionContext execution = executions.get(tid);
+    @Override
+    protected void closeTransaction(LocalTransactionContext transactionContext) {
+        int tid = transactionContext.tid;
+        int timestamp = transactionContext.timestamp;
+        Vote vote = transactionContext.vote;
+        int replayCause = transactionContext.replayCause;
 
-        Vote vote = execution.vote;
         updateStats(vote);
-        Integer dependency = transactionsIndex.getTransactionId(execution.replayCause);
+        Integer dependency = transactionsIndex.getTransactionId(replayCause);
 
-        transactionsIndex.updateWatermark(tid, timestamp, vote);
-        int oldWM = watermark;
-        Integer lastCompleted = transactionsIndex.getLastCompleted();
-        watermark = lastCompleted != null ? lastCompleted : watermark;
-        boolean wmUpdate = watermark > oldWM;
+        int oldWM = transactionsIndex.getCurrentWatermark();
+        int newWM = transactionsIndex.updateWatermark(timestamp, vote);
+        boolean wmUpdate = newWM > oldWM;
 
         if (wmUpdate) {
             laterReplay.forEach(this::collect);
@@ -120,7 +84,7 @@ public class OptimisticOpenOperator<T> extends OpenOperator<T> {
                     lastCommittedWatermark = timestamp;
                 }
 
-                if (watermark >= lastCommittedWatermark) {
+                if (newWM >= lastCommittedWatermark) {
                     collector.safeCollect(watermarkTag, lastCommittedWatermark);
                 }
             case ABORT:
@@ -138,14 +102,6 @@ public class OptimisticOpenOperator<T> extends OpenOperator<T> {
         }
     }
 
-    @Override
-    protected void logTransaction(long timestamp, Vote vote) {
-        Tuple2<Long, Vote> logEntry = transactionsIndex.getLogEntryFor(timestamp, vote);
-        if (logEntry != null) {
-            collector.collectInOrder(logTag, logEntry, timestamp);
-        }
-    }
-
     private void updateStats(Vote vote) {
         stats.get(vote).add(1);
     }
@@ -153,7 +109,6 @@ public class OptimisticOpenOperator<T> extends OpenOperator<T> {
     private void onTermination(int tid) {
         // cleanup
         elements.remove(tid);
-        executions.remove(tid);
         transactionsIndex.deleteTransaction(tid);
 
         Set<Integer> deps = dependencies.remove(tid);
@@ -167,34 +122,6 @@ public class OptimisticOpenOperator<T> extends OpenOperator<T> {
 
             // replay only the first one
             replayElement(depList.get(0));
-        }
-    }
-
-    private class LocalTransactionContext {
-        public int timestamp;
-        public int playedWithWatermark;
-        public Vote vote;
-        public int replayCause;
-        public String updates = "";
-
-        public void mergeUpdates(String updates) {
-            this.updates += updates;
-        }
-    }
-
-    // durability
-    @Override
-    protected void writeToWAL(int timestamp) throws IOException {
-        int tid = transactionsIndex.getTransactionId(timestamp);
-        switch (executions.get(tid).vote) {
-            case REPLAY:
-                wal.replay(timestamp);
-                break;
-            case ABORT:
-                wal.abort(timestamp);
-                break;
-            default:
-                wal.commit(timestamp, executions.get(tid).updates);
         }
     }
 }

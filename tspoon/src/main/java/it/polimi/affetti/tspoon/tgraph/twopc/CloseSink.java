@@ -36,8 +36,12 @@ public class CloseSink extends RichSinkFunction<Metadata> {
             dependency = Collections.max(metadata.dependencyTracking);
         }
 
-        String message = metadata.timestamp + "," + metadata.vote.ordinal() + ","
-                + metadata.cohorts.size() + "," + dependency;
+        String message = CloseTransactionNotification.serialize(
+                metadata.timestamp,
+                metadata.vote,
+                metadata.cohorts.size(),
+                dependency, ""
+        );
 
         for (Address cohort : metadata.cohorts) {
             clients.getOrCreateClient(cohort).send(message);

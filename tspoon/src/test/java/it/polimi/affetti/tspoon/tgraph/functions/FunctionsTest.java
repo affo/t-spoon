@@ -7,6 +7,7 @@ import it.polimi.affetti.tspoon.tgraph.OTStream;
 import it.polimi.affetti.tspoon.tgraph.TStream;
 import it.polimi.affetti.tspoon.tgraph.backed.Graph;
 import it.polimi.affetti.tspoon.tgraph.backed.GraphOutput;
+import it.polimi.affetti.tspoon.tgraph.twopc.StandardTransactionsIndex;
 import org.apache.flink.api.common.JobExecutionResult;
 import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.streaming.api.datastream.DataStream;
@@ -33,7 +34,7 @@ public class FunctionsTest {
                 env.setParallelism(1);
 
                 DataStream<Integer> ds = env.addSource(new CollectionSource<>(elements)).returns(Integer.class);
-                TStream<Integer> ts = OTStream.fromStream(ds).opened;
+                TStream<Integer> ts = OTStream.fromStream(ds, new StandardTransactionsIndex()).opened;
                 DataStream<Enriched<Integer>> out = ts.map((MapFunction<Integer, Integer>) i -> i * 2).getEnclosingStream();
                 return new GraphOutput<>(out);
             }
@@ -63,7 +64,7 @@ public class FunctionsTest {
                 env.setParallelism(1);
 
                 DataStream<Integer> ds = env.addSource(new CollectionSource<>(elements)).returns(Integer.class);
-                TStream<Integer> ts = OTStream.fromStream(ds).opened;
+                TStream<Integer> ts = OTStream.fromStream(ds, new StandardTransactionsIndex()).opened;
                 DataStream<Enriched<Integer>> out = ts.flatMap(
                         e -> IntStream.range(0, e).boxed().collect(Collectors.toList())
                 ).getEnclosingStream();
@@ -100,7 +101,7 @@ public class FunctionsTest {
                 env.setParallelism(1);
 
                 DataStream<Integer> ds = env.addSource(new CollectionSource<>(elements)).returns(Integer.class);
-                TStream<Integer> ts = OTStream.fromStream(ds).opened;
+                TStream<Integer> ts = OTStream.fromStream(ds, new StandardTransactionsIndex()).opened;
                 DataStream<Enriched<Integer>> out = ts.filter(e -> e % 2 == 0).getEnclosingStream();
                 return new GraphOutput<>(out);
             }

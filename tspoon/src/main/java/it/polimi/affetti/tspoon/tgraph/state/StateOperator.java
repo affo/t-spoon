@@ -83,7 +83,7 @@ public abstract class StateOperator<T, V>
         }
 
         clientsCache = new StringClientsCache();
-        collector = new InOrderSideCollector<>(output);
+        collector = new InOrderSideCollector<>(output, updatesTag);
 
         pool = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
     }
@@ -240,7 +240,8 @@ public abstract class StateOperator<T, V>
                 try {
                     // wait for the ACK
                     coordinator.receive();
-                    collector.collectInOrder(updatesTag, updates, tContext.localId);
+                    collector.collectInOrder(updates, tContext.localId);
+                    collector.flushOrdered(tContext.localId);
                     onTermination(tContext.tid, tContext.vote);
                 } catch (IOException e) {
                     LOG.error("StateOperator - transaction (" + tContext.tid + ", " + tContext.vote +

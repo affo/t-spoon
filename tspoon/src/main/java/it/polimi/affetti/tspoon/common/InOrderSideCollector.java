@@ -7,41 +7,53 @@ import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
 import org.apache.flink.util.OutputTag;
 
 import java.util.Collections;
-import java.util.List;
+import java.util.ListIterator;
 
 /**
  * Created by affo on 17/08/17.
  */
 public class InOrderSideCollector<T, X> extends SafeCollector<T> {
-    private long lastRemoved = 0L;
     private final OrderedElements<Tuple2<Long, Iterable<X>>> elements;
+    private final OutputTag<X> tag;
 
-    public InOrderSideCollector(Output<StreamRecord<Enriched<T>>> out) {
+    public InOrderSideCollector(Output<StreamRecord<Enriched<T>>> out, OutputTag<X> tag) {
         super(out);
+        this.tag = tag;
         this.elements = new OrderedElements<>(t -> t.f0);
     }
 
     // need to synchronize to send in order
-    public synchronized void collectInOrder(OutputTag<X> tag, X element, Long timestamp) {
-        this.collectInOrder(tag, Collections.singleton(element), timestamp);
+    public synchronized void collectInOrder(X element, Long timestamp) {
+        this.collectInOrder(Collections.singleton(element), timestamp);
     }
 
     /**
      * For batches.
      *
-     * @param tag
      * @param element
      * @param timestamp
      */
-    public synchronized void collectInOrder(OutputTag<X> tag, Iterable<X> element, Long timestamp) {
+    public synchronized void collectInOrder(Iterable<X> element, Long timestamp) {
         elements.addInOrder(Tuple2.of(timestamp, element));
-        List<Tuple2<Long, Iterable<X>>> toCollect = elements.removeContiguousWith(lastRemoved);
+    }
 
-        for (Tuple2<Long, Iterable<X>> t : toCollect) {
-            for (X e : t.f1) {
+    /**
+     * @param timestampThreshold inclusive threshold
+     */
+    public synchronized void flushOrdered(long timestampThreshold) {
+        ListIterator<Tuple2<Long, Iterable<X>>> iterator = elements.iterator();
+
+        while (iterator.hasNext()) {
+            Tuple2<Long, Iterable<X>> next = iterator.next();
+
+            if (next.f0 > timestampThreshold) {
+                break;
+            }
+
+            iterator.remove();
+            for (X e : next.f1) {
                 safeCollect(tag, e);
             }
-            lastRemoved = t.f0;
         }
     }
 

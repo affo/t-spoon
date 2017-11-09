@@ -9,6 +9,7 @@ import it.polimi.affetti.tspoon.tgraph.functions.WindowWrapper;
 import it.polimi.affetti.tspoon.tgraph.state.*;
 import it.polimi.affetti.tspoon.tgraph.twopc.OpenStream;
 import it.polimi.affetti.tspoon.tgraph.twopc.OptimisticOpenOperator;
+import it.polimi.affetti.tspoon.tgraph.twopc.TransactionsIndex;
 import org.apache.flink.api.common.functions.FilterFunction;
 import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
@@ -30,7 +31,7 @@ public class OTStream<T> implements TStream<T> {
         this.ds = ds;
     }
 
-    public static <T> OpenStream<T> fromStream(DataStream<T> ds) {
+    public static <T> OpenStream<T> fromStream(DataStream<T> ds, TransactionsIndex transactionsIndex) {
         // TODO hack: fix lifting type
         TypeInformation<Enriched<T>> type = ds
                 .map(new MapFunction<T, Enriched<T>>() {
@@ -39,7 +40,7 @@ public class OTStream<T> implements TStream<T> {
                         return null;
                     }
                 }).getType();
-        OptimisticOpenOperator<T> openOperator = new OptimisticOpenOperator<>();
+        OptimisticOpenOperator<T> openOperator = new OptimisticOpenOperator<>(transactionsIndex);
         SingleOutputStreamOperator<Enriched<T>> enriched = ds
                 .transform("open", type, openOperator)
                 .name("OpenTransaction")

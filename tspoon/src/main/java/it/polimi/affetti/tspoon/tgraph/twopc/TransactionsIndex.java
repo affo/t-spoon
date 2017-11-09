@@ -4,41 +4,82 @@ import it.polimi.affetti.tspoon.common.OrderedTimestamps;
 import it.polimi.affetti.tspoon.tgraph.Vote;
 import org.apache.flink.api.java.tuple.Tuple2;
 
+import java.io.Serializable;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
-import java.util.Set;
+import java.util.Map;
 
 /**
  * Created by affo on 04/08/17.
  */
-public abstract class TransactionsIndex {
+public abstract class TransactionsIndex implements Serializable {
+    private int uniqueID = 0;
+    // I need a timestamp because a transaction can possibly be executed
+    // more than once. However, I need to keep it separate from the transaction ID
+    // (i.e. not overwrite it), because I want to track the dependencies among
+    // transactions. I use the timestamp to check on the state operators if a
+    // transaction has to be replayed or not; on the other hand, I use the transaction ID
+    // to track the dependencies among transactions (a dependency is specified only if the
+    // conflicting transaction has a timestamp greater than the last version saved).
+    private int currentTimestamp = 0;
+    private int watermark = 0;
     protected final OrderedTimestamps timestamps = new OrderedTimestamps();
-    protected int lastRemoved = 0;
+    // tid -> tContext
+    protected Map<Integer, LocalTransactionContext> executions = new HashMap<>();
 
-    public abstract void updateWatermark(int tid, int timestamp, Vote vote);
+    public int getCurrentWatermark() {
+        return watermark;
+    }
 
-    public abstract Set<Integer> getTimestamps(int tid);
+    public int updateWatermark(int timestamp, Vote vote) {
+        timestamps.addInOrder(timestamp);
+        List<Integer> removed = timestamps.removeContiguousWith(watermark);
 
-    public abstract Integer newTimestamps(int tid);
-
-    public abstract Integer getTransactionId(int timestamp);
-
-    public abstract void addTransaction(int tid, int timestamp);
-
-    public abstract void deleteTransaction(int tid);
-
-    public abstract Tuple2<Long, Vote> getLogEntryFor(long timestamp, Vote vote);
-
-    Integer getLastCompleted() {
-        List<Integer> removed = timestamps.removeContiguousWith(lastRemoved);
-
-        if (removed.isEmpty()) {
-            return null;
+        if (!removed.isEmpty()) {
+            watermark = Collections.max(removed);
         }
 
-        int result = Collections.max(removed);
+        return watermark;
+    }
 
-        lastRemoved = result;
-        return result;
+    public LocalTransactionContext getTransaction(int tid) {
+        return executions.get(tid);
+    }
+
+    public LocalTransactionContext getTransactionByTimestamp(int timestamp) {
+        return getTransaction(getTransactionId(timestamp));
+    }
+
+    protected abstract Integer getTransactionId(int timestamp);
+
+    public LocalTransactionContext newTransaction() {
+        uniqueID++;
+        return this.newTransaction(uniqueID);
+    }
+
+    public LocalTransactionContext newTransaction(int tid) {
+        currentTimestamp++;
+        LocalTransactionContext localTransactionContext = new LocalTransactionContext();
+        localTransactionContext.tid = tid;
+        localTransactionContext.timestamp = currentTimestamp;
+        executions.put(tid, localTransactionContext);
+        return localTransactionContext;
+    }
+
+    public void deleteTransaction(int tid) {
+        executions.remove(tid);
+    }
+
+    public static class LocalTransactionContext {
+        public int tid;
+        public int timestamp;
+        public Vote vote;
+        public int replayCause;
+        public String updates = "";
+
+        public void mergeUpdates(String updates) {
+            this.updates += updates;
+        }
     }
 }
