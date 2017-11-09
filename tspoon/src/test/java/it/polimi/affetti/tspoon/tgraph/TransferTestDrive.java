@@ -144,7 +144,7 @@ public class TransferTestDrive {
         //System.out.println(getWatermarks(result));
         //System.out.println(getUpdates(result));
 
-        Report report = new Report("report.json");
+        Report report = new Report("report");
         report.addAccumulators(result);
         report.addField("parameters", parameters.toMap());
         report.addFields(timestampDeltaServer.getMetrics());
