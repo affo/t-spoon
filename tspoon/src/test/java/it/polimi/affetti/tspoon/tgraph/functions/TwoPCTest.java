@@ -5,9 +5,7 @@ import it.polimi.affetti.tspoon.test.ResultUtils;
 import it.polimi.affetti.tspoon.tgraph.*;
 import it.polimi.affetti.tspoon.tgraph.backed.Graph;
 import it.polimi.affetti.tspoon.tgraph.backed.GraphOutput;
-import it.polimi.affetti.tspoon.tgraph.twopc.BufferFunction;
-import it.polimi.affetti.tspoon.tgraph.twopc.ReduceVotesFunction;
-import it.polimi.affetti.tspoon.tgraph.twopc.StandardTransactionsIndex;
+import it.polimi.affetti.tspoon.tgraph.twopc.*;
 import org.apache.flink.api.common.JobExecutionResult;
 import org.apache.flink.api.common.functions.FlatMapFunction;
 import org.apache.flink.api.java.functions.KeySelector;
@@ -90,7 +88,7 @@ public class TwoPCTest {
                 env.setParallelism(1);
 
                 DataStream<Integer> ds = env.addSource(new CollectionSource<>(elements)).returns(Integer.class);
-                TStream<Integer> ts = OTStream.fromStream(ds, new StandardTransactionsIndex()).opened;
+                TStream<Integer> ts = OTStream.fromStream(ds, new OptimisticTwoPCFactory()).opened;
                 DataStream<Enriched<Integer>> enriched = ts.flatMap(
                         e -> IntStream.range(0, e).boxed().collect(Collectors.toList())
                 ).getEnclosingStream();

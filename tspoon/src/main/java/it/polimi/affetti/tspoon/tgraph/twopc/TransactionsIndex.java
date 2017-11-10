@@ -2,7 +2,6 @@ package it.polimi.affetti.tspoon.tgraph.twopc;
 
 import it.polimi.affetti.tspoon.common.OrderedTimestamps;
 import it.polimi.affetti.tspoon.tgraph.Vote;
-import org.apache.flink.api.java.tuple.Tuple2;
 
 import java.io.Serializable;
 import java.util.Collections;
@@ -76,10 +75,5 @@ public abstract class TransactionsIndex implements Serializable {
         public int timestamp;
         public Vote vote;
         public int replayCause;
-        public String updates = "";
-
-        public void mergeUpdates(String updates) {
-            this.updates += updates;
-        }
     }
 }

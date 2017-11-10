@@ -55,7 +55,6 @@ public class Evaluation {
         final boolean transfersOn = parameters.getBoolean("transfersOn", true);
         final boolean optimisticOrPessimistic = parameters.getBoolean("optOrNot", true);
         final boolean useDependencyTracking = parameters.getBoolean("dependencyTracking", true);
-        // TODO implement switchable durability
         final boolean durable = parameters.getBoolean("durable", true);
         final boolean noLatency = parameters.getBoolean("noLatency", false);
         final int isolationLevelNumber = parameters.getInt("isolationLevel", 3);
@@ -105,6 +104,7 @@ public class Evaluation {
             tEnv.setStrategy(strategy);
             tEnv.setIsolationLevel(isolationLevel);
             tEnv.setUseDependencyTracking(useDependencyTracking);
+            tEnv.setDurable(durable);
             tEnv.setVerbose(false);
 
             // >>> Source

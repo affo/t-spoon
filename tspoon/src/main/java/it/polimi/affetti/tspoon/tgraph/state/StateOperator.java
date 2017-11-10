@@ -3,12 +3,16 @@ package it.polimi.affetti.tspoon.tgraph.state;
 import it.polimi.affetti.tspoon.common.Address;
 import it.polimi.affetti.tspoon.common.InOrderSideCollector;
 import it.polimi.affetti.tspoon.common.RandomProvider;
-import it.polimi.affetti.tspoon.runtime.*;
+import it.polimi.affetti.tspoon.runtime.JobControlClient;
+import it.polimi.affetti.tspoon.runtime.ProcessRequestServer;
+import it.polimi.affetti.tspoon.runtime.WithServer;
 import it.polimi.affetti.tspoon.tgraph.Enriched;
 import it.polimi.affetti.tspoon.tgraph.Metadata;
 import it.polimi.affetti.tspoon.tgraph.Vote;
 import it.polimi.affetti.tspoon.tgraph.db.Object;
 import it.polimi.affetti.tspoon.tgraph.query.*;
+import it.polimi.affetti.tspoon.tgraph.twopc.CloseTransactionNotification;
+import it.polimi.affetti.tspoon.tgraph.twopc.StateOperatorTransactionCloser;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.runtime.state.StateInitializationContext;
 import org.apache.flink.runtime.state.StateSnapshotContext;
@@ -17,11 +21,8 @@ import org.apache.flink.streaming.api.operators.OneInputStreamOperator;
 import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
 import org.apache.flink.util.OutputTag;
 
-import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
@@ -43,7 +44,6 @@ public abstract class StateOperator<T, V>
     protected StateFunction<T, V> stateFunction;
     // transaction contexts: timestamp -> context
     private Map<Integer, TransactionContext> transactions;
-    private transient StringClientsCache clientsCache;
 
     protected transient InOrderSideCollector<T, Update<V>> collector;
 
@@ -51,15 +51,20 @@ public abstract class StateOperator<T, V>
 
     private transient WithServer srv;
     private transient WithServer queryServer;
-    private transient ExecutorService pool;
+    private final StateOperatorTransactionCloser transactionCloser;
 
     // randomizer to build queries
     private Random random = RandomProvider.get();
 
-    public StateOperator(String nameSpace, StateFunction<T, V> stateFunction, OutputTag<Update<V>> updatesTag) {
+    public StateOperator(
+            String nameSpace,
+            StateFunction<T, V> stateFunction,
+            OutputTag<Update<V>> updatesTag,
+            StateOperatorTransactionCloser transactionCloser) {
         this.nameSpace = nameSpace;
         this.stateFunction = stateFunction;
         this.updatesTag = updatesTag;
+        this.transactionCloser = transactionCloser;
         this.state = new ConcurrentHashMap<>();
         this.transactions = new ConcurrentHashMap<>();
     }
@@ -82,10 +87,9 @@ public abstract class StateOperator<T, V>
             jobControlClient.registerQueryServer(nameSpace, queryServer.getMyAddress());
         }
 
-        clientsCache = new StringClientsCache();
         collector = new InOrderSideCollector<>(output, updatesTag);
 
-        pool = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+        transactionCloser.open();
     }
 
     @Override
@@ -93,11 +97,10 @@ public abstract class StateOperator<T, V>
         super.close();
         srv.close();
         queryServer.close();
-        clientsCache.clear();
+        transactionCloser.close();
         if (jobControlClient != null) {
             jobControlClient.close();
         }
-        pool.shutdown();
     }
 
     protected synchronized Object<V> getObject(String key) {
@@ -228,56 +231,40 @@ public abstract class StateOperator<T, V>
         super.initializeState(context);
     }
 
-
-    private void onTransactionClose(TransactionContext tContext, String request) {
-        try {
-            StringClient coordinator = clientsCache.getOrCreateClient(tContext.coordinator);
-
-            List<Update<V>> updates = tContext.applyChangesAndGatherUpdates();
-            coordinator.send(request + "," + updates);
-
-            pool.submit(() -> {
-                try {
-                    // wait for the ACK
-                    coordinator.receive();
-                    collector.collectInOrder(updates, tContext.localId);
-                    collector.flushOrdered(tContext.localId);
-                    onTermination(tContext.tid, tContext.vote);
-                } catch (IOException e) {
-                    LOG.error("StateOperator - transaction (" + tContext.tid + ", " + tContext.vote +
-                            ") - error on receiving ACK from coordinator: " + e.getMessage());
-                }
-            });
-        } catch (IOException e) {
-            throw new RuntimeException("Cannot create connection to coordinator " + tContext.coordinator);
-        }
-    }
-
     private class TransactionCloseServer extends ProcessRequestServer {
         @Override
         protected void parseRequest(String request) {
             // LOG.info(srv.getMyAddress() + " " + request);
+            CloseTransactionNotification notification = CloseTransactionNotification.deserialize(request);
 
-            String[] tokens = request.split(",");
-            int timestamp = Integer.parseInt(tokens[0]);
-            Vote vote = Vote.values()[Integer.parseInt(tokens[1])];
+            TransactionContext tContext = transactions.remove(notification.timestamp);
+            tContext.vote = notification.vote;
+            List<Update<V>> updates = tContext.applyChanges();
+            String requestWUpdates = request + "," + updates;
 
-            TransactionContext tContext = transactions.remove(timestamp);
-            tContext.vote = vote;
-
-            onTransactionClose(tContext, request);
+            transactionCloser.closeTransaction(
+                    tContext.coordinator, notification.timestamp, requestWUpdates,
+                    aVoid -> {
+                        collector.collectInOrder(updates, tContext.localId);
+                        collector.flushOrdered(tContext.localId);
+                        onTermination(tContext.tid, tContext.vote);
+                    },
+                    error -> LOG.error("StateOperator - transaction (" + tContext.tid + ", " + tContext.vote +
+                            ") - error on receiving ACK from coordinator: " + error.getMessage())
+            );
         }
     }
 
-    protected class TransactionContext {
-        long localId;
-        int tid;
+    public class TransactionContext {
+        public final long localId;
+        public final int tid;
         // track versions
-        int version;
-        Vote vote;
+        public int version;
+        private Vote vote;
         // if the same key is edited twice the object is touched only once
-        Map<String, Object<V>> touchedObjects = new HashMap<>();
-        Address coordinator;
+        public final Map<String, Object<V>> touchedObjects = new HashMap<>();
+        public final Address coordinator;
+        Stream<Update<V>> updates;
 
         public TransactionContext(long localId, int tid, int timestamp, Address coordinator) {
             this.localId = localId;
@@ -291,18 +278,20 @@ public abstract class StateOperator<T, V>
             this.touchedObjects.put(key, object);
         }
 
-        public Stream<Update<V>> getUpdates() {
+        private Stream<Update<V>> calculateUpdates() {
             return touchedObjects.entrySet().stream().map(
                     entry -> Update.of(tid, entry.getKey(),
                             entry.getValue().getVersion(version).object));
         }
 
-        public List<Update<V>> applyChangesAndGatherUpdates() {
-            Stream<Update<V>> updates;
+        public List<Update<V>> getUpdates() {
+            return updates.collect(Collectors.toList());
+        }
 
+        public List<Update<V>> applyChanges() {
             // NOTE that commit/abort on multiple objects is not atomic wrt external queries and internal operations
             if (vote == Vote.COMMIT) {
-                updates = getUpdates();
+                updates = calculateUpdates();
                 for (Object<V> object : touchedObjects.values()) {
                     object.commitVersion(version);
                     // perform version cleanup
@@ -317,6 +306,5 @@ public abstract class StateOperator<T, V>
 
             return updates.collect(Collectors.toList());
         }
-
     }
 }

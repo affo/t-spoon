@@ -7,6 +7,7 @@ import it.polimi.affetti.tspoon.tgraph.Vote;
 import it.polimi.affetti.tspoon.tgraph.db.Object;
 import it.polimi.affetti.tspoon.tgraph.db.ObjectHandler;
 import it.polimi.affetti.tspoon.tgraph.db.ObjectVersion;
+import it.polimi.affetti.tspoon.tgraph.twopc.StateOperatorTransactionCloser;
 import org.apache.flink.util.OutputTag;
 
 /**
@@ -15,8 +16,12 @@ import org.apache.flink.util.OutputTag;
 public class OptimisticStateOperator<T, V> extends StateOperator<T, V> {
     private VersioningStrategy versioningStrategy;
 
-    public OptimisticStateOperator(String nameSpace, StateFunction<T, V> stateFunction, OutputTag<Update<V>> updatesTag) {
-        super(nameSpace, stateFunction, updatesTag);
+    public OptimisticStateOperator(
+            String nameSpace,
+            StateFunction<T, V> stateFunction,
+            OutputTag<Update<V>> updatesTag,
+            StateOperatorTransactionCloser transactionCloser) {
+        super(nameSpace, stateFunction, updatesTag, transactionCloser);
         switch (TransactionEnvironment.isolationLevel) {
             case PL0:
                 versioningStrategy = new PL0Strategy();

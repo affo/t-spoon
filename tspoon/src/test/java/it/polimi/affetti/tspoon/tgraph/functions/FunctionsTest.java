@@ -7,11 +7,12 @@ import it.polimi.affetti.tspoon.tgraph.OTStream;
 import it.polimi.affetti.tspoon.tgraph.TStream;
 import it.polimi.affetti.tspoon.tgraph.backed.Graph;
 import it.polimi.affetti.tspoon.tgraph.backed.GraphOutput;
-import it.polimi.affetti.tspoon.tgraph.twopc.StandardTransactionsIndex;
+import it.polimi.affetti.tspoon.tgraph.twopc.*;
 import org.apache.flink.api.common.JobExecutionResult;
 import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.junit.Before;
 import org.junit.Test;
 
 import java.util.Arrays;
@@ -25,6 +26,13 @@ import static org.junit.Assert.assertEquals;
  * Created by affo on 27/07/17.
  */
 public class FunctionsTest {
+    private TwoPCFactory factory;
+
+    @Before
+    public void setUp() {
+        factory = new OptimisticTwoPCFactory();
+    }
+
     @Test
     public void testMap() throws Exception {
         List<Integer> elements = Arrays.asList(1, 2, 3, 4, 5);
@@ -34,7 +42,7 @@ public class FunctionsTest {
                 env.setParallelism(1);
 
                 DataStream<Integer> ds = env.addSource(new CollectionSource<>(elements)).returns(Integer.class);
-                TStream<Integer> ts = OTStream.fromStream(ds, new StandardTransactionsIndex()).opened;
+                TStream<Integer> ts = OTStream.fromStream(ds, factory).opened;
                 DataStream<Enriched<Integer>> out = ts.map((MapFunction<Integer, Integer>) i -> i * 2).getEnclosingStream();
                 return new GraphOutput<>(out);
             }
@@ -64,7 +72,7 @@ public class FunctionsTest {
                 env.setParallelism(1);
 
                 DataStream<Integer> ds = env.addSource(new CollectionSource<>(elements)).returns(Integer.class);
-                TStream<Integer> ts = OTStream.fromStream(ds, new StandardTransactionsIndex()).opened;
+                TStream<Integer> ts = OTStream.fromStream(ds, factory).opened;
                 DataStream<Enriched<Integer>> out = ts.flatMap(
                         e -> IntStream.range(0, e).boxed().collect(Collectors.toList())
                 ).getEnclosingStream();
@@ -101,7 +109,7 @@ public class FunctionsTest {
                 env.setParallelism(1);
 
                 DataStream<Integer> ds = env.addSource(new CollectionSource<>(elements)).returns(Integer.class);
-                TStream<Integer> ts = OTStream.fromStream(ds, new StandardTransactionsIndex()).opened;
+                TStream<Integer> ts = OTStream.fromStream(ds, factory).opened;
                 DataStream<Enriched<Integer>> out = ts.filter(e -> e % 2 == 0).getEnclosingStream();
                 return new GraphOutput<>(out);
             }

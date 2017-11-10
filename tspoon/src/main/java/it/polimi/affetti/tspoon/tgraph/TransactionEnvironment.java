@@ -20,6 +20,7 @@ import static it.polimi.affetti.tspoon.tgraph.IsolationLevel.PL4;
  */
 public class TransactionEnvironment {
     private static TransactionEnvironment instance;
+    public static boolean isDurabilityEnabled = true;
     private QuerySource querySource;
     private DataStream<MultiStateQuery> queryStream;
     private TwoPCFactory factory;
@@ -77,6 +78,10 @@ public class TransactionEnvironment {
         }
 
         TransactionEnvironment.useDependencyTracking = useDependencyTracking;
+    }
+
+    public void setDurable(boolean durable) {
+        TransactionEnvironment.isDurabilityEnabled = durable;
     }
 
     public void setQuerySupplier(QuerySupplier querySupplier) {
@@ -152,7 +157,7 @@ public class TransactionEnvironment {
                 .name("SecondStepReduceVotes");
         // close transactions
         secondMerged = factory.onClosingSink(secondMerged);
-        secondMerged.addSink(new CloseSink()).name("CloseSink");
+        secondMerged.addSink(new CloseSink(factory.getSinkTransactionCloser())).name("CloseSink");
 
         // output valid records and unwrap
         List<DataStream<TransactionResult<T>>> result = new ArrayList<>(n);

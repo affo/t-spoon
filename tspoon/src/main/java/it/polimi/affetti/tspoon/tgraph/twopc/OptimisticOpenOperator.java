@@ -23,8 +23,10 @@ public class OptimisticOpenOperator<T> extends OpenOperator<T> {
     private Map<Integer, Integer> playedWithWatermark = new HashMap<>();
     private Set<Integer> laterReplay = new HashSet<>();
 
-    public OptimisticOpenOperator(TransactionsIndex transactionsIndex) {
-        super(transactionsIndex);
+    public OptimisticOpenOperator(
+            TransactionsIndex transactionsIndex,
+            CoordinatorTransactionCloser coordinatorTransactionCloser) {
+        super(transactionsIndex, coordinatorTransactionCloser);
     }
 
     // replay

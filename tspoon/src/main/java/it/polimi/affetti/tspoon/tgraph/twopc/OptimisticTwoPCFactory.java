@@ -9,16 +9,10 @@ import org.apache.flink.streaming.api.datastream.DataStream;
 /**
  * Created by affo on 17/07/17.
  */
-public class OptimisticTwoPCFactory implements TwoPCFactory {
+public class OptimisticTwoPCFactory extends AbstractTwoPCFactory {
     @Override
     public <T> OpenStream<T> open(DataStream<T> ds) {
-        TransactionsIndex transactionsIndex;
-        if (TransactionEnvironment.isolationLevel == IsolationLevel.PL4) {
-            transactionsIndex = new TidTransactionsIndex();
-        } else {
-            transactionsIndex = new StandardTransactionsIndex();
-        }
-        return OTStream.fromStream(ds, transactionsIndex);
+        return OTStream.fromStream(ds, this);
     }
 
     @Override

@@ -9,7 +9,7 @@ import it.polimi.affetti.tspoon.tgraph.functions.WindowWrapper;
 import it.polimi.affetti.tspoon.tgraph.state.*;
 import it.polimi.affetti.tspoon.tgraph.twopc.OpenStream;
 import it.polimi.affetti.tspoon.tgraph.twopc.OptimisticOpenOperator;
-import it.polimi.affetti.tspoon.tgraph.twopc.TransactionsIndex;
+import it.polimi.affetti.tspoon.tgraph.twopc.TwoPCFactory;
 import org.apache.flink.api.common.functions.FilterFunction;
 import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
@@ -26,12 +26,18 @@ import java.util.List;
  */
 public class OTStream<T> implements TStream<T> {
     private DataStream<Enriched<T>> ds;
+    private final TwoPCFactory factory;
 
-    OTStream(DataStream<Enriched<T>> ds) {
+    OTStream(DataStream<Enriched<T>> ds, TwoPCFactory factory) {
         this.ds = ds;
+        this.factory = factory;
     }
 
-    public static <T> OpenStream<T> fromStream(DataStream<T> ds, TransactionsIndex transactionsIndex) {
+    private <U> OTStream<U> replace(DataStream<Enriched<U>> newStream) {
+        return new OTStream<>(newStream, factory);
+    }
+
+    public static <T> OpenStream<T> fromStream(DataStream<T> ds, TwoPCFactory factory) {
         // TODO hack: fix lifting type
         TypeInformation<Enriched<T>> type = ds
                 .map(new MapFunction<T, Enriched<T>>() {
@@ -40,7 +46,9 @@ public class OTStream<T> implements TStream<T> {
                         return null;
                     }
                 }).getType();
-        OptimisticOpenOperator<T> openOperator = new OptimisticOpenOperator<>(transactionsIndex);
+        OptimisticOpenOperator<T> openOperator = new OptimisticOpenOperator<>(
+                factory.getTransactionsIndex(),
+                factory.getSourceTransactionCloser());
         SingleOutputStreamOperator<Enriched<T>> enriched = ds
                 .transform("open", type, openOperator)
                 .name("OpenTransaction")
@@ -48,11 +56,11 @@ public class OTStream<T> implements TStream<T> {
 
         DataStream<Integer> watermarks = enriched.getSideOutput(openOperator.watermarkTag);
         DataStream<Tuple2<Long, Vote>> wal = enriched.getSideOutput(openOperator.logTag);
-        return new OpenStream<>(new OTStream<>(enriched), watermarks, wal);
+        return new OpenStream<>(new OTStream<>(enriched, factory), watermarks, wal);
     }
 
     public <U> OTStream<U> map(MapFunction<T, U> fn) {
-        return new OTStream<>(ds.map(new MapWrapper<T, U>() {
+        return replace(ds.map(new MapWrapper<T, U>() {
             @Override
             public U doMap(T e) throws Exception {
                 return fn.map(e);
@@ -61,7 +69,7 @@ public class OTStream<T> implements TStream<T> {
     }
 
     public <U> OTStream<U> flatMap(FlatMapFunction<T, U> flatMapFunction) {
-        return new OTStream<>(ds.flatMap(
+        return replace(ds.flatMap(
                 new FlatMapWrapper<T, U>() {
                     @Override
                     protected List<U> doFlatMap(T value) throws Exception {
@@ -85,11 +93,11 @@ public class OTStream<T> implements TStream<T> {
                 return windowFunction.apply(value);
             }
         });
-        return new OTStream<>(windowed);
+        return replace(windowed);
     }
 
     public OTStream<T> filter(FilterFunction<T> filterFunction) {
-        return new OTStream<>(ds.map(new FilterWrapper<T>() {
+        return replace(ds.map(new FilterWrapper<T>() {
             @Override
             protected boolean doFilter(T value) throws Exception {
                 return filterFunction.filter(value);
@@ -119,13 +127,14 @@ public class OTStream<T> implements TStream<T> {
                     }
                 });
 
-        StateOperator<T, V> stateOperator = new OptimisticStateOperator<>(nameSpace, stateFunction, updatesTag);
+        StateOperator<T, V> stateOperator = new OptimisticStateOperator<>(
+                nameSpace, stateFunction, updatesTag, factory.getAtStateTransactionCloser());
         SingleOutputStreamOperator<Enriched<T>> mainStream = ds.transform(
                 "StateOperator: " + nameSpace, ds.getType(), stateOperator)
                 .name(nameSpace).setParallelism(partitioning);
 
         DataStream<Update<V>> updates = mainStream.getSideOutput(updatesTag);
-        return new StateStream<>(new OTStream<>(mainStream), updates);
+        return new StateStream<>(replace(mainStream), updates);
     }
 
     @Override
