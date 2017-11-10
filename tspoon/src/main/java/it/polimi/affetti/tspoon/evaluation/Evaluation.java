@@ -25,7 +25,6 @@ import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.function.Consumer;
 
 public class Evaluation {
     public static final int batchSize = 10000;
@@ -38,6 +37,7 @@ public class Evaluation {
         ParameterTool parameters = ParameterTool.fromArgs(args);
 
         final int numRecords = parameters.getInt("nRec", 500000);
+        final int numRecordsForLatency = parameters.getInt("nRecLatency", 20000);
         final int sledLen = parameters.getInt("sled", 20000);
         final double inputFrequency = parameters.getDouble("inputRate", -1);
         final double throughputPerc = parameters.getDouble("throughPerc", 0.8);
@@ -97,7 +97,7 @@ public class Evaluation {
         // creates a consumer that draws an evaluation topology based on the value
         // of the waiting period. If the microSleep is negative, the consumer will be re-invoked with the
         // value of the input rate calculated with the throughput of the first job (see later).
-        Consumer<Long> drawEvaluationTopology = (microSleep) -> {
+        TriConsumer<Integer, Integer, Long> drawEvaluationTopology = (numberOfRecords, sledLength, microSleep) -> {
             // >>>>> Topology
             TransactionEnvironment.clear();
             TransactionEnvironment tEnv = TransactionEnvironment.get();
@@ -108,7 +108,7 @@ public class Evaluation {
             tEnv.setVerbose(false);
 
             // >>> Source
-            int limit = numRecords + sledLen;
+            int limit = numberOfRecords + sledLength;
             if (!transfersOn) {
                 limit = 0;
             }
@@ -136,7 +136,7 @@ public class Evaluation {
                         new RandomQuery(EvaluationGraphComposer.STATE_BASE_NAME + "0", noKeys));
 
                 if (!transfersOn) {
-                    querySupplier = new LimitQuerySupplier(querySupplier, numRecords);
+                    querySupplier = new LimitQuerySupplier(querySupplier, numberOfRecords);
                 }
 
                 if (queryRate > 0) {
@@ -147,7 +147,7 @@ public class Evaluation {
             }
 
             // put a latency tracker at the beginning after the sled
-            transfers.filter(new SkipFirstN<>(sledLen)).setParallelism(1)
+            transfers.filter(new SkipFirstN<>(sledLength)).setParallelism(1)
                     .map(new LatencyTracker(true)).setParallelism(1);
             // in case of parallel tgraphs, split the original stream for load balancing
             SplitStream<Transfer> splitTransfers = null;
@@ -158,7 +158,7 @@ public class Evaluation {
 
             // >>> Composing
             EvaluationGraphComposer.startAmount = startAmount;
-            int numberOfElements = numRecords + sledLen;
+            int numberOfElements = numberOfRecords + sledLength;
 
             List<EvaluationGraphComposer.TGraph> tGraphs = new ArrayList<>(noTGraphs);
             int i = 0;
@@ -194,7 +194,7 @@ public class Evaluation {
             }
 
             // >>> Closing
-            out.filter(new SkipFirstN<>(sledLen)).setParallelism(1)
+            out.filter(new SkipFirstN<>(sledLength)).setParallelism(1)
                     .map(new LatencyTracker(false)).setParallelism(1) // end tracker
                     .map(new ThroughputCalculator<>(batchSize)).setParallelism(1);
 
@@ -209,7 +209,7 @@ public class Evaluation {
             }
         };
 
-        drawEvaluationTopology.accept(waitPeriodMicro);
+        drawEvaluationTopology.consume(numRecords, sledLen, waitPeriodMicro);
 
         if (printPlan) {
             PrintWriter printWriter = new PrintWriter("plan.json");
@@ -241,7 +241,8 @@ public class Evaluation {
 
             timestampDeltaServer.clearMetrics();
 
-            drawEvaluationTopology.accept(getWaitPeriodInMicroseconds(inputRate));
+            // no reason for launching such a long experiment for latency...
+            drawEvaluationTopology.consume(numRecordsForLatency, 0, getWaitPeriodInMicroseconds(inputRate));
 
             env.execute("Latency Evaluation - " + outputWithoutExtension);
         }
@@ -252,6 +253,11 @@ public class Evaluation {
 
         report.addFields(timestampDeltaServer.getMetrics());
         report.writeToFile();
+    }
+
+    @FunctionalInterface
+    private interface TriConsumer<IN1, IN2, IN3> {
+        void consume(IN1 one, IN2 two, IN3 three);
     }
 
     private static long getWaitPeriodInMicroseconds(double inputFrequency) {
