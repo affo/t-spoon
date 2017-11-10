@@ -22,3 +22,6 @@ export IS_OPTIMISTIC=true
 # (could be empty)
 export DEFAULT="--nRec 100000 --sled 20000"
 
+# Refreshes the cluster at every job launch
+export REFRESH_CLUSTER=true
+

@@ -17,6 +17,8 @@ function launch_suite {
     done
 }
 
+# DEPRECATED
+# Latency jobs are launched directly after the corresponding jobs.
 function launch_suite_latency {
     if [[ "$#" -lt 4 ]]; then
         echo "launch_suite_latency <prop_to_scale> <scale_bound> \ "

@@ -20,11 +20,25 @@ fi
 
 FLINK_BIN=$FLINK_HOME/bin/flink
 
+function refresh_cluster {
+    if [[ $REFRESH_CLUSTER = true ]]; then
+        restart-cluster
+    fi
+}
+
+function sleep_if {
+    if [[ $DEBUG != true ]]; then
+        sleep $1
+    fi
+}
+
 function launch {
     if [[ "$#" -lt 1  ]]; then
         echo "launch <class> <params...>"
         return 1
     fi
+
+    refresh_cluster
 
     cmd="$FLINK_BIN run -c "$PACKAGE_BASE.$1" $TARGET_JAR ${@:2} --isolationLevel $ISOLATION --optOrNot $IS_OPTIMISTIC $DEFAULT"
 
@@ -32,5 +46,34 @@ function launch {
     if [[ $DEBUG != true ]]; then
         eval $cmd
     fi
+}
+
+function stop-cluster {
+    echo; echo ">>> Stopping Flink cluster..."; echo
+    sleep 1
+
+    if [[ $DEBUG != true ]]; then
+        $FLINK_HOME/bin/stop-cluster.sh
+    fi
+
+    echo; echo
+}
+
+function start-cluster {
+    echo; echo ">>> Starting Flink cluster..."; echo
+    sleep 1
+
+    if [[ $DEBUG != true ]]; then
+        $FLINK_HOME/bin/start-cluster.sh
+    fi
+
+    echo; echo
+}
+
+function restart-cluster {
+    stop-cluster
+    sleep_if 5
+    start-cluster
+    sleep_if 5
 }
 
