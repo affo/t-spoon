@@ -12,7 +12,7 @@ import java.util.Map;
 /**
  * Created by affo on 04/08/17.
  */
-public abstract class TransactionsIndex implements Serializable {
+public abstract class TransactionsIndex<T> implements Serializable {
     private int uniqueID = 0;
     // I need a timestamp because a transaction can possibly be executed
     // more than once. However, I need to keep it separate from the transaction ID
@@ -52,16 +52,17 @@ public abstract class TransactionsIndex implements Serializable {
 
     protected abstract Integer getTransactionId(int timestamp);
 
-    public LocalTransactionContext newTransaction() {
+    public LocalTransactionContext newTransaction(T element) {
         uniqueID++;
-        return this.newTransaction(uniqueID);
+        return this.newTransaction(element, uniqueID);
     }
 
-    public LocalTransactionContext newTransaction(int tid) {
+    public LocalTransactionContext newTransaction(T element, int tid) {
         currentTimestamp++;
         LocalTransactionContext localTransactionContext = new LocalTransactionContext();
         localTransactionContext.tid = tid;
         localTransactionContext.timestamp = currentTimestamp;
+        localTransactionContext.element = element;
         executions.put(tid, localTransactionContext);
         return localTransactionContext;
     }
@@ -70,10 +71,11 @@ public abstract class TransactionsIndex implements Serializable {
         executions.remove(tid);
     }
 
-    public static class LocalTransactionContext {
+    public class LocalTransactionContext {
         public int tid;
         public int timestamp;
         public Vote vote;
         public int replayCause;
+        public T element;
     }
 }

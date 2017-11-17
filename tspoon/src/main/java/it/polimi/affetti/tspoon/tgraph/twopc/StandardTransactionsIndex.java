@@ -8,7 +8,7 @@ import java.util.Set;
 /**
  * Created by affo on 04/08/17.
  */
-public class StandardTransactionsIndex extends TransactionsIndex {
+public class StandardTransactionsIndex<T> extends TransactionsIndex<T> {
     private Map<Integer, Integer> timestampTidMapping = new HashMap<>();
     private Map<Integer, Set<Integer>> tidTimestampMapping = new HashMap<>();
 
@@ -18,8 +18,8 @@ public class StandardTransactionsIndex extends TransactionsIndex {
     }
 
     @Override
-    public LocalTransactionContext newTransaction(int tid) {
-        LocalTransactionContext transactionContext = super.newTransaction(tid);
+    public LocalTransactionContext newTransaction(T element, int tid) {
+        LocalTransactionContext transactionContext = super.newTransaction(element, tid);
         int timestamp = transactionContext.timestamp;
         timestampTidMapping.put(timestamp, tid);
         tidTimestampMapping.computeIfAbsent(tid, k -> new HashSet<>()).add(timestamp);

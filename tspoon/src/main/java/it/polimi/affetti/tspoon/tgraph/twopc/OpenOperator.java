@@ -1,10 +1,12 @@
 package it.polimi.affetti.tspoon.tgraph.twopc;
 
-import it.polimi.affetti.tspoon.common.InOrderSideCollector;
+import it.polimi.affetti.tspoon.common.Address;
+import it.polimi.affetti.tspoon.common.SafeCollector;
 import it.polimi.affetti.tspoon.metrics.Report;
 import it.polimi.affetti.tspoon.tgraph.Enriched;
 import it.polimi.affetti.tspoon.tgraph.Metadata;
 import it.polimi.affetti.tspoon.tgraph.Vote;
+import it.polimi.affetti.tspoon.tgraph.twopc.TransactionsIndex.LocalTransactionContext;
 import org.apache.flink.api.common.accumulators.IntCounter;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.streaming.api.operators.AbstractStreamOperator;
@@ -15,8 +17,6 @@ import org.apache.flink.util.OutputTag;
 import java.util.HashMap;
 import java.util.Map;
 
-import static it.polimi.affetti.tspoon.tgraph.twopc.TransactionsIndex.LocalTransactionContext;
-
 /**
  * Created by affo on 14/07/17.
  */
@@ -24,21 +24,21 @@ public abstract class OpenOperator<T>
         extends AbstractStreamOperator<Enriched<T>>
         implements OneInputStreamOperator<T, Enriched<T>>,
         CloseTransactionListener {
-    public final OutputTag<Integer> watermarkTag = new OutputTag<Integer>("watermark") {
-    };
-    public final OutputTag<Tuple2<Long, Vote>> logTag = new OutputTag<Tuple2<Long, Vote>>("wal") {
+    public final OutputTag<Tuple2<Long, Vote>> logTag = new OutputTag<Tuple2<Long, Vote>>("tLog") {
     };
 
-    protected transient InOrderSideCollector<T, Tuple2<Long, Vote>> collector;
+    // TODO temporarly avoiding log ordering
+    //protected transient InOrderSideCollector<T, Tuple2<Long, Vote>> collector;
+    protected transient SafeCollector<T> collector;
 
-    protected final TransactionsIndex transactionsIndex;
+    protected final TransactionsIndex<T> transactionsIndex;
     private final CoordinatorTransactionCloser coordinatorTransactionCloser;
 
     // stats
     protected Map<Vote, IntCounter> stats = new HashMap<>();
 
     public OpenOperator(
-            TransactionsIndex transactionsIndex,
+            TransactionsIndex<T> transactionsIndex,
             CoordinatorTransactionCloser coordinatorTransactionCloser) {
         this.coordinatorTransactionCloser = coordinatorTransactionCloser;
         this.transactionsIndex = transactionsIndex;
@@ -52,7 +52,9 @@ public abstract class OpenOperator<T>
     @Override
     public void open() throws Exception {
         super.open();
-        collector = new InOrderSideCollector<>(output, logTag);
+        // TODO temporarly avoiding log ordering
+        // collector = new InOrderSideCollector<>(output, logTag);
+        collector = new SafeCollector<>(output);
         coordinatorTransactionCloser.open(this);
 
         // register accumulators
@@ -68,20 +70,25 @@ public abstract class OpenOperator<T>
         coordinatorTransactionCloser.close();
     }
 
-    @Override
-    public synchronized void processElement(StreamRecord<T> sr) throws Exception {
-        LocalTransactionContext tContext = transactionsIndex.newTransaction();
-        Metadata metadata = getMetadataFromContext(tContext);
-        onOpenTransaction(sr.getValue(), metadata);
-        collector.safeCollect(sr.replace(Enriched.of(metadata, sr.getValue())));
+    private void updateStats(Vote vote) {
+        stats.get(vote).add(1);
     }
 
-    protected Metadata getMetadataFromContext(LocalTransactionContext tContext) {
+    @Override
+    public synchronized void processElement(StreamRecord<T> sr) throws Exception {
+        T element = sr.getValue();
+        LocalTransactionContext tContext = transactionsIndex.newTransaction(element);
         Metadata metadata = new Metadata(tContext.tid);
         metadata.timestamp = tContext.timestamp;
-        metadata.coordinator = coordinatorTransactionCloser.getAddress();
+        metadata.coordinator = getCoordinatorAddress();
         metadata.watermark = transactionsIndex.getCurrentWatermark();
-        return metadata;
+
+        onOpenTransaction(element, metadata);
+        collector.safeCollect(sr.replace(Enriched.of(metadata, element)));
+    }
+
+    protected Address getCoordinatorAddress() {
+        return coordinatorTransactionCloser.getAddress();
     }
 
     protected abstract void onOpenTransaction(T recordValue, Metadata metadata);
@@ -93,11 +100,16 @@ public abstract class OpenOperator<T>
         localTransactionContext.replayCause = notification.replayCause;
         localTransactionContext.vote = notification.vote;
 
+        updateStats(notification.vote);
+
         closeTransaction(localTransactionContext);
 
         long ts = (long) notification.timestamp;
+        /* TODO temporarly avoiding log ordering
         collector.collectInOrder(Tuple2.of(ts, notification.vote), ts);
         collector.flushOrdered(transactionsIndex.getCurrentWatermark());
+        */
+        collector.safeCollect(logTag, Tuple2.of(ts, notification.vote));
     }
 
     protected abstract void closeTransaction(LocalTransactionContext transactionContext);

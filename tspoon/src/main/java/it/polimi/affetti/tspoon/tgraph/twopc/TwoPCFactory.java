@@ -13,7 +13,7 @@ public interface TwoPCFactory extends Serializable {
 
     DataStream<Metadata> onClosingSink(DataStream<Metadata> votesMerged);
 
-    TransactionsIndex getTransactionsIndex();
+    <T> TransactionsIndex<T> getTransactionsIndex();
 
     CoordinatorTransactionCloser getSourceTransactionCloser();
 

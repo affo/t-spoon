@@ -58,6 +58,7 @@ public class Evaluation {
         final boolean durable = parameters.getBoolean("durable", true);
         final boolean noLatency = parameters.getBoolean("noLatency", false);
         final int isolationLevelNumber = parameters.getInt("isolationLevel", 3);
+        final long deadlockTimeout = parameters.getLong("deadlockTimeout", 15L);
 
         final boolean printPlan = parameters.getBoolean("printPlan", false);
 
@@ -105,6 +106,7 @@ public class Evaluation {
             tEnv.setIsolationLevel(isolationLevel);
             tEnv.setUseDependencyTracking(useDependencyTracking);
             tEnv.setDurable(durable);
+            tEnv.setDeadlockTimeout(deadlockTimeout);
             tEnv.setVerbose(false);
 
             // >>> Source

@@ -17,7 +17,7 @@ public class OptimisticTwoPCFactory extends AbstractTwoPCFactory {
 
     @Override
     public DataStream<Metadata> onClosingSink(DataStream<Metadata> votesMerged) {
-        if (TransactionEnvironment.isolationLevel == IsolationLevel.PL4) {
+        if (TransactionEnvironment.get().getIsolationLevel() == IsolationLevel.PL4) {
             return votesMerged.flatMap(new StrictnessEnforcer())
                     .name("StrictnessEnforcer").setParallelism(1);
         }

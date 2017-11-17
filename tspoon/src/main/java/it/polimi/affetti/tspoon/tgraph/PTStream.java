@@ -1,11 +1,11 @@
 package it.polimi.affetti.tspoon.tgraph;
 
-import it.polimi.affetti.tspoon.tgraph.state.OptimisticStateOperator;
+import it.polimi.affetti.tspoon.tgraph.state.PessimisticStateOperator;
 import it.polimi.affetti.tspoon.tgraph.state.StateFunction;
 import it.polimi.affetti.tspoon.tgraph.state.StateOperator;
 import it.polimi.affetti.tspoon.tgraph.state.Update;
 import it.polimi.affetti.tspoon.tgraph.twopc.OpenStream;
-import it.polimi.affetti.tspoon.tgraph.twopc.OptimisticOpenOperator;
+import it.polimi.affetti.tspoon.tgraph.twopc.PessimisticOpenOperator;
 import it.polimi.affetti.tspoon.tgraph.twopc.TwoPCFactory;
 import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
@@ -17,17 +17,17 @@ import org.apache.flink.util.OutputTag;
 /**
  * Created by affo on 13/07/17.
  */
-public class OTStream<T> extends AbstractTStream<T> {
+public class PTStream<T> extends AbstractTStream<T> {
     private final TwoPCFactory factory;
 
-    OTStream(DataStream<Enriched<T>> ds, TwoPCFactory factory) {
+    PTStream(DataStream<Enriched<T>> ds, TwoPCFactory factory) {
         super(ds);
         this.factory = factory;
     }
 
     @Override
-    protected <U> OTStream<U> replace(DataStream<Enriched<U>> newStream) {
-        return new OTStream<>(newStream, factory);
+    protected <U> PTStream<U> replace(DataStream<Enriched<U>> newStream) {
+        return new PTStream<>(newStream, factory);
     }
 
     public static <T> OpenStream<T> fromStream(DataStream<T> ds, TwoPCFactory factory) {
@@ -39,24 +39,29 @@ public class OTStream<T> extends AbstractTStream<T> {
                         return null;
                     }
                 }).getType();
-        OptimisticOpenOperator<T> openOperator = new OptimisticOpenOperator<>(
-                factory.getTransactionsIndex(),
-                factory.getSourceTransactionCloser());
+        PessimisticOpenOperator<T> openOperator = new PessimisticOpenOperator<>(factory.getSourceTransactionCloser());
         SingleOutputStreamOperator<Enriched<T>> enriched = ds
                 .transform("open", type, openOperator)
                 .name("OpenTransaction")
                 .setParallelism(1);
 
-        DataStream<Integer> watermarks = enriched.getSideOutput(openOperator.watermarkTag);
         DataStream<Tuple2<Long, Vote>> tLog = enriched.getSideOutput(openOperator.logTag);
-        return new OpenStream<>(new OTStream<>(enriched, factory), watermarks, tLog);
+        return new OpenStream<>(new PTStream<>(enriched, factory), null, tLog);
     }
 
     @Override
     protected <V> StateOperator<T, V> getStateOperator(
             String nameSpace, OutputTag<Update<V>> updatesTag,
             StateFunction<T, V> stateFunction) {
-        return new OptimisticStateOperator<>(
+        PessimisticStateOperator<T, V> stateOperator = new PessimisticStateOperator<>(
                 nameSpace, stateFunction, updatesTag, factory.getAtStateTransactionCloser());
+
+        TransactionEnvironment tEnv = TransactionEnvironment.get();
+        if (tEnv.getIsolationLevel() != IsolationLevel.PL4) {
+            long deadlockTimeout = tEnv.getDeadlockTimeout();
+            stateOperator.enableDeadlockDetection(deadlockTimeout);
+        }
+
+        return stateOperator;
     }
 }

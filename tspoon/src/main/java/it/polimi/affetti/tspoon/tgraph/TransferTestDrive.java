@@ -30,6 +30,7 @@ import org.apache.flink.util.OutputTag;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.stream.IntStream;
 
 /**
  * Created by affo on 29/07/17.
@@ -46,9 +47,11 @@ public class TransferTestDrive {
         final int baseParallelism = 4;
         final int partitioning = 4;
         final double startAmount = 100d;
-        final Strategy strategy = Strategy.OPTIMISTIC;
+        final Strategy strategy = Strategy.PESSIMISTIC;
         final IsolationLevel isolationLevel = IsolationLevel.PL3;
         final boolean useDependencyTracking = true;
+        final boolean noContention = false;
+        final boolean durable = false;
 
         env.setParallelism(baseParallelism);
 
@@ -56,9 +59,24 @@ public class TransferTestDrive {
         tEnv.setStrategy(strategy);
         tEnv.setIsolationLevel(isolationLevel);
         tEnv.setUseDependencyTracking(useDependencyTracking);
+        tEnv.setDeadlockTimeout(1000000L); // making deadlock detector
+        tEnv.setDurable(durable);
 
         final int numberOfElements = 100000;
-        TransferSource transferSource = new TransferSource(numberOfElements, 100000, startAmount);
+        TransferSource transferSource;
+        if (noContention) {
+            Transfer[] transfers = IntStream.range(0, numberOfElements)
+                    .mapToObj(i -> {
+                        String from = "a" + (i * 2);
+                        String to = "a" + (i * 2 + 1);
+                        double amount = 10.0;
+                        return new Transfer((long) i, from, to, amount);
+                    }).toArray(size -> new Transfer[size]);
+
+            transferSource = new TransferSource(transfers);
+        } else {
+            transferSource = new TransferSource(numberOfElements, 100000, startAmount);
+        }
         DataStream<Transfer> transfers = env.addSource(transferSource).setParallelism(1);
 
         //transfers.print();
@@ -132,7 +150,8 @@ public class TransferTestDrive {
 
         open.wal
                 .filter(entry -> entry.f1 != Vote.REPLAY)
-                .addSink(new FinishOnCountSink<>(numberOfElements)).setParallelism(1);
+                .addSink(new FinishOnCountSink<>(numberOfElements)).setParallelism(1)
+                .name("FinishOnCount");
 
         //open.wal.print();
         //open.watermarks.print();

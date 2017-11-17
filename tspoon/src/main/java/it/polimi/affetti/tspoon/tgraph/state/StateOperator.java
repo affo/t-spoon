@@ -103,6 +103,8 @@ public abstract class StateOperator<T, V>
         }
     }
 
+    // --------------------------------------- Transaction Execution and Completion ---------------------------------------
+
     protected synchronized Object<V> getObject(String key) {
         return state.computeIfAbsent(key, k -> new Object<>(stateFunction.defaultValue()));
     }
@@ -142,8 +144,86 @@ public abstract class StateOperator<T, V>
 
     protected abstract void execute(TransactionContext tContext, String key, Object<V> object, Metadata metadata, T element);
 
-    protected abstract void onTermination(int tid, Vote vote);
+    protected abstract void onTermination(TransactionContext tContext);
 
+    private class TransactionCloseServer extends ProcessRequestServer {
+        @Override
+        protected void parseRequest(String request) {
+            // LOG.info(srv.getMyAddress() + " " + request);
+            CloseTransactionNotification notification = CloseTransactionNotification.deserialize(request);
+
+            TransactionContext tContext = transactions.remove(notification.timestamp);
+            tContext.vote = notification.vote;
+            List<Update<V>> updates = tContext.applyChanges();
+            String requestWUpdates = request + "," + updates;
+
+            transactionCloser.closeTransaction(
+                    tContext.coordinator, notification.timestamp, requestWUpdates,
+                    aVoid -> {
+                        collector.collectInOrder(updates, tContext.localId);
+                        collector.flushOrdered(tContext.localId);
+                        onTermination(tContext);
+                    },
+                    error -> LOG.error("StateOperator - transaction (" + tContext.tid + ", " + tContext.vote +
+                            ") - error on receiving ACK from coordinator: " + error.getMessage())
+            );
+        }
+    }
+
+    public class TransactionContext {
+        public final long localId;
+        public final int tid;
+        // track versions
+        public int version;
+        private Vote vote;
+        // if the same key is edited twice the object is touched only once
+        public final Map<String, Object<V>> touchedObjects = new HashMap<>();
+        public final Address coordinator;
+        Stream<Update<V>> updates;
+
+        public TransactionContext(long localId, int tid, int timestamp, Address coordinator) {
+            this.localId = localId;
+            this.tid = tid;
+            // defaults to timestamp
+            this.version = timestamp;
+            this.coordinator = coordinator;
+        }
+
+        public void addObject(String key, Object<V> object) {
+            this.touchedObjects.put(key, object);
+        }
+
+        private Stream<Update<V>> calculateUpdates() {
+            return touchedObjects.entrySet().stream().map(
+                    entry -> Update.of(tid, entry.getKey(),
+                            entry.getValue().getVersion(version).object));
+        }
+
+        public List<Update<V>> getUpdates() {
+            return updates.collect(Collectors.toList());
+        }
+
+        public List<Update<V>> applyChanges() {
+            // NOTE that commit/abort on multiple objects is not atomic wrt external queries and internal operations
+            if (vote == Vote.COMMIT) {
+                updates = calculateUpdates();
+                for (Object<V> object : touchedObjects.values()) {
+                    object.commitVersion(version);
+                    // perform version cleanup
+                    versionCleanup(object, version);
+                }
+            } else {
+                updates = Stream.empty();
+                for (Object<V> object : touchedObjects.values()) {
+                    object.deleteVersion(version);
+                }
+            }
+
+            return updates.collect(Collectors.toList());
+        }
+    }
+
+    // --------------------------------------- Querying ---------------------------------------
 
     private Map<String, V> queryState(Iterable<String> keys, int timestamp) {
         Map<String, V> queryResult = new HashMap<>();
@@ -208,6 +288,8 @@ public abstract class StateOperator<T, V>
         return queryState(query.getKeys(), query.watermark);
     }
 
+    // --------------------------------------- State Recovery ---------------------------------------
+
     // TODO checkpoint consistent snapshot
     // use Object.getLastCommittedVersion
 
@@ -229,82 +311,5 @@ public abstract class StateOperator<T, V>
     @Override
     public void initializeState(StateInitializationContext context) throws Exception {
         super.initializeState(context);
-    }
-
-    private class TransactionCloseServer extends ProcessRequestServer {
-        @Override
-        protected void parseRequest(String request) {
-            // LOG.info(srv.getMyAddress() + " " + request);
-            CloseTransactionNotification notification = CloseTransactionNotification.deserialize(request);
-
-            TransactionContext tContext = transactions.remove(notification.timestamp);
-            tContext.vote = notification.vote;
-            List<Update<V>> updates = tContext.applyChanges();
-            String requestWUpdates = request + "," + updates;
-
-            transactionCloser.closeTransaction(
-                    tContext.coordinator, notification.timestamp, requestWUpdates,
-                    aVoid -> {
-                        collector.collectInOrder(updates, tContext.localId);
-                        collector.flushOrdered(tContext.localId);
-                        onTermination(tContext.tid, tContext.vote);
-                    },
-                    error -> LOG.error("StateOperator - transaction (" + tContext.tid + ", " + tContext.vote +
-                            ") - error on receiving ACK from coordinator: " + error.getMessage())
-            );
-        }
-    }
-
-    public class TransactionContext {
-        public final long localId;
-        public final int tid;
-        // track versions
-        public int version;
-        private Vote vote;
-        // if the same key is edited twice the object is touched only once
-        public final Map<String, Object<V>> touchedObjects = new HashMap<>();
-        public final Address coordinator;
-        Stream<Update<V>> updates;
-
-        public TransactionContext(long localId, int tid, int timestamp, Address coordinator) {
-            this.localId = localId;
-            this.tid = tid;
-            // defaults to timestamp
-            this.version = timestamp;
-            this.coordinator = coordinator;
-        }
-
-        public void addObject(String key, Object<V> object) {
-            this.touchedObjects.put(key, object);
-        }
-
-        private Stream<Update<V>> calculateUpdates() {
-            return touchedObjects.entrySet().stream().map(
-                    entry -> Update.of(tid, entry.getKey(),
-                            entry.getValue().getVersion(version).object));
-        }
-
-        public List<Update<V>> getUpdates() {
-            return updates.collect(Collectors.toList());
-        }
-
-        public List<Update<V>> applyChanges() {
-            // NOTE that commit/abort on multiple objects is not atomic wrt external queries and internal operations
-            if (vote == Vote.COMMIT) {
-                updates = calculateUpdates();
-                for (Object<V> object : touchedObjects.values()) {
-                    object.commitVersion(version);
-                    // perform version cleanup
-                    versionCleanup(object, version);
-                }
-            } else {
-                updates = Stream.empty();
-                for (Object<V> object : touchedObjects.values()) {
-                    object.deleteVersion(version);
-                }
-            }
-
-            return updates.collect(Collectors.toList());
-        }
     }
 }

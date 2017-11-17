@@ -9,17 +9,17 @@ import it.polimi.affetti.tspoon.tgraph.TransactionEnvironment;
 public abstract class AbstractTwoPCFactory implements TwoPCFactory {
 
     @Override
-    public TransactionsIndex getTransactionsIndex() {
-        if (TransactionEnvironment.isolationLevel == IsolationLevel.PL4) {
-            return new TidTransactionsIndex();
+    public <T> TransactionsIndex<T> getTransactionsIndex() {
+        if (TransactionEnvironment.get().getIsolationLevel() == IsolationLevel.PL4) {
+            return new TidTransactionsIndex<>();
         }
 
-        return new StandardTransactionsIndex();
+        return new StandardTransactionsIndex<>();
     }
 
     @Override
     public CoordinatorTransactionCloser getSourceTransactionCloser() {
-        if (TransactionEnvironment.isDurabilityEnabled) {
+        if (TransactionEnvironment.get().isDurabilityEnabled()) {
             return new DurableCoordinatorTransactionCloser();
         }
 
@@ -28,7 +28,7 @@ public abstract class AbstractTwoPCFactory implements TwoPCFactory {
 
     @Override
     public CloseSinkTransactionCloser getSinkTransactionCloser() {
-        if (TransactionEnvironment.isDurabilityEnabled) {
+        if (TransactionEnvironment.get().isDurabilityEnabled()) {
             return new DurableSinkTransactionCloser();
         }
 
@@ -37,7 +37,7 @@ public abstract class AbstractTwoPCFactory implements TwoPCFactory {
 
     @Override
     public StateOperatorTransactionCloser getAtStateTransactionCloser() {
-        if (TransactionEnvironment.isDurabilityEnabled) {
+        if (TransactionEnvironment.get().isDurabilityEnabled()) {
             return new DurableStateTransactionCloser();
         }
 

@@ -19,7 +19,7 @@ public class PL0Strategy implements VersioningStrategy {
 
     @Override
     public <V> ObjectVersion<V> extractObjectVersion(Metadata metadata, Object<V> versions) {
-        return versions.getLastAvailableVersion();
+        return versions.getLastVersionBefore(metadata.timestamp);
     }
 
     @Override

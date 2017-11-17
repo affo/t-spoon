@@ -20,13 +20,14 @@ import static it.polimi.affetti.tspoon.tgraph.IsolationLevel.PL4;
  */
 public class TransactionEnvironment {
     private static TransactionEnvironment instance;
-    public static boolean isDurabilityEnabled = true;
+    private boolean isDurabilityEnabled = true;
     private QuerySource querySource;
     private DataStream<MultiStateQuery> queryStream;
     private TwoPCFactory factory;
-    public static IsolationLevel isolationLevel = PL3; // max level by default
-    public static boolean useDependencyTracking = true;
+    private IsolationLevel isolationLevel = PL3; // max level by default
+    private boolean useDependencyTracking = true;
     private boolean verbose = false;
+    private long deadlockTimeout;
 
     private TransactionEnvironment(StreamExecutionEnvironment env) {
         this.querySource = new QuerySource();
@@ -56,19 +57,23 @@ public class TransactionEnvironment {
     public void setStrategy(Strategy strategy) {
         switch (strategy) {
             case PESSIMISTIC:
-                // TODO implement
-                // For now, it falls into optimistic
+                this.factory = new PessimisticTwoPCFactory();
+                break;
             default:
                 this.factory = new OptimisticTwoPCFactory();
         }
     }
 
     public void setIsolationLevel(IsolationLevel isolationLevel) {
-        TransactionEnvironment.isolationLevel = isolationLevel;
+        this.isolationLevel = isolationLevel;
 
         if (isolationLevel == PL4) {
-            TransactionEnvironment.useDependencyTracking = true;
+            useDependencyTracking = true;
         }
+    }
+
+    public IsolationLevel getIsolationLevel() {
+        return isolationLevel;
     }
 
     public void setUseDependencyTracking(boolean useDependencyTracking) {
@@ -77,11 +82,27 @@ public class TransactionEnvironment {
             return;
         }
 
-        TransactionEnvironment.useDependencyTracking = useDependencyTracking;
+        this.useDependencyTracking = useDependencyTracking;
+    }
+
+    public boolean usingDependencyTracking() {
+        return useDependencyTracking;
     }
 
     public void setDurable(boolean durable) {
-        TransactionEnvironment.isDurabilityEnabled = durable;
+        isDurabilityEnabled = durable;
+    }
+
+    public boolean isDurabilityEnabled() {
+        return isDurabilityEnabled;
+    }
+
+    public void setDeadlockTimeout(long deadlockTimeout) {
+        this.deadlockTimeout = deadlockTimeout;
+    }
+
+    public long getDeadlockTimeout() {
+        return deadlockTimeout;
     }
 
     public void setQuerySupplier(QuerySupplier querySupplier) {
@@ -104,6 +125,11 @@ public class TransactionEnvironment {
             querySender = new QuerySender(onQueryResult);
         }
 
+        // TODO differentiate querying part for pessimistic case!
+        // TODO Up to now it is still not implemented...
+        if (openStream.watermarks == null) {
+            return openStream;
+        }
 
         openStream.watermarks.connect(queryStream).flatMap(new QueryProcessor()).name("QueryProcessor")
                 // TODO it should be:

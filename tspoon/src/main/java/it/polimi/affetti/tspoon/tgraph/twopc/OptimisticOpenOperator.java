@@ -3,10 +3,9 @@ package it.polimi.affetti.tspoon.tgraph.twopc;
 import it.polimi.affetti.tspoon.tgraph.Enriched;
 import it.polimi.affetti.tspoon.tgraph.Metadata;
 import it.polimi.affetti.tspoon.tgraph.Vote;
+import org.apache.flink.util.OutputTag;
 
 import java.util.*;
-
-import static it.polimi.affetti.tspoon.tgraph.twopc.TransactionsIndex.LocalTransactionContext;
 
 /**
  * Created by affo on 14/07/17.
@@ -14,9 +13,10 @@ import static it.polimi.affetti.tspoon.tgraph.twopc.TransactionsIndex.LocalTrans
  * Synchronization is offered by the OpenOperator class.
  */
 public class OptimisticOpenOperator<T> extends OpenOperator<T> {
+    public final OutputTag<Integer> watermarkTag = new OutputTag<Integer>("watermark") {
+    };
+
     private int lastCommittedWatermark = 0;
-    // NOTE: everything is indexed by transaction id (tid)
-    private Map<Integer, T> elements = new HashMap<>();
     // set of tids depends on tid (tid -> [tids, ...])
     private Map<Integer, Set<Integer>> dependencies = new HashMap<>();
     // timestamp -> current watermark
@@ -24,18 +24,22 @@ public class OptimisticOpenOperator<T> extends OpenOperator<T> {
     private Set<Integer> laterReplay = new HashSet<>();
 
     public OptimisticOpenOperator(
-            TransactionsIndex transactionsIndex,
+            TransactionsIndex<T> transactionsIndex,
             CoordinatorTransactionCloser coordinatorTransactionCloser) {
         super(transactionsIndex, coordinatorTransactionCloser);
     }
 
     // replay
     private void collect(int tid) {
-        T value = elements.get(tid);
-        TransactionsIndex.LocalTransactionContext tContext = transactionsIndex.newTransaction(tid);
-        Metadata metadata = getMetadataFromContext(tContext);
-        onOpenTransaction(value, metadata);
-        collector.safeCollect(Enriched.of(metadata, value));
+        T element = transactionsIndex.getTransaction(tid).element;
+        TransactionsIndex<T>.LocalTransactionContext tContext = transactionsIndex.newTransaction(element, tid);
+        Metadata metadata = new Metadata(tid);
+        metadata.timestamp = tContext.timestamp;
+        metadata.coordinator = getCoordinatorAddress();
+        metadata.watermark = transactionsIndex.getCurrentWatermark();
+
+        onOpenTransaction(element, metadata);
+        collector.safeCollect(Enriched.of(metadata, element));
     }
 
     // called by OpenOperator#processElement
@@ -43,7 +47,6 @@ public class OptimisticOpenOperator<T> extends OpenOperator<T> {
     @Override
     protected void onOpenTransaction(T recordValue, Metadata metadata) {
         playedWithWatermark.put(metadata.tid, metadata.watermark);
-        elements.put(metadata.tid, recordValue);
     }
 
     private void replayElement(Integer tid) {
@@ -62,13 +65,12 @@ public class OptimisticOpenOperator<T> extends OpenOperator<T> {
 
     // thread-safe
     @Override
-    protected void closeTransaction(LocalTransactionContext transactionContext) {
+    protected void closeTransaction(TransactionsIndex.LocalTransactionContext transactionContext) {
         int tid = transactionContext.tid;
         int timestamp = transactionContext.timestamp;
         Vote vote = transactionContext.vote;
         int replayCause = transactionContext.replayCause;
 
-        updateStats(vote);
         Integer dependency = transactionsIndex.getTransactionId(replayCause);
 
         int oldWM = transactionsIndex.getCurrentWatermark();
@@ -93,7 +95,7 @@ public class OptimisticOpenOperator<T> extends OpenOperator<T> {
                 onTermination(tid);
                 break;
             case REPLAY:
-                if (dependency != null && tid > dependency && elements.get(dependency) != null) {
+                if (dependency != null && tid > dependency && transactionsIndex.getTransaction(dependency) != null) {
                     // the timestamp has a mapping in tids
                     // this transaction depends on a previous one
                     // the transaction on which the current one depends has not commited/aborted
@@ -104,13 +106,8 @@ public class OptimisticOpenOperator<T> extends OpenOperator<T> {
         }
     }
 
-    private void updateStats(Vote vote) {
-        stats.get(vote).add(1);
-    }
-
     private void onTermination(int tid) {
         // cleanup
-        elements.remove(tid);
         transactionsIndex.deleteTransaction(tid);
 
         Set<Integer> deps = dependencies.remove(tid);

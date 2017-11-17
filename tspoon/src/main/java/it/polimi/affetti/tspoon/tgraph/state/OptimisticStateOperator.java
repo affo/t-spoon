@@ -15,6 +15,7 @@ import org.apache.flink.util.OutputTag;
  */
 public class OptimisticStateOperator<T, V> extends StateOperator<T, V> {
     private VersioningStrategy versioningStrategy;
+    private boolean useDependencyTracking;
 
     public OptimisticStateOperator(
             String nameSpace,
@@ -22,7 +23,8 @@ public class OptimisticStateOperator<T, V> extends StateOperator<T, V> {
             OutputTag<Update<V>> updatesTag,
             StateOperatorTransactionCloser transactionCloser) {
         super(nameSpace, stateFunction, updatesTag, transactionCloser);
-        switch (TransactionEnvironment.isolationLevel) {
+        TransactionEnvironment tEnv = TransactionEnvironment.get();
+        switch (tEnv.getIsolationLevel()) {
             case PL0:
                 versioningStrategy = new PL0Strategy();
                 break;
@@ -39,6 +41,8 @@ public class OptimisticStateOperator<T, V> extends StateOperator<T, V> {
                 versioningStrategy = new PL3Strategy();
                 break;
         }
+
+        this.useDependencyTracking = tEnv.usingDependencyTracking();
     }
 
     @Override
@@ -68,7 +72,7 @@ public class OptimisticStateOperator<T, V> extends StateOperator<T, V> {
         }
 
         // add dependency
-        if (TransactionEnvironment.useDependencyTracking) {
+        if (useDependencyTracking) {
             metadata.dependencyTracking.addAll(versioningStrategy.extractDependencies(metadata, object));
         }
 
@@ -81,7 +85,7 @@ public class OptimisticStateOperator<T, V> extends StateOperator<T, V> {
     }
 
     @Override
-    protected void onTermination(int tid, Vote vote) {
+    protected void onTermination(TransactionContext tContext) {
         // does nothing
     }
 }
