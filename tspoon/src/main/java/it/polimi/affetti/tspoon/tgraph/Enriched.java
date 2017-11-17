@@ -19,8 +19,8 @@ public class Enriched<T> implements Serializable {
         this.value = value;
     }
 
-    public static <R> Enriched<R> of(Metadata transactionContext, R value) {
-        return new Enriched<>(transactionContext, value);
+    public static <R> Enriched<R> of(Metadata metadata, R value) {
+        return new Enriched<>(metadata, value);
     }
 
     public <R> Enriched<R> replace(R value) {
