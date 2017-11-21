@@ -32,6 +32,32 @@ function sleep_if {
     fi
 }
 
+function generate_post_data {
+    cat <<EOF
+{
+    "type": "note",
+    "title": "$1",
+    "body": "$2"
+}
+EOF
+}
+
+function notify {
+    if [[ -z $PUSH_BULLET_ACCESS_TOKEN ]]; then
+        echo ">>> No notification sent..."
+    else
+        echo ">>> Seinding notification..."
+        title="$1"
+        body="$2"
+        curl \
+            --header "Access-Token: $PUSH_BULLET_ACCESS_TOKEN" \
+            --header 'Content-Type: application/json' \
+            --request POST https://api.pushbullet.com/v2/pushes \
+            --data-binary "$(generate_post_data "$title" "$body")" >/dev/null
+        echo; echo
+    fi
+}
+
 function launch {
     if [[ "$#" -lt 1  ]]; then
         echo "launch <class> <params...>"
@@ -40,8 +66,10 @@ function launch {
 
     refresh_cluster
 
+
     cmd="$FLINK_BIN run -c "$PACKAGE_BASE.$1" $TARGET_JAR ${@:2} --isolationLevel $ISOLATION --optOrNot $IS_OPTIMISTIC $DEFAULT"
 
+    notify "t-spoon experiment" "$cmd"
     echo $cmd
     if [[ $DEBUG != true ]]; then
         eval $cmd
