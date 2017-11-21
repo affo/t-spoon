@@ -33,7 +33,9 @@ public class Evaluation {
     public static void main(String[] args) throws Exception {
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         env.setStreamTimeCharacteristic(TimeCharacteristic.ProcessingTime);
-        env.setBufferTimeout(1);
+        // Flink suggests to keep it within 5 and 10 ms:
+        // https://ci.apache.org/projects/flink/flink-docs-release-1.3/dev/datastream_api.html#controlling-latency
+        env.setBufferTimeout(5);
         ParameterTool parameters = ParameterTool.fromArgs(args);
 
         final int numRecords = parameters.getInt("nRec", 500000);
