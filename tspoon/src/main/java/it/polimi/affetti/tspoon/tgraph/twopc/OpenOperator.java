@@ -23,7 +23,7 @@ import java.util.Map;
 public abstract class OpenOperator<T>
         extends AbstractStreamOperator<Enriched<T>>
         implements OneInputStreamOperator<T, Enriched<T>>,
-        CloseTransactionListener {
+        CoordinatorCloseTransactionListener {
     public final OutputTag<Tuple2<Long, Vote>> logTag = new OutputTag<Tuple2<Long, Vote>>("tLog") {
     };
 

@@ -8,11 +8,11 @@ import it.polimi.affetti.tspoon.runtime.WithServer;
  * Created by affo on 09/11/17.
  */
 public class VolatileCoordinatorTransactionCloser implements CoordinatorTransactionCloser {
-    private CloseTransactionListener listener;
+    private CoordinatorCloseTransactionListener listener;
     private transient WithServer server;
 
     @Override
-    public void open(CloseTransactionListener listener) throws Exception {
+    public void open(CoordinatorCloseTransactionListener listener) throws Exception {
         this.listener = listener;
 
         server = new WithServer(new OpenServer());

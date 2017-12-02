@@ -14,6 +14,7 @@ public interface StateOperatorTransactionCloser extends Serializable {
 
     void close() throws Exception;
 
-    void closeTransaction(Address coordinatorAddress, int timestamp, String request,
-                          Consumer<Void> success, Consumer<Throwable> error);
+    Address getStateServerAddress();
+
+    void subscribe(StateCloseTransactionListener listener);
 }

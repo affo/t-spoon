@@ -4,7 +4,6 @@ import it.polimi.affetti.tspoon.common.Address;
 import it.polimi.affetti.tspoon.common.InOrderSideCollector;
 import it.polimi.affetti.tspoon.common.RandomProvider;
 import it.polimi.affetti.tspoon.runtime.JobControlClient;
-import it.polimi.affetti.tspoon.runtime.ProcessRequestServer;
 import it.polimi.affetti.tspoon.runtime.WithServer;
 import it.polimi.affetti.tspoon.tgraph.Enriched;
 import it.polimi.affetti.tspoon.tgraph.Metadata;
@@ -12,6 +11,7 @@ import it.polimi.affetti.tspoon.tgraph.Vote;
 import it.polimi.affetti.tspoon.tgraph.db.Object;
 import it.polimi.affetti.tspoon.tgraph.query.*;
 import it.polimi.affetti.tspoon.tgraph.twopc.CloseTransactionNotification;
+import it.polimi.affetti.tspoon.tgraph.twopc.StateCloseTransactionListener;
 import it.polimi.affetti.tspoon.tgraph.twopc.StateOperatorTransactionCloser;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.runtime.state.StateInitializationContext;
@@ -25,7 +25,6 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
-import java.util.stream.Stream;
 
 /**
  * Created by affo on 14/07/17.
@@ -33,7 +32,7 @@ import java.util.stream.Stream;
 public abstract class StateOperator<T, V>
         extends AbstractStreamOperator<Enriched<T>>
         implements OneInputStreamOperator<Enriched<T>, Enriched<T>>,
-        QueryVisitor, QueryListener {
+        QueryVisitor, QueryListener, StateCloseTransactionListener {
     private long counter = 0;
     private final String nameSpace;
     public final OutputTag<Update<V>> updatesTag;
@@ -49,7 +48,6 @@ public abstract class StateOperator<T, V>
 
     private transient JobControlClient jobControlClient;
 
-    private transient WithServer srv;
     private transient WithServer queryServer;
     private final StateOperatorTransactionCloser transactionCloser;
 
@@ -77,9 +75,6 @@ public abstract class StateOperator<T, V>
         maxNumberOfVersions = parameterTool.getInt("maxNoVersions", 100);
         jobControlClient = JobControlClient.get(parameterTool);
 
-        srv = new WithServer(new TransactionCloseServer());
-        srv.open();
-
         queryServer = new WithServer(new QueryServer(this));
         queryServer.open();
 
@@ -89,13 +84,13 @@ public abstract class StateOperator<T, V>
 
         collector = new InOrderSideCollector<>(output, updatesTag);
 
+        transactionCloser.subscribe(this);
         transactionCloser.open();
     }
 
     @Override
     public void close() throws Exception {
         super.close();
-        srv.close();
         queryServer.close();
         transactionCloser.close();
         if (jobControlClient != null) {
@@ -122,7 +117,7 @@ public abstract class StateOperator<T, V>
             return;
         }
 
-        metadata.addCohort(srv.getMyAddress());
+        metadata.addCohort(transactionCloser.getStateServerAddress());
 
         Object<V> object = getObject(key);
         TransactionContext transaction = transactions.computeIfAbsent(metadata.timestamp,
@@ -146,28 +141,33 @@ public abstract class StateOperator<T, V>
 
     protected abstract void onTermination(TransactionContext tContext);
 
-    private class TransactionCloseServer extends ProcessRequestServer {
-        @Override
-        protected void parseRequest(String request) {
-            // LOG.info(srv.getMyAddress() + " " + request);
-            CloseTransactionNotification notification = CloseTransactionNotification.deserialize(request);
+    @Override
+    public void onTransactionClosedSuccess(CloseTransactionNotification notification) {
+        TransactionContext tContext = transactions.remove(notification.timestamp);
+        tContext.applyChanges(notification.vote);
+        List<Update<V>> updates = notification.vote != Vote.COMMIT ?
+                Collections.emptyList() : tContext.getUpdates();
+        collector.collectInOrder(updates, tContext.localId);
+        collector.flushOrdered(tContext.localId);
+        onTermination(tContext);
+    }
 
-            TransactionContext tContext = transactions.remove(notification.timestamp);
-            tContext.vote = notification.vote;
-            List<Update<V>> updates = tContext.applyChanges();
-            String requestWUpdates = request + "," + updates;
+    @Override
+    public void onTransactionClosedError(
+            CloseTransactionNotification notification, Throwable error) {
+        TransactionContext tContext = transactions.remove(notification.timestamp);
+        LOG.error("StateOperator - transaction (" + tContext.tid +
+                ") - error on receiving ACK from coordinator: " + error.getMessage());
+    }
 
-            transactionCloser.closeTransaction(
-                    tContext.coordinator, notification.timestamp, requestWUpdates,
-                    aVoid -> {
-                        collector.collectInOrder(updates, tContext.localId);
-                        collector.flushOrdered(tContext.localId);
-                        onTermination(tContext);
-                    },
-                    error -> LOG.error("StateOperator - transaction (" + tContext.tid + ", " + tContext.vote +
-                            ") - error on receiving ACK from coordinator: " + error.getMessage())
-            );
-        }
+    @Override
+    public String getUpdatesRepresentation(int timestamp) {
+        return transactions.get(timestamp).getUpdates().toString();
+    }
+
+    @Override
+    public Address getCoordinatorAddressForTransaction(int timestamp) {
+        return transactions.get(timestamp).coordinator;
     }
 
     public class TransactionContext {
@@ -175,11 +175,10 @@ public abstract class StateOperator<T, V>
         public final int tid;
         // track versions
         public int version;
-        private Vote vote;
         // if the same key is edited twice the object is touched only once
         public final Map<String, Object<V>> touchedObjects = new HashMap<>();
         public final Address coordinator;
-        Stream<Update<V>> updates;
+        List<Update<V>> updates;
 
         public TransactionContext(long localId, int tid, int timestamp, Address coordinator) {
             this.localId = localId;
@@ -193,33 +192,38 @@ public abstract class StateOperator<T, V>
             this.touchedObjects.put(key, object);
         }
 
-        private Stream<Update<V>> calculateUpdates() {
-            return touchedObjects.entrySet().stream().map(
-                    entry -> Update.of(tid, entry.getKey(),
-                            entry.getValue().getVersion(version).object));
+        private List<Update<V>> calculateUpdates() {
+            return touchedObjects.entrySet().stream()
+                    .map((Map.Entry<String, Object<V>> entry) -> Update.of(tid, entry.getKey(),
+                            entry.getValue().getVersion(version).object))
+                    .collect(Collectors.toList());
         }
 
+        /**
+         * I expect this to be called only upon transaction completion
+         *
+         * @return
+         */
         public List<Update<V>> getUpdates() {
-            return updates.collect(Collectors.toList());
+            if (updates == null) {
+                updates = calculateUpdates();
+            }
+            return updates;
         }
 
-        public List<Update<V>> applyChanges() {
+        public void applyChanges(Vote vote) {
             // NOTE that commit/abort on multiple objects is not atomic wrt external queries and internal operations
             if (vote == Vote.COMMIT) {
-                updates = calculateUpdates();
                 for (Object<V> object : touchedObjects.values()) {
                     object.commitVersion(version);
                     // perform version cleanup
                     versionCleanup(object, version);
                 }
             } else {
-                updates = Stream.empty();
                 for (Object<V> object : touchedObjects.values()) {
                     object.deleteVersion(version);
                 }
             }
-
-            return updates.collect(Collectors.toList());
         }
     }
 

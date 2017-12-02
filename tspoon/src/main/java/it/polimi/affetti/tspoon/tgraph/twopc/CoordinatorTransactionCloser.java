@@ -9,7 +9,7 @@ import java.io.Serializable;
  */
 public interface CoordinatorTransactionCloser extends Serializable {
     // For lifecycle
-    void open(CloseTransactionListener listener) throws Exception;
+    void open(CoordinatorCloseTransactionListener listener) throws Exception;
 
     void close() throws Exception;
 

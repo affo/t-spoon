@@ -13,7 +13,7 @@ import java.util.Map;
  * Created by affo on 09/11/17.
  */
 public class DurableCoordinatorTransactionCloser implements CoordinatorTransactionCloser {
-    private CloseTransactionListener listener;
+    private CoordinatorCloseTransactionListener listener;
     private transient WithServer server;
     private final Map<Integer, Integer> counters = new HashMap<>();
     private final Map<Integer, String> updates = new HashMap<>();
@@ -21,7 +21,7 @@ public class DurableCoordinatorTransactionCloser implements CoordinatorTransacti
     private transient WAL wal;
 
     @Override
-    public void open(CloseTransactionListener listener) throws Exception {
+    public void open(CoordinatorCloseTransactionListener listener) throws Exception {
         this.listener = listener;
 
         server = new WithServer(new OpenServer());

@@ -12,48 +12,44 @@ import java.util.function.Consumer;
 /**
  * Created by affo on 10/11/17.
  */
-public class DurableStateTransactionCloser implements StateOperatorTransactionCloser {
+public class DurableStateTransactionCloser extends AbstractStateOperationTransactionCloser {
     private transient StringClientsCache clientsCache;
     private transient ExecutorService pool;
 
-
     @Override
     public void open() throws Exception {
+        super.open();
         clientsCache = new StringClientsCache();
         pool = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
     }
 
     @Override
     public void close() throws Exception {
+        super.close();
         clientsCache.clear();
         pool.shutdown();
     }
 
-    /**
-     * @param coordinatorAddress
-     * @param timestamp
-     * @param request            the request to be sent (in case) to coordinator (complete of updates)
-     */
     @Override
-    public void closeTransaction(
-            Address coordinatorAddress, int timestamp, String request,
-            Consumer<Void> success, Consumer<Throwable> error) {
+    protected void onClose(Address coordinatorAddress, String request,
+                           Consumer<Void> success, Consumer<Throwable> error) {
+        StringClient coordinator;
         try {
-            StringClient coordinator = clientsCache.getOrCreateClient(coordinatorAddress);
-
-            coordinator.send(request);
-
-            pool.submit(() -> {
-                try {
-                    // wait for the ACK
-                    coordinator.receive();
-                    success.accept(null);
-                } catch (IOException e) {
-                    error.accept(e);
-                }
-            });
+            coordinator = clientsCache.getOrCreateClient(coordinatorAddress);
         } catch (IOException e) {
-            throw new RuntimeException("Cannot create connection to coordinator " + coordinatorAddress);
+            throw new IllegalStateException("Cannot connect to coordinator: " + coordinatorAddress);
         }
+
+        coordinator.send(request);
+
+        pool.submit(() -> {
+            try {
+                // wait for the ACK
+                coordinator.receive();
+                success.accept(null);
+            } catch (IOException e) {
+                error.accept(e);
+            }
+        });
     }
 }

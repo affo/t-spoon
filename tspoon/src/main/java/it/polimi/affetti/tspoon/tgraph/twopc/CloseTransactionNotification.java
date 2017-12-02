@@ -42,6 +42,10 @@ public class CloseTransactionNotification implements Serializable {
         return new CloseTransactionNotification(timestamp, vote, batchSize, replayCause, updates);
     }
 
+    public String serialize() {
+        return CloseTransactionNotification.serialize(timestamp, vote, batchSize, replayCause, updates);
+    }
+
     public static String serialize(int timestamp, Vote vote, int batchSize, int replayCause, String updates) {
         String serialized = timestamp + "," + vote.ordinal() + ","
                 + batchSize + "," + replayCause;
