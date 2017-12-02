@@ -56,4 +56,15 @@ public class CloseTransactionNotification implements Serializable {
 
         return serialized;
     }
+
+    @Override
+    public String toString() {
+        return "CloseTransactionNotification{" +
+                "timestamp=" + timestamp +
+                ", vote=" + vote +
+                ", batchSize=" + batchSize +
+                ", replayCause=" + replayCause +
+                ", updates='" + updates + '\'' +
+                '}';
+    }
 }
