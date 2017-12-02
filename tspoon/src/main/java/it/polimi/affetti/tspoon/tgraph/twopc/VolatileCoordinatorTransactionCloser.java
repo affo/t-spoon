@@ -1,31 +1,15 @@
 package it.polimi.affetti.tspoon.tgraph.twopc;
 
-import it.polimi.affetti.tspoon.common.Address;
+import it.polimi.affetti.tspoon.runtime.AbstractServer;
 import it.polimi.affetti.tspoon.runtime.ProcessRequestServer;
-import it.polimi.affetti.tspoon.runtime.WithServer;
 
 /**
  * Created by affo on 09/11/17.
  */
-public class VolatileCoordinatorTransactionCloser implements CoordinatorTransactionCloser {
-    private CoordinatorCloseTransactionListener listener;
-    private transient WithServer server;
-
+public class VolatileCoordinatorTransactionCloser extends AbstractOpenOperatorTransactionCloser {
     @Override
-    public void open(CoordinatorCloseTransactionListener listener) throws Exception {
-        this.listener = listener;
-
-        server = new WithServer(new OpenServer());
-        server.open();
-    }
-
-    @Override
-    public void close() throws Exception {
-        this.server.close();
-    }
-
-    public Address getAddress() {
-        return server.getMyAddress();
+    protected AbstractServer getServer() {
+        return new OpenServer();
     }
 
     private class OpenServer extends ProcessRequestServer {
@@ -33,7 +17,9 @@ public class VolatileCoordinatorTransactionCloser implements CoordinatorTransact
         protected void parseRequest(String request) {
             // LOG.info(request);
             CloseTransactionNotification notification = CloseTransactionNotification.deserialize(request);
-            listener.onCloseTransaction(notification);
+            for (CoordinatorCloseTransactionListener listener : listeners) {
+                listener.onCloseTransaction(notification);
+            }
         }
     }
 }

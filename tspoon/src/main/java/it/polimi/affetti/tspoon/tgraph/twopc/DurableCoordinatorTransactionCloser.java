@@ -1,8 +1,7 @@
 package it.polimi.affetti.tspoon.tgraph.twopc;
 
-import it.polimi.affetti.tspoon.common.Address;
+import it.polimi.affetti.tspoon.runtime.AbstractServer;
 import it.polimi.affetti.tspoon.runtime.BroadcastByKeyServer;
-import it.polimi.affetti.tspoon.runtime.WithServer;
 import it.polimi.affetti.tspoon.tgraph.Vote;
 
 import java.io.IOException;
@@ -12,21 +11,15 @@ import java.util.Map;
 /**
  * Created by affo on 09/11/17.
  */
-public class DurableCoordinatorTransactionCloser implements CoordinatorTransactionCloser {
-    private CoordinatorCloseTransactionListener listener;
-    private transient WithServer server;
+public class DurableCoordinatorTransactionCloser extends AbstractOpenOperatorTransactionCloser {
     private final Map<Integer, Integer> counters = new HashMap<>();
     private final Map<Integer, String> updates = new HashMap<>();
 
     private transient WAL wal;
 
     @Override
-    public void open(CoordinatorCloseTransactionListener listener) throws Exception {
-        this.listener = listener;
-
-        server = new WithServer(new OpenServer());
-        server.open();
-
+    public void open() throws Exception {
+        super.open();
         // TODO send to kafka
         // up to now, we only introduce overhead by writing to disk
         wal = new DummyWAL("wal.log");
@@ -34,12 +27,8 @@ public class DurableCoordinatorTransactionCloser implements CoordinatorTransacti
     }
 
     @Override
-    public void close() throws Exception {
-        this.server.close();
-    }
-
-    public Address getAddress() {
-        return server.getMyAddress();
+    protected AbstractServer getServer() {
+        return new OpenServer();
     }
 
     private synchronized boolean handleStateAck(CloseTransactionNotification notification) {
@@ -94,7 +83,7 @@ public class DurableCoordinatorTransactionCloser implements CoordinatorTransacti
             boolean closed = handleStateAck(notification);
             if (closed) {
                 broadcastByKey(key, "");
-                listener.onCloseTransaction(notification);
+                notifyListeners(notification);
             }
         }
 

@@ -55,7 +55,8 @@ public abstract class OpenOperator<T>
         // TODO temporarly avoiding log ordering
         // collector = new InOrderSideCollector<>(output, logTag);
         collector = new SafeCollector<>(output);
-        coordinatorTransactionCloser.open(this);
+        coordinatorTransactionCloser.subscribe(this);
+        coordinatorTransactionCloser.open();
 
         // register accumulators
         for (Map.Entry<Vote, IntCounter> s : stats.entrySet()) {
@@ -88,7 +89,7 @@ public abstract class OpenOperator<T>
     }
 
     protected Address getCoordinatorAddress() {
-        return coordinatorTransactionCloser.getAddress();
+        return coordinatorTransactionCloser.getOpenServerAddress();
     }
 
     protected abstract void onOpenTransaction(T recordValue, Metadata metadata);

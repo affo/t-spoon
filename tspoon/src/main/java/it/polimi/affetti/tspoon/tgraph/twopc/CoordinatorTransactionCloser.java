@@ -8,10 +8,12 @@ import java.io.Serializable;
  * Created by affo on 09/11/17.
  */
 public interface CoordinatorTransactionCloser extends Serializable {
+    void subscribe(CoordinatorCloseTransactionListener listener);
+
+    Address getOpenServerAddress();
+
     // For lifecycle
-    void open(CoordinatorCloseTransactionListener listener) throws Exception;
+    void open() throws Exception;
 
     void close() throws Exception;
-
-    Address getAddress();
 }
