@@ -7,11 +7,9 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketException;
 import java.net.UnknownHostException;
-import java.util.ArrayList;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Random;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -23,13 +21,13 @@ public abstract class AbstractServer implements Runnable {
 
     private int listenPort;
     private ServerSocket srv;
-    private final ExecutorService pool;
-    private List<ClientHandler> rcvrs;
+    private List<ClientHandler> handlers;
+    private List<Thread> executors;
     private volatile boolean stop;
 
     public AbstractServer() {
-        this.pool = Executors.newCachedThreadPool();
-        this.rcvrs = new ArrayList<>();
+        this.handlers = new LinkedList<>();
+        this.executors = new LinkedList<>();
         this.stop = false;
     }
 
@@ -78,9 +76,12 @@ public abstract class AbstractServer implements Runnable {
                 Socket s = srv.accept();
                 LOG.info(String.format("Connection accepted: %s:%d", s.getLocalAddress(), s.getLocalPort()));
                 ClientHandler r = getHandlerFor(s);
-                rcvrs.add(r);
+                handlers.add(r);
+                Thread executor = new Thread(r);
+                executors.add(executor);
                 r.init();
-                pool.execute(r);
+
+                executor.start();
             }
         } catch (SocketException se) {
             // should happen when the socket is closed
@@ -90,13 +91,15 @@ public abstract class AbstractServer implements Runnable {
         }
     }
 
-    public void close() throws IOException {
+    public void close() throws Exception {
         this.stop = true;
         srv.close();
-        for (ClientHandler r : rcvrs) {
+        for (ClientHandler r : handlers) {
             r.close();
         }
-        pool.shutdownNow();
+        for (Thread t : executors) {
+            t.join();
+        }
     }
 
     public int getPort() {
