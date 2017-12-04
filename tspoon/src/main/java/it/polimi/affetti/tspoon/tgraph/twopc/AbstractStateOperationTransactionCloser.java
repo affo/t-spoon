@@ -5,15 +5,13 @@ import it.polimi.affetti.tspoon.runtime.ProcessRequestServer;
 import it.polimi.affetti.tspoon.runtime.WithServer;
 import it.polimi.affetti.tspoon.tgraph.Vote;
 
-import java.util.LinkedList;
-import java.util.List;
 import java.util.function.Consumer;
 
 /**
  * Created by affo on 01/12/17.
  */
-public abstract class AbstractStateOperationTransactionCloser implements StateOperatorTransactionCloser {
-    private List<StateCloseTransactionListener> listeners = new LinkedList<>();
+public abstract class AbstractStateOperationTransactionCloser
+        extends AbstractTwoPCParticipant<StateOperatorTransactionCloseListener> {
     private transient WithServer srv;
 
     @Override
@@ -28,13 +26,8 @@ public abstract class AbstractStateOperationTransactionCloser implements StateOp
     }
 
     @Override
-    public Address getStateServerAddress() {
+    public Address getServerAddress() {
         return srv.getMyAddress();
-    }
-
-    @Override
-    public void subscribe(StateCloseTransactionListener listener) {
-        listeners.add(listener);
     }
 
     protected abstract void onClose(Address coordinatorAddress, String request,
@@ -46,15 +39,16 @@ public abstract class AbstractStateOperationTransactionCloser implements StateOp
             // LOG.info(srv.getMyAddress() + " " + request);
             CloseTransactionNotification notification = CloseTransactionNotification.deserialize(request);
 
-            for (StateCloseTransactionListener listener : listeners) {
-                String updatesRepresentation = notification.vote == Vote.COMMIT ?
-                        listener.getUpdatesRepresentation(notification.timestamp) : "[]";
-                Address coordinatorAddress = listener.getCoordinatorAddressForTransaction(notification.timestamp);
-                onClose(coordinatorAddress, request + "," + updatesRepresentation,
-                        (aVoid) -> listener.onTransactionClosedSuccess(notification),
-                        (error) -> listener.onTransactionClosedError(notification, error)
-                );
-            }
+            notifyListeners(notification,
+                    (listener) -> {
+                        String updatesRepresentation = notification.vote == Vote.COMMIT ?
+                                listener.getUpdatesRepresentation(notification.timestamp) : "[]";
+                        Address coordinatorAddress = listener.getCoordinatorAddressForTransaction(notification.timestamp);
+                        onClose(coordinatorAddress, request + "," + updatesRepresentation,
+                                (aVoid) -> listener.onTransactionClosedSuccess(notification),
+                                (error) -> listener.onTransactionClosedError(notification, error)
+                        );
+                    });
         }
     }
 }

@@ -11,7 +11,7 @@ import java.util.Map;
 /**
  * Created by affo on 09/11/17.
  */
-public class DurableCoordinatorTransactionCloser extends AbstractOpenOperatorTransactionCloser {
+public class DurableOpenOperatorTransactionCloser extends AbstractOpenOperatorTransactionCloser {
     private final Map<Integer, Integer> counters = new HashMap<>();
     private final Map<Integer, String> updates = new HashMap<>();
 
@@ -83,7 +83,7 @@ public class DurableCoordinatorTransactionCloser extends AbstractOpenOperatorTra
             boolean closed = handleStateAck(notification);
             if (closed) {
                 broadcastByKey(key, "");
-                notifyListeners(notification);
+                notifyListeners(notification, listener -> listener.onCloseTransaction(notification));
             }
         }
 

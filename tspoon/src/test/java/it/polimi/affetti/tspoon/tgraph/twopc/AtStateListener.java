@@ -6,7 +6,7 @@ import it.polimi.affetti.tspoon.common.Address;
  * Created by affo on 02/12/17.
  */
 public class AtStateListener extends WithMessageQueue<CloseTransactionNotification>
-        implements StateCloseTransactionListener {
+        implements StateOperatorTransactionCloseListener {
     public final static String prefix = ">> AtState:\t";
     private Address coordinatorAddress;
 

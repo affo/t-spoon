@@ -6,7 +6,7 @@ import it.polimi.affetti.tspoon.tgraph.Vote;
 import it.polimi.affetti.tspoon.tgraph.db.Object;
 import it.polimi.affetti.tspoon.tgraph.db.ObjectHandler;
 import it.polimi.affetti.tspoon.tgraph.db.ObjectVersion;
-import it.polimi.affetti.tspoon.tgraph.twopc.StateOperatorTransactionCloser;
+import it.polimi.affetti.tspoon.tgraph.twopc.AbstractStateOperationTransactionCloser;
 import org.apache.flink.util.OutputTag;
 
 import java.util.HashMap;
@@ -35,7 +35,7 @@ public class PessimisticStateOperator<T, V> extends StateOperator<T, V>
             String nameSpace,
             StateFunction<T, V> stateFunction,
             OutputTag<Update<V>> updatesTag,
-            StateOperatorTransactionCloser transactionCloser) {
+            AbstractStateOperationTransactionCloser transactionCloser) {
         super(nameSpace, stateFunction, updatesTag, transactionCloser);
     }
 

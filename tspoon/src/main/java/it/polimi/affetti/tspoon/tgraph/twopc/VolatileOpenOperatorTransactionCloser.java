@@ -6,7 +6,7 @@ import it.polimi.affetti.tspoon.runtime.ProcessRequestServer;
 /**
  * Created by affo on 09/11/17.
  */
-public class VolatileCoordinatorTransactionCloser extends AbstractOpenOperatorTransactionCloser {
+public class VolatileOpenOperatorTransactionCloser extends AbstractOpenOperatorTransactionCloser {
     @Override
     protected AbstractServer getServer() {
         return new OpenServer();
@@ -17,9 +17,7 @@ public class VolatileCoordinatorTransactionCloser extends AbstractOpenOperatorTr
         protected void parseRequest(String request) {
             // LOG.info(request);
             CloseTransactionNotification notification = CloseTransactionNotification.deserialize(request);
-            for (CoordinatorCloseTransactionListener listener : listeners) {
-                listener.onCloseTransaction(notification);
-            }
+            notifyListeners(notification, (listener) -> listener.onCloseTransaction(notification));
         }
     }
 }

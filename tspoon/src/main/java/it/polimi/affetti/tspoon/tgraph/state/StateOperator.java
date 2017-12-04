@@ -10,9 +10,9 @@ import it.polimi.affetti.tspoon.tgraph.Metadata;
 import it.polimi.affetti.tspoon.tgraph.Vote;
 import it.polimi.affetti.tspoon.tgraph.db.Object;
 import it.polimi.affetti.tspoon.tgraph.query.*;
+import it.polimi.affetti.tspoon.tgraph.twopc.AbstractStateOperationTransactionCloser;
 import it.polimi.affetti.tspoon.tgraph.twopc.CloseTransactionNotification;
-import it.polimi.affetti.tspoon.tgraph.twopc.StateCloseTransactionListener;
-import it.polimi.affetti.tspoon.tgraph.twopc.StateOperatorTransactionCloser;
+import it.polimi.affetti.tspoon.tgraph.twopc.StateOperatorTransactionCloseListener;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.runtime.state.StateInitializationContext;
 import org.apache.flink.runtime.state.StateSnapshotContext;
@@ -32,7 +32,7 @@ import java.util.stream.IntStream;
 public abstract class StateOperator<T, V>
         extends AbstractStreamOperator<Enriched<T>>
         implements OneInputStreamOperator<Enriched<T>, Enriched<T>>,
-        QueryVisitor, QueryListener, StateCloseTransactionListener {
+        QueryVisitor, QueryListener, StateOperatorTransactionCloseListener {
     private long counter = 0;
     private final String nameSpace;
     public final OutputTag<Update<V>> updatesTag;
@@ -49,7 +49,7 @@ public abstract class StateOperator<T, V>
     private transient JobControlClient jobControlClient;
 
     private transient WithServer queryServer;
-    private final StateOperatorTransactionCloser transactionCloser;
+    private final AbstractStateOperationTransactionCloser transactionCloser;
 
     // randomizer to build queries
     private Random random = RandomProvider.get();
@@ -58,7 +58,7 @@ public abstract class StateOperator<T, V>
             String nameSpace,
             StateFunction<T, V> stateFunction,
             OutputTag<Update<V>> updatesTag,
-            StateOperatorTransactionCloser transactionCloser) {
+            AbstractStateOperationTransactionCloser transactionCloser) {
         this.nameSpace = nameSpace;
         this.stateFunction = stateFunction;
         this.updatesTag = updatesTag;
@@ -84,7 +84,6 @@ public abstract class StateOperator<T, V>
 
         collector = new InOrderSideCollector<>(output, updatesTag);
 
-        transactionCloser.subscribe(this);
         transactionCloser.open();
     }
 
@@ -117,12 +116,13 @@ public abstract class StateOperator<T, V>
             return;
         }
 
-        metadata.addCohort(transactionCloser.getStateServerAddress());
+        metadata.addCohort(transactionCloser.getServerAddress());
 
         Object<V> object = getObject(key);
         TransactionContext transaction = transactions.computeIfAbsent(metadata.timestamp,
                 ts -> {
                     counter++;
+                    transactionCloser.subscribeTo(ts, this);
                     return new TransactionContext(counter, metadata.tid, ts, metadata.coordinator);
                 });
         transaction.addObject(key, object);

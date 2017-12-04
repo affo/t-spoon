@@ -23,7 +23,7 @@ import java.util.Map;
 public abstract class OpenOperator<T>
         extends AbstractStreamOperator<Enriched<T>>
         implements OneInputStreamOperator<T, Enriched<T>>,
-        CoordinatorCloseTransactionListener {
+        OpenOperatorTransactionCloseListener {
     public final OutputTag<Tuple2<Long, Vote>> logTag = new OutputTag<Tuple2<Long, Vote>>("tLog") {
     };
 
@@ -32,15 +32,15 @@ public abstract class OpenOperator<T>
     protected transient SafeCollector<T> collector;
 
     protected final TransactionsIndex<T> transactionsIndex;
-    private final CoordinatorTransactionCloser coordinatorTransactionCloser;
+    protected final AbstractOpenOperatorTransactionCloser openOperatorTransactionCloser;
 
     // stats
     protected Map<Vote, IntCounter> stats = new HashMap<>();
 
     public OpenOperator(
             TransactionsIndex<T> transactionsIndex,
-            CoordinatorTransactionCloser coordinatorTransactionCloser) {
-        this.coordinatorTransactionCloser = coordinatorTransactionCloser;
+            AbstractOpenOperatorTransactionCloser openOperatorTransactionCloser) {
+        this.openOperatorTransactionCloser = openOperatorTransactionCloser;
         this.transactionsIndex = transactionsIndex;
 
         for (Vote vote : Vote.values()) {
@@ -55,8 +55,7 @@ public abstract class OpenOperator<T>
         // TODO temporarly avoiding log ordering
         // collector = new InOrderSideCollector<>(output, logTag);
         collector = new SafeCollector<>(output);
-        coordinatorTransactionCloser.subscribe(this);
-        coordinatorTransactionCloser.open();
+        openOperatorTransactionCloser.open();
 
         // register accumulators
         for (Map.Entry<Vote, IntCounter> s : stats.entrySet()) {
@@ -68,7 +67,7 @@ public abstract class OpenOperator<T>
     @Override
     public void close() throws Exception {
         super.close();
-        coordinatorTransactionCloser.close();
+        openOperatorTransactionCloser.close();
     }
 
     private void updateStats(Vote vote) {
@@ -84,12 +83,14 @@ public abstract class OpenOperator<T>
         metadata.coordinator = getCoordinatorAddress();
         metadata.watermark = transactionsIndex.getCurrentWatermark();
 
+        openOperatorTransactionCloser.subscribeTo(tContext.timestamp, this);
+
         onOpenTransaction(element, metadata);
         collector.safeCollect(sr.replace(Enriched.of(metadata, element)));
     }
 
     protected Address getCoordinatorAddress() {
-        return coordinatorTransactionCloser.getOpenServerAddress();
+        return openOperatorTransactionCloser.getServerAddress();
     }
 
     protected abstract void onOpenTransaction(T recordValue, Metadata metadata);

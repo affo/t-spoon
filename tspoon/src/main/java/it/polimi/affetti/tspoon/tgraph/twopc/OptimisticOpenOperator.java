@@ -40,8 +40,8 @@ public class OptimisticOpenOperator<T> extends OpenOperator<T> {
 
     public OptimisticOpenOperator(
             TransactionsIndex<T> transactionsIndex,
-            CoordinatorTransactionCloser coordinatorTransactionCloser) {
-        super(transactionsIndex, coordinatorTransactionCloser);
+            AbstractOpenOperatorTransactionCloser openOperatorTransactionCloser) {
+        super(transactionsIndex, openOperatorTransactionCloser);
         Report.registerAccumulator(DEPENDENCY_REPLAYED_COUNTER_NAME);
         Report.registerAccumulator(REPLAYED_UPON_WATERMARK_UPDATE_COUNTER_NAME);
         Report.registerAccumulator(DIRECTLY_REPLAYED_COUNTER_NAME);
@@ -67,6 +67,8 @@ public class OptimisticOpenOperator<T> extends OpenOperator<T> {
         metadata.timestamp = tContext.timestamp;
         metadata.coordinator = getCoordinatorAddress();
         metadata.watermark = transactionsIndex.getCurrentWatermark();
+
+        openOperatorTransactionCloser.subscribeTo(tContext.timestamp, this);
 
         onOpenTransaction(element, metadata);
         collector.safeCollect(Enriched.of(metadata, element));

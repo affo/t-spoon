@@ -15,9 +15,9 @@ public interface TwoPCFactory extends Serializable {
 
     <T> TransactionsIndex<T> getTransactionsIndex();
 
-    CoordinatorTransactionCloser getSourceTransactionCloser();
+    AbstractOpenOperatorTransactionCloser getSourceTransactionCloser();
 
-    StateOperatorTransactionCloser getAtStateTransactionCloser();
+    AbstractStateOperationTransactionCloser getAtStateTransactionCloser();
 
     CloseSinkTransactionCloser getSinkTransactionCloser();
 }

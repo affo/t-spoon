@@ -4,14 +4,11 @@ import it.polimi.affetti.tspoon.common.Address;
 import it.polimi.affetti.tspoon.runtime.AbstractServer;
 import it.polimi.affetti.tspoon.runtime.WithServer;
 
-import java.util.LinkedList;
-import java.util.List;
-
 /**
  * Created by affo on 09/11/17.
  */
-public abstract class AbstractOpenOperatorTransactionCloser implements CoordinatorTransactionCloser {
-    protected List<CoordinatorCloseTransactionListener> listeners = new LinkedList<>();
+public abstract class AbstractOpenOperatorTransactionCloser extends
+        AbstractTwoPCParticipant<OpenOperatorTransactionCloseListener> {
     private transient WithServer server;
 
     @Override
@@ -26,17 +23,7 @@ public abstract class AbstractOpenOperatorTransactionCloser implements Coordinat
     }
 
     @Override
-    public void subscribe(CoordinatorCloseTransactionListener listener) {
-        listeners.add(listener);
-    }
-
-    protected void notifyListeners(CloseTransactionNotification notification) {
-        for (CoordinatorCloseTransactionListener listener : listeners) {
-            listener.onCloseTransaction(notification);
-        }
-    }
-
-    public Address getOpenServerAddress() {
+    public Address getServerAddress() {
         return server.getMyAddress();
     }
 

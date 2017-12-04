@@ -18,12 +18,12 @@ public abstract class AbstractTwoPCFactory implements TwoPCFactory {
     }
 
     @Override
-    public CoordinatorTransactionCloser getSourceTransactionCloser() {
+    public AbstractOpenOperatorTransactionCloser getSourceTransactionCloser() {
         if (TransactionEnvironment.get().isDurabilityEnabled()) {
-            return new DurableCoordinatorTransactionCloser();
+            return new DurableOpenOperatorTransactionCloser();
         }
 
-        return new VolatileCoordinatorTransactionCloser();
+        return new VolatileOpenOperatorTransactionCloser();
     }
 
     @Override
@@ -36,7 +36,7 @@ public abstract class AbstractTwoPCFactory implements TwoPCFactory {
     }
 
     @Override
-    public StateOperatorTransactionCloser getAtStateTransactionCloser() {
+    public AbstractStateOperationTransactionCloser getAtStateTransactionCloser() {
         if (TransactionEnvironment.get().isDurabilityEnabled()) {
             return new DurableStateTransactionCloser();
         }

@@ -3,9 +3,14 @@ package it.polimi.affetti.tspoon.tgraph.twopc;
 import it.polimi.affetti.tspoon.common.Address;
 import it.polimi.affetti.tspoon.tgraph.Metadata;
 import it.polimi.affetti.tspoon.tgraph.TransactionEnvironment;
+import org.apache.flink.hadoop.shaded.com.google.common.collect.Sets;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+
+import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
@@ -14,8 +19,8 @@ import static org.junit.Assert.assertTrue;
  * Created by affo on 02/12/17.
  */
 public abstract class SimpleTwoPCTest {
-    private CoordinatorTransactionCloser coordinator;
-    private StateOperatorTransactionCloser stateOp;
+    private AbstractOpenOperatorTransactionCloser coordinator;
+    private AbstractStateOperationTransactionCloser stateOp;
     private CloseSinkTransactionCloser sink;
 
     @Before
@@ -50,10 +55,14 @@ public abstract class SimpleTwoPCTest {
     @Test
     public void simpleTest() throws Exception {
         AtOpenListener openListener = new AtOpenListener();
-        Address coordinatorAddress = coordinator.getOpenServerAddress();
+        Address coordinatorAddress = coordinator.getServerAddress();
         AtStateListener stateListener = new AtStateListener(coordinatorAddress);
-        coordinator.subscribe(openListener);
-        stateOp.subscribe(stateListener);
+        coordinator.subscribeTo(1, openListener);
+        coordinator.subscribeTo(2, openListener);
+        coordinator.subscribeTo(3, openListener);
+        stateOp.subscribeTo(1, stateListener);
+        stateOp.subscribeTo(2, stateListener);
+        stateOp.subscribeTo(3, stateListener);
 
         openListener.setVerbose();
         stateListener.setVerbose();
@@ -66,22 +75,36 @@ public abstract class SimpleTwoPCTest {
 
         for (int i = 0; i < metas.length; i++) {
             metas[i].coordinator = coordinatorAddress;
-            metas[i].addCohort(stateOp.getStateServerAddress());
+            metas[i].addCohort(stateOp.getServerAddress());
         }
 
         for (int i = 0; i < metas.length; i++) {
             sink.onMetadata(metas[i]);
         }
 
-        for (int i = 0; i < metas.length; i++) {
-            CloseTransactionNotification msg = openListener.receive();
-            assertEquals((long) i + 1, msg.timestamp);
-        }
+        Set<Integer> timestamps = IntStream.range(0, metas.length).mapToObj(i -> {
+            try {
+                return openListener.receive();
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
 
-        for (int i = 0; i < metas.length; i++) {
-            CloseTransactionNotification msg = stateListener.receive();
-            assertEquals((long) i + 1, msg.timestamp);
-        }
+            return null;
+        }).map(notification -> notification.timestamp).collect(Collectors.toSet());
+
+        assertEquals(Sets.newHashSet(1, 2, 3), timestamps);
+
+        timestamps = IntStream.range(0, metas.length).mapToObj(i -> {
+            try {
+                return stateListener.receive();
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+
+            return null;
+        }).map(notification -> notification.timestamp).collect(Collectors.toSet());
+
+        assertEquals(Sets.newHashSet(1, 2, 3), timestamps);
 
         assertTrue(noMoreMessagesInQueue(openListener));
         assertTrue(noMoreMessagesInQueue(stateListener));
