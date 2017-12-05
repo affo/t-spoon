@@ -10,9 +10,10 @@ import it.polimi.affetti.tspoon.tgraph.Metadata;
 import it.polimi.affetti.tspoon.tgraph.Vote;
 import it.polimi.affetti.tspoon.tgraph.db.Object;
 import it.polimi.affetti.tspoon.tgraph.query.*;
-import it.polimi.affetti.tspoon.tgraph.twopc.AbstractStateOperationTransactionCloser;
+import it.polimi.affetti.tspoon.tgraph.twopc.AbstractStateOperatorTransactionCloser;
 import it.polimi.affetti.tspoon.tgraph.twopc.CloseTransactionNotification;
 import it.polimi.affetti.tspoon.tgraph.twopc.StateOperatorTransactionCloseListener;
+import it.polimi.affetti.tspoon.tgraph.twopc.TwoPCRuntimeContext;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.runtime.state.StateInitializationContext;
 import org.apache.flink.runtime.state.StateSnapshotContext;
@@ -42,14 +43,15 @@ public abstract class StateOperator<T, V>
     protected int maxNumberOfVersions;
     protected StateFunction<T, V> stateFunction;
     // transaction contexts: timestamp -> context
-    private Map<Integer, TransactionContext> transactions;
+    private final Map<Integer, TransactionContext> transactions;
+    private final TwoPCRuntimeContext twoPCRuntimeContext;
 
     protected transient InOrderSideCollector<T, Update<V>> collector;
 
     private transient JobControlClient jobControlClient;
 
     private transient WithServer queryServer;
-    private final AbstractStateOperationTransactionCloser transactionCloser;
+    private transient AbstractStateOperatorTransactionCloser transactionCloser;
 
     // randomizer to build queries
     private Random random = RandomProvider.get();
@@ -58,11 +60,11 @@ public abstract class StateOperator<T, V>
             String nameSpace,
             StateFunction<T, V> stateFunction,
             OutputTag<Update<V>> updatesTag,
-            AbstractStateOperationTransactionCloser transactionCloser) {
+            TwoPCRuntimeContext twoPCRuntimeContext) {
         this.nameSpace = nameSpace;
         this.stateFunction = stateFunction;
         this.updatesTag = updatesTag;
-        this.transactionCloser = transactionCloser;
+        this.twoPCRuntimeContext = twoPCRuntimeContext;
         this.state = new ConcurrentHashMap<>();
         this.transactions = new ConcurrentHashMap<>();
     }
@@ -84,6 +86,7 @@ public abstract class StateOperator<T, V>
 
         collector = new InOrderSideCollector<>(output, updatesTag);
 
+        transactionCloser = twoPCRuntimeContext.getAtStateTransactionCloser();
         transactionCloser.open();
     }
 

@@ -3,14 +3,9 @@ package it.polimi.affetti.tspoon.tgraph.twopc;
 import it.polimi.affetti.tspoon.common.Address;
 import it.polimi.affetti.tspoon.tgraph.Metadata;
 import it.polimi.affetti.tspoon.tgraph.TransactionEnvironment;
-import org.apache.flink.hadoop.shaded.com.google.common.collect.Sets;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
-
-import java.util.Set;
-import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
@@ -19,32 +14,35 @@ import static org.junit.Assert.assertTrue;
  * Created by affo on 02/12/17.
  */
 public abstract class SimpleTwoPCTest {
-    private AbstractOpenOperatorTransactionCloser coordinator;
-    private AbstractStateOperationTransactionCloser stateOp;
-    private CloseSinkTransactionCloser sink;
+    private TwoPCRuntimeContext twoPCRuntimeContext;
+    private AbstractOpenOperatorTransactionCloser openOperatorTransactionCloser;
+    private AbstractStateOperatorTransactionCloser stateOperatorTransactionCloser;
+    private CloseSinkTransactionCloser sinkTransactionCloser;
 
     @Before
     public void setUp() throws Exception {
         if (isDurable()) {
             TransactionEnvironment.get().setDurable(true);
+        } else {
+            TransactionEnvironment.get().setDurable(false);
         }
 
-        TwoPCFactory factory = new OptimisticTwoPCFactory(); // doesn't matter actually
-        coordinator = factory.getSourceTransactionCloser();
-        coordinator.open();
-        stateOp = factory.getAtStateTransactionCloser();
-        stateOp.open();
-        sink = factory.getSinkTransactionCloser();
-        sink.open();
+        twoPCRuntimeContext = TransactionEnvironment.get().getTwoPCRuntimeContext();
+        openOperatorTransactionCloser = twoPCRuntimeContext.getSourceTransactionCloser();
+        openOperatorTransactionCloser.open();
+        stateOperatorTransactionCloser = twoPCRuntimeContext.getAtStateTransactionCloser();
+        stateOperatorTransactionCloser.open();
+        sinkTransactionCloser = twoPCRuntimeContext.getSinkTransactionCloser();
+        sinkTransactionCloser.open();
     }
 
     protected abstract boolean isDurable();
 
     @After
     public void tearDown() throws Exception {
-        coordinator.close();
-        stateOp.close();
-        sink.close();
+        openOperatorTransactionCloser.close();
+        stateOperatorTransactionCloser.close();
+        sinkTransactionCloser.close();
     }
 
     private boolean noMoreMessagesInQueue(WithMessageQueue<?> withMessageQueue) throws InterruptedException {
@@ -55,14 +53,14 @@ public abstract class SimpleTwoPCTest {
     @Test
     public void simpleTest() throws Exception {
         AtOpenListener openListener = new AtOpenListener();
-        Address coordinatorAddress = coordinator.getServerAddress();
+        Address coordinatorAddress = openOperatorTransactionCloser.getServerAddress();
         AtStateListener stateListener = new AtStateListener(coordinatorAddress);
-        coordinator.subscribeTo(1, openListener);
-        coordinator.subscribeTo(2, openListener);
-        coordinator.subscribeTo(3, openListener);
-        stateOp.subscribeTo(1, stateListener);
-        stateOp.subscribeTo(2, stateListener);
-        stateOp.subscribeTo(3, stateListener);
+        openOperatorTransactionCloser.subscribeTo(1, openListener);
+        openOperatorTransactionCloser.subscribeTo(2, openListener);
+        openOperatorTransactionCloser.subscribeTo(3, openListener);
+        stateOperatorTransactionCloser.subscribeTo(1, stateListener);
+        stateOperatorTransactionCloser.subscribeTo(2, stateListener);
+        stateOperatorTransactionCloser.subscribeTo(3, stateListener);
 
         openListener.setVerbose();
         stateListener.setVerbose();
@@ -75,38 +73,135 @@ public abstract class SimpleTwoPCTest {
 
         for (int i = 0; i < metas.length; i++) {
             metas[i].coordinator = coordinatorAddress;
-            metas[i].addCohort(stateOp.getServerAddress());
+            metas[i].addCohort(stateOperatorTransactionCloser.getServerAddress());
         }
 
         for (int i = 0; i < metas.length; i++) {
-            sink.onMetadata(metas[i]);
+            sinkTransactionCloser.onMetadata(metas[i]);
         }
 
-        Set<Integer> timestamps = IntStream.range(0, metas.length).mapToObj(i -> {
-            try {
-                return openListener.receive();
-            } catch (InterruptedException e) {
-                e.printStackTrace();
-            }
+        for (int i = 0; i < metas.length; i++) {
+            CloseTransactionNotification msg = openListener.receive();
+            assertEquals((long) i + 1, msg.timestamp);
+        }
 
-            return null;
-        }).map(notification -> notification.timestamp).collect(Collectors.toSet());
-
-        assertEquals(Sets.newHashSet(1, 2, 3), timestamps);
-
-        timestamps = IntStream.range(0, metas.length).mapToObj(i -> {
-            try {
-                return stateListener.receive();
-            } catch (InterruptedException e) {
-                e.printStackTrace();
-            }
-
-            return null;
-        }).map(notification -> notification.timestamp).collect(Collectors.toSet());
-
-        assertEquals(Sets.newHashSet(1, 2, 3), timestamps);
+        for (int i = 0; i < metas.length; i++) {
+            CloseTransactionNotification msg = stateListener.receive();
+            assertEquals((long) i + 1, msg.timestamp);
+        }
 
         assertTrue(noMoreMessagesInQueue(openListener));
         assertTrue(noMoreMessagesInQueue(stateListener));
+    }
+
+    @Test
+    public void multipleStateListeners() throws Exception {
+        AtOpenListener openListener = new AtOpenListener();
+        Address coordinatorAddress = openOperatorTransactionCloser.getServerAddress();
+
+        AtStateListener[] stateListeners = new AtStateListener[10];
+        for (int i = 0; i < stateListeners.length; i++) {
+            stateListeners[i] = new AtStateListener(coordinatorAddress);
+            stateListeners[i].setVerbose();
+        }
+
+
+        final int numberOfTransactions = 10;
+        Metadata[] metas = new Metadata[stateListeners.length * numberOfTransactions];
+        // listener 0 is subscribed from 1 to 10
+        // listener 1 is subscribed from 11 to 20
+        // ...
+        // listener 9 is subscribed from 91 to 100
+        for (int i = 0; i < stateListeners.length; i++) {
+            for (int j = 0; j < numberOfTransactions; j++) {
+                int index = i + j * numberOfTransactions;
+                stateOperatorTransactionCloser.subscribeTo(index + 1, stateListeners[i]);
+                // the open is interested in everything
+                openOperatorTransactionCloser.subscribeTo(index + 1, openListener);
+                metas[index] = new Metadata(index + 1);
+                metas[index].coordinator = coordinatorAddress;
+                metas[index].addCohort(stateOperatorTransactionCloser.getServerAddress());
+            }
+        }
+
+        openListener.setVerbose();
+
+        // emits stuff
+        for (int i = 0; i < metas.length; i++) {
+            sinkTransactionCloser.onMetadata(metas[i]);
+        }
+
+        for (int i = 0; i < metas.length; i++) {
+            CloseTransactionNotification msg = openListener.receive();
+            assertEquals((long) i + 1, msg.timestamp);
+        }
+
+        assertTrue(noMoreMessagesInQueue(openListener));
+
+
+        for (int i = 0; i < stateListeners.length; i++) {
+            AtStateListener listener = stateListeners[i];
+            for (int j = 0; j < numberOfTransactions; j++) {
+                CloseTransactionNotification msg = listener.receive();
+                assertEquals((long) i + j * numberOfTransactions + 1, msg.timestamp);
+            }
+            assertTrue(noMoreMessagesInQueue(listener));
+        }
+    }
+
+    @Test
+    public void multipleStateListenersOnSameKey() throws Exception {
+        AtOpenListener openListener = new AtOpenListener();
+        Address coordinatorAddress = openOperatorTransactionCloser.getServerAddress();
+
+        AtStateListener[] stateListeners = new AtStateListener[10];
+        for (int i = 0; i < stateListeners.length; i++) {
+            stateListeners[i] = new AtStateListener(coordinatorAddress);
+            stateListeners[i].setVerbose();
+        }
+
+        final int numberOfTransactions = 10;
+        Metadata[] metas = new Metadata[numberOfTransactions];
+        for (int i = 0; i < numberOfTransactions; i++) {
+            metas[i] = new Metadata(i + 1);
+            metas[i].coordinator = coordinatorAddress;
+            metas[i].addCohort(stateOperatorTransactionCloser.getServerAddress());
+            // the open is interested in everything
+            openOperatorTransactionCloser.subscribeTo(i + 1, openListener);
+        }
+
+        // every listener is subscribed to every transaction
+        for (int i = 0; i < stateListeners.length; i++) {
+            for (int j = 0; j < numberOfTransactions; j++) {
+                stateOperatorTransactionCloser.subscribeTo(j + 1, stateListeners[i]);
+            }
+        }
+
+        openListener.setVerbose();
+
+        // emits stuff
+        for (int i = 0; i < metas.length; i++) {
+            sinkTransactionCloser.onMetadata(metas[i]);
+        }
+
+        for (int i = 0; i < metas.length; i++) {
+            CloseTransactionNotification msg = openListener.receive();
+            assertEquals((long) i + 1, msg.timestamp);
+        }
+
+        assertTrue(noMoreMessagesInQueue(openListener));
+
+        for (int i = 0; i < stateListeners.length; i++) {
+            AtStateListener listener = stateListeners[i];
+            for (int j = 0; j < numberOfTransactions; j++) {
+                CloseTransactionNotification msg = listener.receive();
+                try {
+                    assertEquals((long) j + 1, msg.timestamp);
+                } catch (AssertionError e) {
+                    System.out.println("azz");
+                }
+            }
+            assertTrue(noMoreMessagesInQueue(listener));
+        }
     }
 }

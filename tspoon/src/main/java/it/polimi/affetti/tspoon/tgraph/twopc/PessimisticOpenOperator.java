@@ -8,9 +8,9 @@ import it.polimi.affetti.tspoon.tgraph.Vote;
  * Created by affo on 16/11/17.
  */
 public class PessimisticOpenOperator<T> extends OpenOperator<T> {
-    public PessimisticOpenOperator(AbstractOpenOperatorTransactionCloser openOperatorTransactionCloser) {
+    public PessimisticOpenOperator(TwoPCRuntimeContext twoPCRuntimeContext) {
         // fix the transaction index (timestamping is useless for pessimistic)
-        super(new TidTransactionsIndex<>(), openOperatorTransactionCloser);
+        super(new TidTransactionsIndex<>(), twoPCRuntimeContext);
     }
 
     @Override

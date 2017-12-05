@@ -18,16 +18,14 @@ import org.apache.flink.util.OutputTag;
  * Created by affo on 13/07/17.
  */
 public class PTStream<T> extends AbstractTStream<T> {
-    private final TwoPCFactory factory;
 
-    PTStream(DataStream<Enriched<T>> ds, TwoPCFactory factory) {
+    PTStream(DataStream<Enriched<T>> ds) {
         super(ds);
-        this.factory = factory;
     }
 
     @Override
     protected <U> PTStream<U> replace(DataStream<Enriched<U>> newStream) {
-        return new PTStream<>(newStream, factory);
+        return new PTStream<>(newStream);
     }
 
     public static <T> OpenStream<T> fromStream(DataStream<T> ds, TwoPCFactory factory) {
@@ -39,14 +37,15 @@ public class PTStream<T> extends AbstractTStream<T> {
                         return null;
                     }
                 }).getType();
-        PessimisticOpenOperator<T> openOperator = new PessimisticOpenOperator<>(factory.getSourceTransactionCloser());
+        PessimisticOpenOperator<T> openOperator = new PessimisticOpenOperator<>(
+                TransactionEnvironment.get().getTwoPCRuntimeContext());
         SingleOutputStreamOperator<Enriched<T>> enriched = ds
                 .transform("open", type, openOperator)
                 .name("OpenTransaction")
                 .setParallelism(1);
 
         DataStream<Tuple2<Long, Vote>> tLog = enriched.getSideOutput(openOperator.logTag);
-        return new OpenStream<>(new PTStream<>(enriched, factory), null, tLog);
+        return new OpenStream<>(new PTStream<>(enriched), null, tLog);
     }
 
     @Override
@@ -54,7 +53,7 @@ public class PTStream<T> extends AbstractTStream<T> {
             String nameSpace, OutputTag<Update<V>> updatesTag,
             StateFunction<T, V> stateFunction) {
         PessimisticStateOperator<T, V> stateOperator = new PessimisticStateOperator<>(
-                nameSpace, stateFunction, updatesTag, factory.getAtStateTransactionCloser());
+                nameSpace, stateFunction, updatesTag, TransactionEnvironment.get().getTwoPCRuntimeContext());
 
         TransactionEnvironment tEnv = TransactionEnvironment.get();
         if (tEnv.getIsolationLevel() != IsolationLevel.PL4) {

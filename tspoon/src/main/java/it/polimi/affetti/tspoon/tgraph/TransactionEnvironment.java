@@ -109,6 +109,12 @@ public class TransactionEnvironment {
         querySource.setQuerySupplier(querySupplier);
     }
 
+    public TwoPCRuntimeContext getTwoPCRuntimeContext() {
+        TwoPCRuntimeContext runtimeContext = new TwoPCRuntimeContext();
+        runtimeContext.setDurabilityEnabled(isDurabilityEnabled);
+        return runtimeContext;
+    }
+
     public <T> OpenStream<T> open(DataStream<T> ds) {
         return open(ds, null);
     }
@@ -183,7 +189,7 @@ public class TransactionEnvironment {
                 .name("SecondStepReduceVotes");
         // close transactions
         secondMerged = factory.onClosingSink(secondMerged);
-        secondMerged.addSink(new CloseSink(factory.getSinkTransactionCloser())).name("CloseSink");
+        secondMerged.addSink(new CloseSink(getTwoPCRuntimeContext())).name("CloseSink");
 
         // output valid records and unwrap
         List<DataStream<TransactionResult<T>>> result = new ArrayList<>(n);

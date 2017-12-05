@@ -27,7 +27,7 @@ public class JobControlServer extends AbstractServer {
         observers.add(handler);
     }
 
-    private synchronized void publish(String message) throws IOException {
+    private synchronized void publish(String message) throws Exception {
         for (StringClientHandler observer : observers) {
             LOG.info("Publishing " + message + " to " + observer.socket);
             observer.send(message);

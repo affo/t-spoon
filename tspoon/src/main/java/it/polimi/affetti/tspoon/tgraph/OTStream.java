@@ -18,16 +18,14 @@ import org.apache.flink.util.OutputTag;
  * Created by affo on 13/07/17.
  */
 public class OTStream<T> extends AbstractTStream<T> {
-    private final TwoPCFactory factory;
 
-    OTStream(DataStream<Enriched<T>> ds, TwoPCFactory factory) {
+    OTStream(DataStream<Enriched<T>> ds) {
         super(ds);
-        this.factory = factory;
     }
 
     @Override
     protected <U> OTStream<U> replace(DataStream<Enriched<U>> newStream) {
-        return new OTStream<>(newStream, factory);
+        return new OTStream<>(newStream);
     }
 
     public static <T> OpenStream<T> fromStream(DataStream<T> ds, TwoPCFactory factory) {
@@ -41,7 +39,7 @@ public class OTStream<T> extends AbstractTStream<T> {
                 }).getType();
         OptimisticOpenOperator<T> openOperator = new OptimisticOpenOperator<>(
                 factory.getTransactionsIndex(),
-                factory.getSourceTransactionCloser());
+                TransactionEnvironment.get().getTwoPCRuntimeContext());
         SingleOutputStreamOperator<Enriched<T>> enriched = ds
                 .transform("open", type, openOperator)
                 .name("OpenTransaction")
@@ -49,7 +47,7 @@ public class OTStream<T> extends AbstractTStream<T> {
 
         DataStream<Integer> watermarks = enriched.getSideOutput(openOperator.watermarkTag);
         DataStream<Tuple2<Long, Vote>> tLog = enriched.getSideOutput(openOperator.logTag);
-        return new OpenStream<>(new OTStream<>(enriched, factory), watermarks, tLog);
+        return new OpenStream<>(new OTStream<>(enriched), watermarks, tLog);
     }
 
     @Override
@@ -57,6 +55,6 @@ public class OTStream<T> extends AbstractTStream<T> {
             String nameSpace, OutputTag<Update<V>> updatesTag,
             StateFunction<T, V> stateFunction) {
         return new OptimisticStateOperator<>(
-                nameSpace, stateFunction, updatesTag, factory.getAtStateTransactionCloser());
+                nameSpace, stateFunction, updatesTag, TransactionEnvironment.get().getTwoPCRuntimeContext());
     }
 }

@@ -14,10 +14,4 @@ public interface TwoPCFactory extends Serializable {
     DataStream<Metadata> onClosingSink(DataStream<Metadata> votesMerged);
 
     <T> TransactionsIndex<T> getTransactionsIndex();
-
-    AbstractOpenOperatorTransactionCloser getSourceTransactionCloser();
-
-    AbstractStateOperationTransactionCloser getAtStateTransactionCloser();
-
-    CloseSinkTransactionCloser getSinkTransactionCloser();
 }

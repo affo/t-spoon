@@ -31,16 +31,17 @@ public abstract class OpenOperator<T>
     //protected transient InOrderSideCollector<T, Tuple2<Long, Vote>> collector;
     protected transient SafeCollector<T> collector;
 
+    protected final TwoPCRuntimeContext twoPCRuntimeContext;
     protected final TransactionsIndex<T> transactionsIndex;
-    protected final AbstractOpenOperatorTransactionCloser openOperatorTransactionCloser;
+    protected transient AbstractOpenOperatorTransactionCloser openOperatorTransactionCloser;
 
     // stats
     protected Map<Vote, IntCounter> stats = new HashMap<>();
 
     public OpenOperator(
             TransactionsIndex<T> transactionsIndex,
-            AbstractOpenOperatorTransactionCloser openOperatorTransactionCloser) {
-        this.openOperatorTransactionCloser = openOperatorTransactionCloser;
+            TwoPCRuntimeContext twoPCRuntimeContext) {
+        this.twoPCRuntimeContext = twoPCRuntimeContext;
         this.transactionsIndex = transactionsIndex;
 
         for (Vote vote : Vote.values()) {
@@ -55,6 +56,7 @@ public abstract class OpenOperator<T>
         // TODO temporarly avoiding log ordering
         // collector = new InOrderSideCollector<>(output, logTag);
         collector = new SafeCollector<>(output);
+        openOperatorTransactionCloser = twoPCRuntimeContext.getSourceTransactionCloser();
         openOperatorTransactionCloser.open();
 
         // register accumulators

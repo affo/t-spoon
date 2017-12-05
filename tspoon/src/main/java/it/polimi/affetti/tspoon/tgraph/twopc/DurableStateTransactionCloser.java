@@ -12,7 +12,7 @@ import java.util.function.Consumer;
 /**
  * Created by affo on 10/11/17.
  */
-public class DurableStateTransactionCloser extends AbstractStateOperationTransactionCloser {
+public class DurableStateTransactionCloser extends AbstractStateOperatorTransactionCloser {
     private transient StringClientsCache clientsCache;
     private transient ExecutorService pool;
 
@@ -20,7 +20,9 @@ public class DurableStateTransactionCloser extends AbstractStateOperationTransac
     public void open() throws Exception {
         super.open();
         clientsCache = new StringClientsCache();
-        pool = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+        // TODO think about parallelizing more the ACK phase
+        // ... with only 1 thread we ensure that we preserve order
+        pool = Executors.newFixedThreadPool(1);
     }
 
     @Override
@@ -30,6 +32,7 @@ public class DurableStateTransactionCloser extends AbstractStateOperationTransac
         pool.shutdown();
     }
 
+    // called once per TM
     @Override
     protected void onClose(Address coordinatorAddress, String request,
                            Consumer<Void> success, Consumer<Throwable> error) {

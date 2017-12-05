@@ -10,7 +10,7 @@ import java.util.Collections;
  * Created by affo on 10/11/17.
  */
 public class VolatileSinkTransactionCloser implements CloseSinkTransactionCloser {
-    private transient StringClientsCache clients;
+    private StringClientsCache clients;
 
     @Override
     public void open() throws Exception {

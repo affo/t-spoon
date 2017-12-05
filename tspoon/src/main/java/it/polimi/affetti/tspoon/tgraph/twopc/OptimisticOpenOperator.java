@@ -40,8 +40,8 @@ public class OptimisticOpenOperator<T> extends OpenOperator<T> {
 
     public OptimisticOpenOperator(
             TransactionsIndex<T> transactionsIndex,
-            AbstractOpenOperatorTransactionCloser openOperatorTransactionCloser) {
-        super(transactionsIndex, openOperatorTransactionCloser);
+            TwoPCRuntimeContext twoPCRuntimeContext) {
+        super(transactionsIndex, twoPCRuntimeContext);
         Report.registerAccumulator(DEPENDENCY_REPLAYED_COUNTER_NAME);
         Report.registerAccumulator(REPLAYED_UPON_WATERMARK_UPDATE_COUNTER_NAME);
         Report.registerAccumulator(DIRECTLY_REPLAYED_COUNTER_NAME);
