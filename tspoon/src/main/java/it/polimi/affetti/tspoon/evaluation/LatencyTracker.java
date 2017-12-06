@@ -2,6 +2,8 @@ package it.polimi.affetti.tspoon.evaluation;
 
 import it.polimi.affetti.tspoon.common.TimestampTracker;
 import it.polimi.affetti.tspoon.tgraph.backed.Transfer;
+import it.polimi.affetti.tspoon.tgraph.state.Update;
+import org.apache.flink.util.OutputTag;
 
 /**
  * Created by affo on 05/08/17.

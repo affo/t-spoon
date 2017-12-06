@@ -38,10 +38,10 @@ if __name__ == '__main__':
             lat = None
             try:
                 data = load_json(prefix + str(x))
-                tp = data['throughput']['mean']
-                lat = data['latency']['mean']
+                tp = data['accumulators']['throughput']['mean']
+                lat = data['accumulators']['timestamp-deltas']['latency']['mean']
             except Exception as e:
-                print e
+                print "Some exception happened:", e
             finally:
                 throughputs.append(tp)
                 latencies.append(lat)

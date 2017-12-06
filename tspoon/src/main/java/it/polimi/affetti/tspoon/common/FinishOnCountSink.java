@@ -1,6 +1,8 @@
 package it.polimi.affetti.tspoon.common;
 
+import it.polimi.affetti.tspoon.metrics.Report;
 import it.polimi.affetti.tspoon.runtime.JobControlClient;
+import org.apache.flink.api.common.accumulators.IntCounter;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.functions.sink.RichSinkFunction;
@@ -10,22 +12,26 @@ import org.apache.log4j.Logger;
  * Created by affo on 26/07/17.
  */
 public class FinishOnCountSink<T> extends RichSinkFunction<T> {
+    public static final String COUNTER_ACC = "number-of-elements-at-sink";
+    private final IntCounter counter;
+
     private transient Logger LOG;
     public static final int DEFAULT_LOG_EVERY = 10000;
     private final int logEvery;
 
     private transient JobControlClient jobControlClient;
     private final int threshold;
-    private int count;
 
     public FinishOnCountSink(int count) {
         this(count, DEFAULT_LOG_EVERY);
     }
 
     public FinishOnCountSink(int count, int logEvery) {
-        this.count = 0;
+        this.counter = new IntCounter();
         this.threshold = count;
         this.logEvery = logEvery;
+
+        Report.registerAccumulator(COUNTER_ACC);
     }
 
 
@@ -37,6 +43,8 @@ public class FinishOnCountSink<T> extends RichSinkFunction<T> {
         ParameterTool parameterTool = (ParameterTool)
                 getRuntimeContext().getExecutionConfig().getGlobalJobParameters();
         jobControlClient = JobControlClient.get(parameterTool);
+
+        getRuntimeContext().addAccumulator(COUNTER_ACC, counter);
     }
 
     @Override
@@ -49,11 +57,12 @@ public class FinishOnCountSink<T> extends RichSinkFunction<T> {
 
     @Override
     public void invoke(T t) throws Exception {
-        if (count % logEvery == 0) {
+        counter.add(1);
+        int count = counter.getLocalValuePrimitive();
+
+        if ((count - 1) % logEvery == 0) {
             LOG.info((threshold - count) + " records remaining");
         }
-
-        count++;
 
         if (count > threshold) {
             throw new RuntimeException("Counted too much: " + count);

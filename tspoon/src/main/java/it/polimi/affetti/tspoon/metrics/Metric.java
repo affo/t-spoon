@@ -1,6 +1,7 @@
 package it.polimi.affetti.tspoon.metrics;
 
 import org.apache.commons.math3.stat.descriptive.DescriptiveStatistics;
+import org.apache.sling.commons.json.JSONObject;
 
 import java.io.Serializable;
 import java.util.HashMap;
@@ -18,7 +19,11 @@ public class Metric implements Serializable {
 
     @Override
     public String toString() {
-        return toMap().toString();
+        return toJSON().toString();
+    }
+
+    public JSONObject toJSON() {
+        return new JSONObject(toMap());
     }
 
     public Map<String, Double> toMap() {

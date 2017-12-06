@@ -17,14 +17,12 @@ import org.apache.flink.api.common.typeinfo.TypeHint;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.streaming.api.datastream.DataStream;
+import org.apache.flink.streaming.api.datastream.SplitStream;
 import org.apache.flink.util.Collector;
 import org.apache.flink.util.OutputTag;
 
 import java.io.Serializable;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.stream.Collectors;
 
 /**
@@ -61,9 +59,16 @@ public class EvaluationGraphComposer {
             List<DataStream<Transfer>> merged = TransactionEnvironment.get().close(outOfStateStreams)
                     .stream().map(EvaluationGraphComposer::toSource).collect(Collectors.toList());
             out = merged.get(0);
+            /*
+            // It is useless to merge every exit-point's outgoing stream into one stream,
+            // because, if I want to synchronize with the transaction closure downstream, it is
+            // enough to ingest from 1 stream (the first one for example). Indeed, every buffer function will
+            // receive the metadata for a transaction once every vote has been merged.
+            // Moreover, without merging, we preserve the number of total records.
             for (DataStream<Transfer> exitPoint : merged.subList(1, merged.size())) {
                 out = out.union(exitPoint);
             }
+            */
         }
 
         result.out = out;

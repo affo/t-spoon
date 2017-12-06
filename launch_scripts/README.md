@@ -1,11 +1,5 @@
-# Expose results
-
-Install twisted with pip:
-
-```
-$ sudo pip install twisted[tls]
-$ ./expose_results.sh
-```
+In order to launch an evaluation you need to install the python module
+(requests)[http://docs.python-requests.org/en/master/user/install/#install]
 
 # Plot results
 

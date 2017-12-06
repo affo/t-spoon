@@ -1,55 +1,37 @@
 package it.polimi.affetti.tspoon.common;
 
-import it.polimi.affetti.tspoon.runtime.TimestampDeltaClient;
-import org.apache.flink.api.common.functions.RichMapFunction;
-import org.apache.flink.api.java.utils.ParameterTool;
-import org.apache.flink.configuration.Configuration;
+import org.apache.flink.api.java.tuple.Tuple3;
+import org.apache.flink.streaming.api.functions.ProcessFunction;
+import org.apache.flink.util.Collector;
+import org.apache.flink.util.OutputTag;
 
 /**
  * Created by affo on 01/08/17.
  */
-public abstract class TimestampTracker<T> extends RichMapFunction<T, T> {
-    private transient TimestampDeltaClient timestampDeltaClient;
+public abstract class TimestampTracker<T> extends ProcessFunction<T, T> {
+    // <metricName, isBegin, recordId>
+    private final OutputTag<Tuple3<String, Boolean, String>> recordTracking;
     private final String metricName;
     private final boolean isBegin;
 
     public TimestampTracker(String metricName, boolean isBegin) {
         this.metricName = metricName;
         this.isBegin = isBegin;
+        String outputId = metricName + "." + (isBegin ? "start" : "end");
+        this.recordTracking = new OutputTag<Tuple3<String, Boolean, String>>(outputId) {
+        };
+    }
+
+    public OutputTag<Tuple3<String, Boolean, String>> getRecordTracking() {
+        return recordTracking;
     }
 
     protected abstract String extractId(T element);
 
     @Override
-    public void open(Configuration parameters) throws Exception {
-        super.open(parameters);
-        ParameterTool parameterTool = (ParameterTool)
-                getRuntimeContext().getExecutionConfig().getGlobalJobParameters();
-        timestampDeltaClient = TimestampDeltaClient.get(parameterTool);
-    }
-
-    @Override
-    public void close() throws Exception {
-        super.close();
-        if (timestampDeltaClient != null) {
-            timestampDeltaClient.close();
-        }
-    }
-
-    private void track(T element) {
-        String id = extractId(element);
-        if (isBegin) {
-            timestampDeltaClient.begin(metricName, id);
-        } else {
-            timestampDeltaClient.end(metricName, id);
-        }
-    }
-
-    @Override
-    public T map(T t) throws Exception {
-        if (timestampDeltaClient != null) {
-            track(t);
-        }
-        return t;
+    public void processElement(T t, Context context, Collector<T> collector) throws Exception {
+        String id = extractId(t);
+        context.output(recordTracking, Tuple3.of(metricName, isBegin, id));
+        collector.collect(t);
     }
 }

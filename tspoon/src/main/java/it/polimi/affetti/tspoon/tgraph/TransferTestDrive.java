@@ -4,9 +4,7 @@ import it.polimi.affetti.tspoon.common.FinishOnCountSink;
 import it.polimi.affetti.tspoon.common.FlatMapFunction;
 import it.polimi.affetti.tspoon.common.TimestampTracker;
 import it.polimi.affetti.tspoon.metrics.Report;
-import it.polimi.affetti.tspoon.runtime.JobControlServer;
 import it.polimi.affetti.tspoon.runtime.NetUtils;
-import it.polimi.affetti.tspoon.runtime.TimestampDeltaServer;
 import it.polimi.affetti.tspoon.tgraph.backed.Movement;
 import it.polimi.affetti.tspoon.tgraph.backed.Transfer;
 import it.polimi.affetti.tspoon.tgraph.backed.TransferSource;
@@ -40,8 +38,7 @@ public class TransferTestDrive {
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         env.setBufferTimeout(0);
         ParameterTool parameters = ParameterTool.fromArgs(args);
-        JobControlServer jobControlServer = NetUtils.launchJobControlServer(parameters);
-        TimestampDeltaServer timestampDeltaServer = NetUtils.launchTimestampDeltaServer(parameters);
+        NetUtils.launchJobControlServer(parameters);
         env.getConfig().setGlobalJobParameters(parameters);
 
         final int baseParallelism = 4;
@@ -81,7 +78,7 @@ public class TransferTestDrive {
 
         //transfers.print();
 
-        transfers = transfers.map(
+        transfers = transfers.process(
                 new TimestampTracker<Transfer>("responseTime", true) {
                     @Override
                     protected String extractId(Transfer element) {
@@ -131,7 +128,7 @@ public class TransferTestDrive {
         //balances.updates.print();
 
         DataStream<TransactionResult<Movement>> output = tEnv.close(balances.leftUnchanged).get(0);
-        output.map(
+        output.process(
                 new TimestampTracker<TransactionResult<Movement>>("responseTime", false) {
                     @Override
                     protected String extractId(TransactionResult<Movement> element) {
@@ -157,8 +154,6 @@ public class TransferTestDrive {
         //open.watermarks.print();
 
         JobExecutionResult result = env.execute();
-        jobControlServer.close();
-        timestampDeltaServer.close();
 
         //System.out.println(getWatermarks(result));
         //System.out.println(getUpdates(result));
@@ -166,7 +161,6 @@ public class TransferTestDrive {
         Report report = new Report("report");
         report.addAccumulators(result);
         report.addField("parameters", parameters.toMap());
-        report.addFields(timestampDeltaServer.getMetrics());
         report.updateField("parameters", "strategy", strategy);
         report.updateField("parameters", "isolationLevel", isolationLevel);
         report.updateField("parameters", "dependencyTracking", useDependencyTracking);

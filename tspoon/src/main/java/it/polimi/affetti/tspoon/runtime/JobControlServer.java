@@ -27,10 +27,15 @@ public class JobControlServer extends AbstractServer {
         observers.add(handler);
     }
 
-    private synchronized void publish(String message) {
+    private synchronized void publish(String message) throws IOException {
         for (StringClientHandler observer : observers) {
             LOG.info("Publishing " + message + " to " + observer.socket);
             observer.send(message);
+        }
+
+        // auto-close on finish
+        if (message.equals(JobControlClient.finishPattern)) {
+            close();
         }
     }
 

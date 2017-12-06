@@ -46,30 +46,30 @@ function notify {
     if [[ -z $PUSH_BULLET_ACCESS_TOKEN ]]; then
         echo ">>> No notification sent..."
     else
-        echo ">>> Seinding notification..."
+        echo ">>> Sending notification..."
         title="$1"
         body="$2"
-        curl \
+        curl -s \
             --header "Access-Token: $PUSH_BULLET_ACCESS_TOKEN" \
             --header 'Content-Type: application/json' \
             --request POST https://api.pushbullet.com/v2/pushes \
-            --data-binary "$(generate_post_data "$title" "$body")" >/dev/null
+            --data-binary "$(generate_post_data "$title" "$body")" > /dev/null
         echo; echo
     fi
 }
 
 function launch {
-    if [[ "$#" -lt 1  ]]; then
-        echo "launch <class> <params...>"
+    if [[ "$#" -lt 2  ]]; then
+        echo "launch <label> <class> <params...>"
         return 1
     fi
 
     refresh_cluster
 
+    output="$RESULTS_DIR/$1.json"
+    cmd="python run.py $output $PACKAGE_BASE.$2 $TARGET_JAR \"--label $1 ${@:3} --isolationLevel $ISOLATION --optOrNot $IS_OPTIMISTIC $DEFAULT\""
 
-    cmd="$FLINK_BIN run -c "$PACKAGE_BASE.$1" $TARGET_JAR ${@:2} --isolationLevel $ISOLATION --optOrNot $IS_OPTIMISTIC $DEFAULT"
-
-    notify "t-spoon experiment" "$cmd"
+    notify "t-spoon experiment" "$1"
     echo $cmd
     if [[ $DEBUG != true ]]; then
         eval $cmd

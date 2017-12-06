@@ -36,10 +36,4 @@ public class NetUtils {
         parameters.toMap().put("jobControlServerPort", String.valueOf(JOB_CONTROL_PORT));
         return getServer(JOB_CONTROL_PORT, new JobControlServer());
     }
-
-    public static TimestampDeltaServer launchTimestampDeltaServer(ParameterTool parameters) throws IOException {
-        parameters.toMap().put("deltaServerIP", getMyIp());
-        parameters.toMap().put("deltaServerPort", String.valueOf(DELTA_PORT));
-        return getServer(DELTA_PORT, new TimestampDeltaServer());
-    }
 }

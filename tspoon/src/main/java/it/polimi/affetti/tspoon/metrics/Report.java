@@ -14,6 +14,10 @@ import java.util.Map;
 
 /**
  * Created by affo on 02/08/17.
+ * <p>
+ * Only used for local jobs.
+ * <p>
+ * Evaluation does not use it.
  */
 public class Report {
     private final String fileName;

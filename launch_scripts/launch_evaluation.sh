@@ -1,5 +1,5 @@
 #!/bin/bash
-source evaluation_suites_functions.sh
+source evaluation_functions.sh
 
 if [[ "$#" -lt 1 ]]; then
     echo "launch_evaluation <experiment_label>"
@@ -14,30 +14,30 @@ mkdir -p $RESULTS_DIR
 echo; echo; echo;
 echo "Launching series..."
 sleep 2
-launch_series_1tg
+launch_suite_series_1tg
 
 echo; echo; echo;
 echo "Launching series (separated TG)..."
 sleep 2
-launch_series_ntg
+launch_suite_series_ntg
 
 echo; echo; echo;
 echo "Launching parallel"
 sleep 2
-launch_parallel_1tg
+launch_suite_parallel_1tg
 
 echo; echo; echo;
 echo "Launching parallel (separated TG)..."
 sleep 2
-launch_parallel_ntg
+launch_suite_parallel_ntg
 
 echo; echo; echo;
 echo "Launching keyspace..."
 sleep 2
-launch_keyspace
+launch_suite_keyspace
 
 echo; echo; echo;
 echo "Launching querying..."
 sleep 2
-launch_query
+launch_suite_query
 
