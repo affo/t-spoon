@@ -68,7 +68,7 @@ public class OptimisticOpenOperator<T> extends OpenOperator<T> {
         metadata.coordinator = getCoordinatorAddress();
         metadata.watermark = transactionsIndex.getCurrentWatermark();
 
-        openOperatorTransactionCloser.subscribeTo(tContext.timestamp, this);
+        subscribe(tContext.timestamp);
 
         onOpenTransaction(element, metadata);
         collector.safeCollect(Enriched.of(metadata, element));

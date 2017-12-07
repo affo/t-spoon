@@ -28,6 +28,8 @@ public abstract class SimpleTwoPCTest {
         }
 
         twoPCRuntimeContext = TransactionEnvironment.get().getTwoPCRuntimeContext();
+        // TODO develop a strategy for implementing tests for different subscription modes
+        //twoPCRuntimeContext.setSubscriptionMode(AbstractTwoPCParticipant.SubscriptionMode.GENERIC);
         openOperatorTransactionCloser = twoPCRuntimeContext.getSourceTransactionCloser();
         openOperatorTransactionCloser.open();
         stateOperatorTransactionCloser = twoPCRuntimeContext.getAtStateTransactionCloser();
@@ -45,22 +47,26 @@ public abstract class SimpleTwoPCTest {
         sinkTransactionCloser.close();
     }
 
-    private boolean noMoreMessagesInQueue(WithMessageQueue<?> withMessageQueue) throws InterruptedException {
-        Object receive = withMessageQueue.receive();
+    private boolean noMoreMessagesInQueue(AbstractListener<?> abstractListener) throws InterruptedException {
+        Object receive = abstractListener.receive();
         return receive == null;
     }
 
     @Test
     public void simpleTest() throws Exception {
-        AtOpenListener openListener = new AtOpenListener();
+        AbstractTwoPCParticipant.SubscriptionMode subscriptionMode = twoPCRuntimeContext.getSubscriptionMode();
+
+        AtOpenListener openListener = new AtOpenListener(openOperatorTransactionCloser, subscriptionMode);
         Address coordinatorAddress = openOperatorTransactionCloser.getServerAddress();
-        AtStateListener stateListener = new AtStateListener(coordinatorAddress);
-        openOperatorTransactionCloser.subscribeTo(1, openListener);
-        openOperatorTransactionCloser.subscribeTo(2, openListener);
-        openOperatorTransactionCloser.subscribeTo(3, openListener);
-        stateOperatorTransactionCloser.subscribeTo(1, stateListener);
-        stateOperatorTransactionCloser.subscribeTo(2, stateListener);
-        stateOperatorTransactionCloser.subscribeTo(3, stateListener);
+        AtStateListener stateListener = new AtStateListener(
+                coordinatorAddress, stateOperatorTransactionCloser, subscriptionMode);
+
+        openListener.subscribeTo(1);
+        openListener.subscribeTo(2);
+        openListener.subscribeTo(3);
+        stateListener.subscribeTo(1);
+        stateListener.subscribeTo(2);
+        stateListener.subscribeTo(3);
 
         openListener.setVerbose();
         stateListener.setVerbose();
@@ -96,12 +102,14 @@ public abstract class SimpleTwoPCTest {
 
     @Test
     public void multipleStateListeners() throws Exception {
-        AtOpenListener openListener = new AtOpenListener();
+        AbstractTwoPCParticipant.SubscriptionMode subscriptionMode = twoPCRuntimeContext.getSubscriptionMode();
+        AtOpenListener openListener = new AtOpenListener(openOperatorTransactionCloser, subscriptionMode);
         Address coordinatorAddress = openOperatorTransactionCloser.getServerAddress();
 
         AtStateListener[] stateListeners = new AtStateListener[10];
         for (int i = 0; i < stateListeners.length; i++) {
-            stateListeners[i] = new AtStateListener(coordinatorAddress);
+            stateListeners[i] = new AtStateListener(
+                    coordinatorAddress, stateOperatorTransactionCloser, subscriptionMode);
             stateListeners[i].setVerbose();
         }
 
@@ -115,9 +123,9 @@ public abstract class SimpleTwoPCTest {
         for (int i = 0; i < stateListeners.length; i++) {
             for (int j = 0; j < numberOfTransactions; j++) {
                 int index = i + j * numberOfTransactions;
-                stateOperatorTransactionCloser.subscribeTo(index + 1, stateListeners[i]);
+                stateListeners[i].subscribeTo(index + 1);
                 // the open is interested in everything
-                openOperatorTransactionCloser.subscribeTo(index + 1, openListener);
+                openListener.subscribeTo(index + 1);
                 metas[index] = new Metadata(index + 1);
                 metas[index].coordinator = coordinatorAddress;
                 metas[index].addCohort(stateOperatorTransactionCloser.getServerAddress());
@@ -151,12 +159,15 @@ public abstract class SimpleTwoPCTest {
 
     @Test
     public void multipleStateListenersOnSameKey() throws Exception {
-        AtOpenListener openListener = new AtOpenListener();
+        AbstractTwoPCParticipant.SubscriptionMode subscriptionMode = twoPCRuntimeContext.getSubscriptionMode();
+
+        AtOpenListener openListener = new AtOpenListener(openOperatorTransactionCloser, subscriptionMode);
         Address coordinatorAddress = openOperatorTransactionCloser.getServerAddress();
 
         AtStateListener[] stateListeners = new AtStateListener[10];
         for (int i = 0; i < stateListeners.length; i++) {
-            stateListeners[i] = new AtStateListener(coordinatorAddress);
+            stateListeners[i] = new AtStateListener(
+                    coordinatorAddress, stateOperatorTransactionCloser, subscriptionMode);
             stateListeners[i].setVerbose();
         }
 
@@ -167,13 +178,13 @@ public abstract class SimpleTwoPCTest {
             metas[i].coordinator = coordinatorAddress;
             metas[i].addCohort(stateOperatorTransactionCloser.getServerAddress());
             // the open is interested in everything
-            openOperatorTransactionCloser.subscribeTo(i + 1, openListener);
+            openListener.subscribeTo(i + 1);
         }
 
         // every listener is subscribed to every transaction
         for (int i = 0; i < stateListeners.length; i++) {
             for (int j = 0; j < numberOfTransactions; j++) {
-                stateOperatorTransactionCloser.subscribeTo(j + 1, stateListeners[i]);
+                stateListeners[i].subscribeTo(j + 1);
             }
         }
 

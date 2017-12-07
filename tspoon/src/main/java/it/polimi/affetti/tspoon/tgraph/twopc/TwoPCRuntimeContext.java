@@ -17,6 +17,8 @@ import java.io.Serializable;
 public class TwoPCRuntimeContext implements Serializable {
     private static AbstractOpenOperatorTransactionCloser openOperatorTransactionCloser;
     private static AbstractStateOperatorTransactionCloser stateOperatorTransactionCloser;
+
+    private AbstractTwoPCParticipant.SubscriptionMode subscriptionMode = AbstractTwoPCParticipant.SubscriptionMode.GENERIC;
     public boolean durable;
 
     public void setDurabilityEnabled(boolean durable) {
@@ -27,15 +29,23 @@ public class TwoPCRuntimeContext implements Serializable {
         return durable;
     }
 
+    public void setSubscriptionMode(AbstractTwoPCParticipant.SubscriptionMode subscriptionMode) {
+        this.subscriptionMode = subscriptionMode;
+    }
+
+    public AbstractTwoPCParticipant.SubscriptionMode getSubscriptionMode() {
+        return subscriptionMode;
+    }
+
     // ---------------------- These methods are called upon deserialization
 
     public AbstractOpenOperatorTransactionCloser getSourceTransactionCloser() {
         synchronized (TwoPCRuntimeContext.class) {
             if (openOperatorTransactionCloser == null) {
                 if (isDurabilityEnabled()) {
-                    openOperatorTransactionCloser = new DurableOpenOperatorTransactionCloser();
+                    openOperatorTransactionCloser = new DurableOpenOperatorTransactionCloser(subscriptionMode);
                 } else {
-                    openOperatorTransactionCloser = new VolatileOpenOperatorTransactionCloser();
+                    openOperatorTransactionCloser = new VolatileOpenOperatorTransactionCloser(subscriptionMode);
                 }
             }
 
@@ -47,9 +57,9 @@ public class TwoPCRuntimeContext implements Serializable {
         synchronized (TwoPCRuntimeContext.class) {
             if (stateOperatorTransactionCloser == null) {
                 if (isDurabilityEnabled()) {
-                    stateOperatorTransactionCloser = new DurableStateTransactionCloser();
+                    stateOperatorTransactionCloser = new DurableStateTransactionCloser(subscriptionMode);
                 } else {
-                    stateOperatorTransactionCloser = new VolatileStateTransactionCloser();
+                    stateOperatorTransactionCloser = new VolatileStateTransactionCloser(subscriptionMode);
                 }
             }
 

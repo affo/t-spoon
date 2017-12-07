@@ -11,6 +11,10 @@ import java.util.function.Supplier;
 public abstract class AbstractOpenOperatorTransactionCloser extends
         AbstractTwoPCParticipant<OpenOperatorTransactionCloseListener> {
 
+    protected AbstractOpenOperatorTransactionCloser(SubscriptionMode subscriptionMode) {
+        super(subscriptionMode);
+    }
+
     @Override
     public NetUtils.SingletonServerType getServerType() {
         return NetUtils.SingletonServerType.OPEN;

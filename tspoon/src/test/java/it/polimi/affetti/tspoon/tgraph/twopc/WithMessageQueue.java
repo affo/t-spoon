@@ -7,8 +7,8 @@ import java.util.concurrent.TimeUnit;
 /**
  * Created by affo on 02/12/17.
  */
-public abstract class WithMessageQueue<M> {
-    public final static long DEFAULT_TIMEOUT = 10L;
+public class WithMessageQueue<M> {
+    public final static long DEFAULT_TIMEOUT = 100L;
     private final BlockingQueue<M> received = new LinkedBlockingQueue<>();
     private boolean verbose = false;
     private String verbosePrefix = "";

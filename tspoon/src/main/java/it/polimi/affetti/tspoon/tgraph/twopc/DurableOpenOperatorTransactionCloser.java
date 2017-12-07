@@ -17,6 +17,10 @@ public class DurableOpenOperatorTransactionCloser extends AbstractOpenOperatorTr
 
     private transient WAL wal;
 
+    protected DurableOpenOperatorTransactionCloser(SubscriptionMode subscriptionMode) {
+        super(subscriptionMode);
+    }
+
     @Override
     public void open() throws Exception {
         super.open();

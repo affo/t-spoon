@@ -7,6 +7,10 @@ import it.polimi.affetti.tspoon.runtime.ProcessRequestServer;
  * Created by affo on 09/11/17.
  */
 public class VolatileOpenOperatorTransactionCloser extends AbstractOpenOperatorTransactionCloser {
+    protected VolatileOpenOperatorTransactionCloser(SubscriptionMode subscriptionMode) {
+        super(subscriptionMode);
+    }
+
     @Override
     protected AbstractServer getServer() {
         return new OpenServer();

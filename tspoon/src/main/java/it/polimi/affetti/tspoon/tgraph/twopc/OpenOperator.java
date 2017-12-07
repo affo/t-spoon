@@ -33,7 +33,7 @@ public abstract class OpenOperator<T>
 
     protected final TwoPCRuntimeContext twoPCRuntimeContext;
     protected final TransactionsIndex<T> transactionsIndex;
-    protected transient AbstractOpenOperatorTransactionCloser openOperatorTransactionCloser;
+    private transient AbstractOpenOperatorTransactionCloser openOperatorTransactionCloser;
 
     // stats
     protected Map<Vote, IntCounter> stats = new HashMap<>();
@@ -59,6 +59,10 @@ public abstract class OpenOperator<T>
         openOperatorTransactionCloser = twoPCRuntimeContext.getSourceTransactionCloser();
         openOperatorTransactionCloser.open();
 
+        if (twoPCRuntimeContext.getSubscriptionMode() == AbstractTwoPCParticipant.SubscriptionMode.GENERIC) {
+            openOperatorTransactionCloser.subscribe(this);
+        }
+
         // register accumulators
         for (Map.Entry<Vote, IntCounter> s : stats.entrySet()) {
             Vote vote = s.getKey();
@@ -76,6 +80,12 @@ public abstract class OpenOperator<T>
         stats.get(vote).add(1);
     }
 
+    protected void subscribe(long timestamp) {
+        if (twoPCRuntimeContext.getSubscriptionMode() == AbstractTwoPCParticipant.SubscriptionMode.SPECIFIC) {
+            openOperatorTransactionCloser.subscribeTo(timestamp, this);
+        }
+    }
+
     @Override
     public synchronized void processElement(StreamRecord<T> sr) throws Exception {
         T element = sr.getValue();
@@ -85,7 +95,7 @@ public abstract class OpenOperator<T>
         metadata.coordinator = getCoordinatorAddress();
         metadata.watermark = transactionsIndex.getCurrentWatermark();
 
-        openOperatorTransactionCloser.subscribeTo(tContext.timestamp, this);
+        subscribe(tContext.timestamp);
 
         onOpenTransaction(element, metadata);
         collector.safeCollect(sr.replace(Enriched.of(metadata, element)));
@@ -96,6 +106,12 @@ public abstract class OpenOperator<T>
     }
 
     protected abstract void onOpenTransaction(T recordValue, Metadata metadata);
+
+    @Override
+    public boolean isInterestedIn(long timestamp) {
+        return transactionsIndex
+                .getTransactionByTimestamp((int) timestamp) != null;
+    }
 
     @Override
     public synchronized void onCloseTransaction(CloseTransactionNotification notification) {

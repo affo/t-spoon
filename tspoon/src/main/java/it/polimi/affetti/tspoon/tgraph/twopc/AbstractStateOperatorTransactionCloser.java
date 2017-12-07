@@ -6,7 +6,6 @@ import it.polimi.affetti.tspoon.runtime.NetUtils;
 import it.polimi.affetti.tspoon.runtime.ProcessRequestServer;
 import it.polimi.affetti.tspoon.tgraph.Vote;
 
-import java.util.List;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
@@ -15,6 +14,10 @@ import java.util.function.Supplier;
  */
 public abstract class AbstractStateOperatorTransactionCloser
         extends AbstractTwoPCParticipant<StateOperatorTransactionCloseListener> {
+
+    protected AbstractStateOperatorTransactionCloser(SubscriptionMode subscriptionMode) {
+        super(subscriptionMode);
+    }
 
     @Override
     public NetUtils.SingletonServerType getServerType() {
@@ -37,7 +40,8 @@ public abstract class AbstractStateOperatorTransactionCloser
             CloseTransactionNotification notification = CloseTransactionNotification.deserialize(request);
             long timestamp = notification.timestamp;
 
-            List<StateOperatorTransactionCloseListener> listeners = removeListeners(timestamp);
+            Iterable<StateOperatorTransactionCloseListener> listeners = getListeners(notification);
+
             Address coordinatorAddress = null;
             StringBuilder updatesRepresentation = new StringBuilder();
 

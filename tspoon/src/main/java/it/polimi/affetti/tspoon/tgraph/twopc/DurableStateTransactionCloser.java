@@ -16,6 +16,10 @@ public class DurableStateTransactionCloser extends AbstractStateOperatorTransact
     private transient StringClientsCache clientsCache;
     private transient ExecutorService pool;
 
+    protected DurableStateTransactionCloser(SubscriptionMode subscriptionMode) {
+        super(subscriptionMode);
+    }
+
     @Override
     public void open() throws Exception {
         super.open();

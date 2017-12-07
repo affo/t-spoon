@@ -10,10 +10,7 @@ import it.polimi.affetti.tspoon.tgraph.Metadata;
 import it.polimi.affetti.tspoon.tgraph.Vote;
 import it.polimi.affetti.tspoon.tgraph.db.Object;
 import it.polimi.affetti.tspoon.tgraph.query.*;
-import it.polimi.affetti.tspoon.tgraph.twopc.AbstractStateOperatorTransactionCloser;
-import it.polimi.affetti.tspoon.tgraph.twopc.CloseTransactionNotification;
-import it.polimi.affetti.tspoon.tgraph.twopc.StateOperatorTransactionCloseListener;
-import it.polimi.affetti.tspoon.tgraph.twopc.TwoPCRuntimeContext;
+import it.polimi.affetti.tspoon.tgraph.twopc.*;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.runtime.state.StateInitializationContext;
 import org.apache.flink.runtime.state.StateSnapshotContext;
@@ -88,6 +85,10 @@ public abstract class StateOperator<T, V>
 
         transactionCloser = twoPCRuntimeContext.getAtStateTransactionCloser();
         transactionCloser.open();
+
+        if (twoPCRuntimeContext.getSubscriptionMode() == AbstractTwoPCParticipant.SubscriptionMode.GENERIC) {
+            transactionCloser.subscribe(this);
+        }
     }
 
     @Override
@@ -125,7 +126,9 @@ public abstract class StateOperator<T, V>
         TransactionContext transaction = transactions.computeIfAbsent(metadata.timestamp,
                 ts -> {
                     counter++;
-                    transactionCloser.subscribeTo(ts, this);
+                    if (twoPCRuntimeContext.getSubscriptionMode() == AbstractTwoPCParticipant.SubscriptionMode.SPECIFIC) {
+                        transactionCloser.subscribeTo(ts, this);
+                    }
                     return new TransactionContext(counter, metadata.tid, ts, metadata.coordinator);
                 });
         transaction.addObject(key, object);
@@ -143,6 +146,11 @@ public abstract class StateOperator<T, V>
     protected abstract void execute(TransactionContext tContext, String key, Object<V> object, Metadata metadata, T element);
 
     protected abstract void onTermination(TransactionContext tContext);
+
+    @Override
+    public boolean isInterestedIn(long timestamp) {
+        return transactions.get((int) timestamp) != null;
+    }
 
     @Override
     public void onTransactionClosedSuccess(CloseTransactionNotification notification) {

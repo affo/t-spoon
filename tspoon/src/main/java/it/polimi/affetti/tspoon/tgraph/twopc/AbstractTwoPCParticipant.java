@@ -3,11 +3,10 @@ package it.polimi.affetti.tspoon.tgraph.twopc;
 import it.polimi.affetti.tspoon.common.Address;
 import it.polimi.affetti.tspoon.runtime.WithSingletonServer;
 
-import java.util.HashMap;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Created by affo on 04/12/17.
@@ -15,10 +14,16 @@ import java.util.function.Consumer;
  * This class is instantiated as a singleton and has to handle multi-threaded access.
  */
 public abstract class AbstractTwoPCParticipant<L extends TwoPCParticipant.Listener> implements TwoPCParticipant<L> {
-    protected Map<Long, List<L>> listeners = new HashMap<>();
+    protected final SubscriptionMode subscriptionMode;
+    protected Map<Long, List<L>> specificListeners = new HashMap<>();
+    protected Set<L> genericListeners = new HashSet<>();
     // singleton server enforces the existence of only one server
     // and handles multiple open and closes from different threads
     private WithSingletonServer server;
+
+    protected AbstractTwoPCParticipant(SubscriptionMode subscriptionMode) {
+        this.subscriptionMode = subscriptionMode;
+    }
 
     @Override
     public synchronized void open() throws Exception {
@@ -43,19 +48,81 @@ public abstract class AbstractTwoPCParticipant<L extends TwoPCParticipant.Listen
 
     @Override
     public synchronized void subscribeTo(long timestamp, L listener) {
-        listeners.computeIfAbsent(timestamp, ts -> new LinkedList<>()).add(listener);
+        if (subscriptionMode != SubscriptionMode.SPECIFIC) {
+            throw new IllegalStateException("Cannot subscribe specifically when subscription mode is "
+                    + subscriptionMode);
+        }
+
+        specificListeners.computeIfAbsent(timestamp, ts -> new LinkedList<>()).add(listener);
+    }
+
+    /**
+     * I suppose that every call to this method is performed by the operators in the `open` method,
+     * and that subscribers do not change during the job. If this happens, the iterations on genericListeners
+     * could raise a ConcurrentModificationException.
+     *
+     * @param listener
+     */
+    @Override
+    public synchronized void subscribe(L listener) {
+        if (subscriptionMode != SubscriptionMode.GENERIC) {
+            throw new IllegalStateException("Cannot subscribe generically when subscription mode is "
+                    + subscriptionMode);
+        }
+
+        genericListeners.add(listener);
     }
 
     protected synchronized List<L> removeListeners(long timestamp) {
-        return listeners.remove(timestamp);
+        return specificListeners.remove(timestamp);
+    }
+
+    private void notify(Stream<L> listeners, Consumer<L> notificationLogic) {
+        listeners.forEach(notificationLogic::accept);
+    }
+
+    private Stream<L> getFilteredGenericListeners(long timestamp) {
+        return genericListeners.stream()
+                .filter(l -> l.isInterestedIn(timestamp));
+    }
+
+    protected void notifySpecificListeners(CloseTransactionNotification notification,
+                                           Consumer<L> notificationLogic) throws NullPointerException {
+        List<L> listeners = removeListeners(notification.timestamp);
+        // no need to synchronize notification
+        notify(listeners.stream(), notificationLogic);
+    }
+
+    protected void notifyGenericListeners(CloseTransactionNotification notification,
+                                          Consumer<L> notificationLogic) {
+        notify(getFilteredGenericListeners(notification.timestamp), notificationLogic);
     }
 
     protected void notifyListeners(CloseTransactionNotification notification,
                                    Consumer<L> notificationLogic) {
-        List<L> listeners = removeListeners(notification.timestamp);
-        // no need to synchronize notification
-        for (L listener : listeners) {
-            notificationLogic.accept(listener);
+
+        if (subscriptionMode == SubscriptionMode.SPECIFIC) {
+            notifySpecificListeners(notification, notificationLogic);
+        } else {
+            notifyGenericListeners(notification, notificationLogic);
         }
+    }
+
+    /**
+     * Returns the correct subset of listeners for the current notification
+     *
+     * @param notification
+     * @return
+     */
+    protected Iterable<L> getListeners(CloseTransactionNotification notification) {
+        if (subscriptionMode == SubscriptionMode.SPECIFIC) {
+            return removeListeners(notification.timestamp);
+        }
+
+        return getFilteredGenericListeners(notification.timestamp).collect(Collectors.toSet());
+    }
+
+    public enum SubscriptionMode {
+        SPECIFIC, GENERIC
     }
 }
