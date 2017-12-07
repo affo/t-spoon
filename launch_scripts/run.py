@@ -107,5 +107,5 @@ if __name__ == "__main__":
     print json.dumps(results, indent=4, sort_keys=True)
 
     with open(output_file, "w") as f:
-        json.dump(results, f)
+        json.dump(results, f, indent=4, sort_keys=True)
 
