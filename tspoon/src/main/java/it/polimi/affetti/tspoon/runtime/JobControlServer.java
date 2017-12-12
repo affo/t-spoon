@@ -29,12 +29,12 @@ public class JobControlServer extends AbstractServer {
 
     private synchronized void publish(String message) throws Exception {
         for (StringClientHandler observer : observers) {
-            LOG.info("Publishing " + message + " to " + observer.socket);
+            LOG.info("Publishing <" + message + "> to " + observer.socket);
             observer.send(message);
         }
 
         // auto-close on finish
-        if (message.equals(JobControlClient.finishPattern)) {
+        if (message.equals(JobControlObserver.finishPattern)) {
             close();
         }
     }
@@ -86,7 +86,6 @@ public class JobControlServer extends AbstractServer {
                             .stream().map(Address::toString).collect(Collectors.toSet());
                     send(String.join(",", stringAddresses));
                 } else {
-                    LOG.info("Publishing " + request + "...");
                     publish(request);
                 }
             }

@@ -60,6 +60,7 @@ public class Report {
                 .setPrettyPrinting()
                 .serializeSpecialFloatingPointValues()
                 .registerTypeAdapter(Metric.class, new MetricSerializer())
+                .registerTypeAdapter(Throughput.class, new MetricSerializer())
                 .create();
 
         String converted = gson.toJson(fields);

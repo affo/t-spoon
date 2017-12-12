@@ -97,9 +97,13 @@ public abstract class AbstractServer implements Runnable {
         for (ClientHandler r : handlers) {
             r.close();
         }
+
+        /*
+        // waiting for termination could cause deadlock...
         for (Thread t : executors) {
             t.join();
         }
+        */
     }
 
     public int getPort() {

@@ -6,7 +6,15 @@ import org.apache.flink.api.common.accumulators.Accumulator;
  * Created by affo on 31/03/17.
  */
 public class MetricAccumulator implements Accumulator<Double, Metric> {
-    private final Metric metric = new Metric();
+    private final Metric metric;
+
+    public MetricAccumulator() {
+        this(new Metric());
+    }
+
+    public MetricAccumulator(Metric metric) {
+        this.metric = metric;
+    }
 
     @Override
     public void add(Double val) {

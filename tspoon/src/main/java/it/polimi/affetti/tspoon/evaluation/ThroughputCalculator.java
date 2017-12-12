@@ -32,11 +32,6 @@ public class ThroughputCalculator<T> extends RichMapFunction<T, T> {
     }
 
     @Override
-    public void close() throws Exception {
-        super.close();
-    }
-
-    @Override
     public T map(T element) throws Exception {
         if (count == 0) {
             // this is the first one
@@ -51,6 +46,7 @@ public class ThroughputCalculator<T> extends RichMapFunction<T, T> {
             this.throughput.add(batchSize / (elapsedTime / 1000));
             lastTS = now;
         }
+
         return element;
     }
 }

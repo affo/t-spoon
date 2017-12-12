@@ -13,10 +13,9 @@ import java.util.function.Supplier;
  * Created by affo on 25/01/17.
  */
 public class NetUtils {
-    public static final int JOB_CONTROL_PORT = 9001;
-    public static final int DELTA_PORT = 9002;
-    public static final int MIN_PORT = 8020;
-    public static final int MAX_PORT = 9000;
+    public static final int JOB_CONTROL_PORT = 3000;
+    public static final int MIN_PORT = 9000;
+    public static final int MAX_PORT = 10000;
 
     // ensure that singleton servers' base port is at list at the distance
     // specified in order to make it possible to have more than 1 TM per machine

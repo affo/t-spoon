@@ -1,11 +1,9 @@
 package it.polimi.affetti.tspoon.tgraph.backed;
 
 import it.polimi.affetti.tspoon.common.ControlledSource;
-import it.polimi.affetti.tspoon.common.RandomProvider;
 
 import java.util.Arrays;
 import java.util.List;
-import java.util.Random;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -14,7 +12,6 @@ import java.util.concurrent.TimeUnit;
 public class TransferSource extends ControlledSource<Transfer> {
     private int limit, noAccounts;
     private double startAmount;
-    private Random rand;
     private List<Transfer> elements;
     private long microSleep = 0L;
     public final int noElements;
@@ -24,7 +21,6 @@ public class TransferSource extends ControlledSource<Transfer> {
         this.noElements = limit;
         this.noAccounts = noAccounts;
         this.startAmount = startAmount;
-        this.rand = RandomProvider.get();
     }
 
     public TransferSource(Transfer... elements) {
@@ -36,17 +32,6 @@ public class TransferSource extends ControlledSource<Transfer> {
         this.microSleep = microSleep;
     }
 
-    private Transfer generateTransfer(long id) {
-        String from = "a" + rand.nextInt(noAccounts);
-        String to;
-        do {
-            to = "a" + rand.nextInt(noAccounts);
-        } while (from.equals(to));
-        Double amount = Math.ceil(rand.nextDouble() * startAmount);
-
-        return new Transfer(id, from, to, amount);
-    }
-
     @Override
     public void run(SourceContext<Transfer> sourceContext) throws Exception {
         int limit = elements != null ? elements.size() : this.limit;
@@ -55,7 +40,7 @@ public class TransferSource extends ControlledSource<Transfer> {
             if (elements != null) {
                 transfer = elements.get(i);
             } else {
-                transfer = generateTransfer(i);
+                transfer = Transfer.generateTransfer(i, noAccounts, startAmount);
             }
             sourceContext.collect(transfer);
             if (microSleep > 0) {

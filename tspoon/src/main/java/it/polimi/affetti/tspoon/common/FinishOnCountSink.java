@@ -1,9 +1,8 @@
 package it.polimi.affetti.tspoon.common;
 
 import it.polimi.affetti.tspoon.metrics.Report;
-import it.polimi.affetti.tspoon.runtime.JobControlClient;
+import it.polimi.affetti.tspoon.runtime.WithJobControlClient;
 import org.apache.flink.api.common.accumulators.IntCounter;
-import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.functions.sink.RichSinkFunction;
 import org.apache.log4j.Logger;
@@ -19,8 +18,9 @@ public class FinishOnCountSink<T> extends RichSinkFunction<T> {
     public static final int DEFAULT_LOG_EVERY = 10000;
     private final int logEvery;
 
-    private transient JobControlClient jobControlClient;
     private final int threshold;
+
+    private transient WithJobControlClient jobControlClient;
 
     public FinishOnCountSink(int count) {
         this(count, DEFAULT_LOG_EVERY);
@@ -34,15 +34,13 @@ public class FinishOnCountSink<T> extends RichSinkFunction<T> {
         Report.registerAccumulator(COUNTER_ACC);
     }
 
-
     @Override
     public void open(Configuration parameters) throws Exception {
         super.open(parameters);
         LOG = Logger.getLogger(FinishOnCountSink.class.getSimpleName());
 
-        ParameterTool parameterTool = (ParameterTool)
-                getRuntimeContext().getExecutionConfig().getGlobalJobParameters();
-        jobControlClient = JobControlClient.get(parameterTool);
+        jobControlClient = new WithJobControlClient();
+        jobControlClient.open(getRuntimeContext());
 
         getRuntimeContext().addAccumulator(COUNTER_ACC, counter);
     }
@@ -50,9 +48,7 @@ public class FinishOnCountSink<T> extends RichSinkFunction<T> {
     @Override
     public void close() throws Exception {
         super.close();
-        if (jobControlClient != null) {
-            jobControlClient.close();
-        }
+        jobControlClient.close();
     }
 
     @Override
@@ -68,8 +64,8 @@ public class FinishOnCountSink<T> extends RichSinkFunction<T> {
             throw new RuntimeException("Counted too much: " + count);
         }
 
-        if (jobControlClient != null && count == threshold) {
-            jobControlClient.publish(JobControlClient.finishPattern);
+        if (count == threshold) {
+            jobControlClient.getJobControlClient().publishFinishMessage();
         }
     }
 }

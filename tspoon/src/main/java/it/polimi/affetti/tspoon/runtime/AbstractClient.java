@@ -14,15 +14,15 @@ import java.net.Socket;
  */
 public abstract class AbstractClient {
     protected final Logger LOG = Logger.getLogger(getClass().getSimpleName());
-    private String addr;
-    private int port;
+    public final String address;
+    public final int port;
 
     protected Socket s;
     protected InputStream in;
     protected OutputStream out;
 
-    public AbstractClient(String addr, int port) {
-        this.addr = addr;
+    public AbstractClient(String address, int port) {
+        this.address = address;
         this.port = port;
     }
 
@@ -31,10 +31,10 @@ public abstract class AbstractClient {
             throw new IllegalStateException("Cannot init more than once");
         }
 
-        s = new Socket(addr, port);
+        s = new Socket(address, port);
         in = s.getInputStream();
         out = s.getOutputStream();
-        LOG.info("Connected to " + addr + ":" + port);
+        LOG.info("Connected to " + address + ":" + port);
     }
 
     public void close() throws IOException {
@@ -42,5 +42,9 @@ public abstract class AbstractClient {
         s.close();
         in.close();
         out.close();
+    }
+
+    public boolean isClosed() {
+        return s.isClosed();
     }
 }

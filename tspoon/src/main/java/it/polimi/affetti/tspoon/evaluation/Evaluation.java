@@ -1,7 +1,8 @@
 package it.polimi.affetti.tspoon.evaluation;
 
 import it.polimi.affetti.tspoon.common.FinishOnCountSink;
-import it.polimi.affetti.tspoon.common.TimestampDeltaSink;
+import it.polimi.affetti.tspoon.common.TunableSource;
+import it.polimi.affetti.tspoon.metrics.Report;
 import it.polimi.affetti.tspoon.runtime.NetUtils;
 import it.polimi.affetti.tspoon.tgraph.IsolationLevel;
 import it.polimi.affetti.tspoon.tgraph.Strategy;
@@ -10,8 +11,8 @@ import it.polimi.affetti.tspoon.tgraph.Vote;
 import it.polimi.affetti.tspoon.tgraph.backed.Transfer;
 import it.polimi.affetti.tspoon.tgraph.backed.TransferSource;
 import it.polimi.affetti.tspoon.tgraph.query.*;
+import org.apache.flink.api.common.JobExecutionResult;
 import org.apache.flink.api.java.tuple.Tuple2;
-import org.apache.flink.api.java.tuple.Tuple3;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.streaming.api.TimeCharacteristic;
 import org.apache.flink.streaming.api.datastream.DataStream;
@@ -25,7 +26,6 @@ import java.util.Collections;
 import java.util.List;
 
 public class Evaluation {
-    public static final int batchSize = 10000;
     public static final double startAmount = 100d;
 
     private static long getWaitPeriodInMicroseconds(double inputFrequency) {
@@ -63,6 +63,11 @@ public class Evaluation {
 
         final boolean printPlan = parameters.getBoolean("printPlan", false);
 
+        // parameters specific for tunable evaluation
+        final boolean tunableExperiment = parameters.getBoolean("tunable", false);
+        final int batchSize = parameters.getInt("batchSize", 20000);
+        final int resolution = parameters.getInt("resolution", 200);
+        final int startInputRate = parameters.getInt("startInputRate", 1000);
 
         assert noStates > 0;
         assert noTGraphs > 0;
@@ -107,12 +112,21 @@ public class Evaluation {
         if (!transfersOn) {
             limit = 0;
         }
-        TransferSource transferSource = new TransferSource(limit, keySpaceSize, startAmount);
-        if (waitPeriodMicro > 0) {
-            transferSource.setMicroSleep(waitPeriodMicro);
-        }
 
-        DataStream<Transfer> transfers = env.addSource(transferSource).setParallelism(1);
+        DataStream<Transfer> transfers;
+        if (tunableExperiment) {
+            TunableSource tunableSource = new TunableSource(startInputRate, resolution, batchSize);
+            transfers = env.addSource(tunableSource)
+                    .name("Parallel Source")
+                    .map(new TunableSource.ToTransfers(keySpaceSize, startAmount))
+                    .setParallelism(1);
+        } else {
+            TransferSource transferSource = new TransferSource(limit, keySpaceSize, startAmount);
+            if (waitPeriodMicro > 0) {
+                transferSource.setMicroSleep(waitPeriodMicro);
+            }
+            transfers = env.addSource(transferSource).setParallelism(1);
+        }
 
         // >>> Querying
         // NOTE: this part is only relevant in the case of the simplest topology (1 TG, 1 state).
@@ -141,14 +155,23 @@ public class Evaluation {
             tEnv.setQuerySupplier(querySupplier);
         }
 
-        // put a latency tracker at the beginning after the sled
-        LatencyTracker beginLatencyTracker = new LatencyTracker(true);
-        SingleOutputStreamOperator<Transfer> afterBeginLatencyTracking = transfers
-                .filter(new SkipFirstN<>(sledLen)).setParallelism(1)
-                .process(beginLatencyTracker).setParallelism(1).setBufferTimeout(0);
+        if (!tunableExperiment) {
+            transfers = transfers
+                    .filter(new SkipFirstN<>(sledLen))
+                    .setParallelism(1)
+                    .name("SkipFirst" + sledLen);
+        }
 
-        DataStream<Tuple3<String, Boolean, String>> startTracking = afterBeginLatencyTracking
-                .getSideOutput(beginLatencyTracker.getRecordTracking());
+        // put a latency tracker at the beginning after the sled
+        EndToEndTracker beginEndToEndTracker = new EndToEndTracker(true);
+        SingleOutputStreamOperator<Transfer> afterStartTracking = transfers
+                .process(beginEndToEndTracker)
+                .setParallelism(1)
+                .name("StartTracker")
+                .setBufferTimeout(0);
+
+        DataStream<Tuple2<Long, Boolean>> startTracking = afterStartTracking
+                .getSideOutput(beginEndToEndTracker.getRecordTrackingOutputTag());
 
         // in case of parallel tgraphs, split the original stream for load balancing
         SplitStream<Transfer> splitTransfers = null;
@@ -195,29 +218,51 @@ public class Evaluation {
         }
 
         // >>> Closing
-        LatencyTracker endLatencyTracker = new LatencyTracker(false);
+        if (!tunableExperiment) {
+            out = out
+                    .filter(new SkipFirstN<>(sledLen))
+                    .setParallelism(1)
+                    .name("SkipFirst" + sledLen);
+        }
 
-        SingleOutputStreamOperator<Transfer> afterEndLatencyTracking = out
-                .filter(new SkipFirstN<>(sledLen)).setParallelism(1)
-                .process(endLatencyTracker).setParallelism(1).setBufferTimeout(0);
+        EndToEndTracker endEndToEndTracker = new EndToEndTracker(false);
 
-        DataStream<Tuple3<String, Boolean, String>> endTracking = afterEndLatencyTracking
-                .getSideOutput(endLatencyTracker.getRecordTracking());
+        SingleOutputStreamOperator<Transfer> afterEndTracking = out
+                .process(endEndToEndTracker)
+                .setParallelism(1)
+                .name("EndTracker")
+                .setBufferTimeout(0);
 
-        out
-                .filter(new SkipFirstN<>(sledLen)).setParallelism(1) // calculate throughput after the sled
-                .map(new ThroughputCalculator<>(batchSize)).setParallelism(1);
+        DataStream<Tuple2<Long, Boolean>> endTracking = afterEndTracking
+                .getSideOutput(endEndToEndTracker.getRecordTrackingOutputTag());
 
-        // we can now connect start and end tracking towards a deltaSink
-        startTracking.union(endTracking)
-                .addSink(new TimestampDeltaSink())
-                .name("TimestampDelta").setParallelism(1);
+        DataStream<Tuple2<Long, Boolean>> trackingStream = startTracking.union(endTracking);
 
-        // >>> Add FinishOnCount
-        wal
-                .filter(entry -> entry.f1 != Vote.REPLAY)
-                .addSink(new FinishOnCountSink<>(numberOfElements))
-                .setParallelism(1).name("FinishOnCount");
+        if (tunableExperiment) {
+            // >>> Add FinishOnBackPressure
+            trackingStream
+                    .addSink(new FinishOnBackPressure(3000.0, batchSize, startInputRate, resolution))
+                    .setParallelism(1).name("FinishOnBackPressure");
+        } else {
+            // >>> Add latency calculator
+            trackingStream
+                    .flatMap(new TimestampDeltaFunction())
+                    .setParallelism(1).name("TimestampDelta");
+
+            // >>> Add ThroughputCalculator
+            out
+                    .filter(new SkipFirstN<>(sledLen)).setParallelism(1) // calculate throughput after the sled
+                    // in this case, the batchSize is the subBatch size...
+                    // the batchSize is the total number of records
+                    .map(new ThroughputCalculator<>(batchSize))
+                    .setParallelism(1).name("ThroughputCalculator");
+
+            // >>> Add FinishOnCount
+            wal
+                    .filter(entry -> entry.f1 != Vote.REPLAY)
+                    .addSink(new FinishOnCountSink<>(numberOfElements))
+                    .setParallelism(1).name("FinishOnCount");
+        }
 
         if (TransactionEnvironment.get().isVerbose()) {
             wal.print();
@@ -232,6 +277,12 @@ public class Evaluation {
         }
 
         // >>>>> Executing
-        env.execute("Evaluation - " + label);
+        JobExecutionResult jobExecutionResult = env.execute("Evaluation - " + label);
+
+        // >>> Only for local execution
+        Report report = new Report("report");
+        report.addAccumulators(jobExecutionResult);
+        report.addField("parameters", parameters.toMap());
+        report.writeToFile();
     }
 }

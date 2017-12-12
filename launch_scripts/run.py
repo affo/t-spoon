@@ -83,29 +83,32 @@ if __name__ == "__main__":
     results = execute_job(args)
     results["additional-notes"] = {}
 
-    throughput = float(results["accumulators"]["throughput"]["mean"])
-    percentage = 0.8
-    input_rate = int(math.floor(throughput * percentage))
+    is_tunable = results["config"]["execution-config"]["user-config"].get("tunable", False)
 
-    latency_n_rec = 20000
-    latency_sled = 0
-    latency_experiment_message = "Executing latency experiment with input rate {} * {} = {}" \
-        .format(throughput, percentage, input_rate)
-    results["additional-notes"]["inputRate"] = latency_experiment_message
-    results["additional-notes"]["nRec"] = "Using nRec {} and sled {}" \
-            .format(latency_n_rec, latency_sled)
-    print latency_experiment_message
+    if not is_tunable:
+        throughput = float(results["accumulators"]["throughput"]["mean"])
+        percentage = 0.8
+        input_rate = int(math.floor(throughput * percentage))
 
-    time.sleep(5)
+        latency_n_rec = 20000
+        latency_sled = 0
+        latency_experiment_message = "Executing latency experiment with input rate {} * {} = {}" \
+            .format(throughput, percentage, input_rate)
+        results["additional-notes"]["inputRate"] = latency_experiment_message
+        results["additional-notes"]["nRec"] = "Using nRec {} and sled {}" \
+                .format(latency_n_rec, latency_sled)
+        print latency_experiment_message
 
-    latency_results = execute_job(
-            "{} --inputRate {} --nRec {} --sled {}" \
-                    .format(args, input_rate, latency_n_rec, latency_sled))
-    results["accumulators"]["timestamp-deltas"]["latency"] = \
-            latency_results["accumulators"]["timestamp-deltas"]["latency"]
-    results["config"]["execution-config"]["user-config"]["inputRate"] = input_rate
+        time.sleep(5)
+
+        latency_results = execute_job(
+                "{} --inputRate {} --nRec {} --sled {}" \
+                        .format(args, input_rate, latency_n_rec, latency_sled))
+        results["accumulators"]["latency"] = \
+                latency_results["accumulators"]["latency"]
+        results["config"]["execution-config"]["user-config"]["inputRate"] = input_rate
+
     print json.dumps(results, indent=4, sort_keys=True)
-
     with open(output_file, "w") as f:
         json.dump(results, f, indent=4, sort_keys=True)
 

@@ -36,4 +36,8 @@ public class Metric implements Serializable {
         res.put("stddev", metric.getStandardDeviation());
         return res;
     }
+
+    public Metric clone() {
+        return new Metric();
+    }
 }

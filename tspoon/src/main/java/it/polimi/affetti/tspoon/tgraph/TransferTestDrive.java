@@ -2,7 +2,7 @@ package it.polimi.affetti.tspoon.tgraph;
 
 import it.polimi.affetti.tspoon.common.FinishOnCountSink;
 import it.polimi.affetti.tspoon.common.FlatMapFunction;
-import it.polimi.affetti.tspoon.common.TimestampTracker;
+import it.polimi.affetti.tspoon.common.RecordTracker;
 import it.polimi.affetti.tspoon.metrics.Report;
 import it.polimi.affetti.tspoon.runtime.NetUtils;
 import it.polimi.affetti.tspoon.tgraph.backed.Movement;
@@ -79,10 +79,10 @@ public class TransferTestDrive {
         //transfers.print();
 
         transfers = transfers.process(
-                new TimestampTracker<Transfer>("responseTime", true) {
+                new RecordTracker<Transfer>("responseTime", true) {
                     @Override
-                    protected String extractId(Transfer element) {
-                        return element.f0.toString();
+                    protected long extractId(Transfer element) {
+                        return element.f0;
                     }
                 });
 
@@ -129,10 +129,10 @@ public class TransferTestDrive {
 
         DataStream<TransactionResult<Movement>> output = tEnv.close(balances.leftUnchanged).get(0);
         output.process(
-                new TimestampTracker<TransactionResult<Movement>>("responseTime", false) {
+                new RecordTracker<TransactionResult<Movement>>("responseTime", false) {
                     @Override
-                    protected String extractId(TransactionResult<Movement> element) {
-                        return element.f2.f0.toString();
+                    protected long extractId(TransactionResult<Movement> element) {
+                        return element.f2.f0;
                     }
                 })
                 .returns(new TypeHint<TransactionResult<Movement>>() {
