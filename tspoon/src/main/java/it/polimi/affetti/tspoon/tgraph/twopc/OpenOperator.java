@@ -108,7 +108,7 @@ public abstract class OpenOperator<T>
     protected abstract void onOpenTransaction(T recordValue, Metadata metadata);
 
     @Override
-    public boolean isInterestedIn(long timestamp) {
+    public synchronized boolean isInterestedIn(long timestamp) {
         return transactionsIndex
                 .getTransactionByTimestamp((int) timestamp) != null;
     }

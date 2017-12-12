@@ -43,7 +43,7 @@ public abstract class AbstractTwoPCParticipant<L extends TwoPCParticipant.Listen
 
     @Override
     public synchronized Address getServerAddress() {
-        return server.getMyAddress();
+        return server == null ? null : server.getMyAddress();
     }
 
     @Override
