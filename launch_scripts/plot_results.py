@@ -32,60 +32,72 @@ if __name__ == '__main__':
     def get_ys(x_axis, prefix):
         throughputs = []
         latencies = []
+        max_or_avg = False
 
         for x in x_axis:
             tp = None
             lat = None
             try:
                 data = load_json(prefix + str(x))
-                tp = data['accumulators']['throughput']['mean']
-                lat = data['accumulators']['timestamp-deltas']['latency']['mean']
+                tp_and_lat = data['accumulators'].get('max-throughput-and-latency')
+
+                if tp_and_lat is not None:
+                    max_or_avg = True
+                    tp = tp_and_lat['max-throughput']
+                    lat = tp_and_lat['latency-at-max-throughput']
+                else:
+                    tp = data['accumulators']['throughput']['mean']
+                    lat = data['accumulators'].get('latency')
+
+                    # backward compatibility
+                    if lat is None:
+                        lat = data['accumulators']['timestamp-deltas']['latency']['mean']
+                    else:
+                        lat = lat['mean']
+
             except Exception as e:
                 print "Some exception happened:", e
             finally:
                 throughputs.append(tp)
                 latencies.append(lat)
 
-        return throughputs, latencies
+        tp_label = '{} [records/s]'
+        lat_label = '{} [ms]'
 
+        if max_or_avg:
+            tp_label = tp_label.format('Maximum throughput')
+            lat_label = lat_label.format('Latency at maximum throughput')
+        else:
+            tp_label = tp_label.format('Maximum input throughput')
+            lat_label = lat_label.format('Mean latency')
 
-    def plot_throughput(x, tp1, tpn, label):
+        return throughputs, latencies, tp_label, lat_label
+
+    xlabel = 'Number of states/tgraphs'
+
+    def plot_stuff(x, y_onetg, y_ntgs, ylabel, filename):
         fig, ax = plt.subplots()
-        ax.plot(x, tp1, 'b-', marker='x', label='1tg')
-        ax.plot(x, tpn, 'r-', marker='x', label='ntg')
+        ax.plot(x, y_onetg, 'b-', marker='x', label='1tg')
+        ax.plot(x, y_ntgs, 'r-', marker='x', label='ntg')
         ax.xaxis.set_ticks(x) # integer ticks
-        ax.set_xlabel('Number of states/tgraphs')
-        ax.set_ylabel('Maximum input throughput (records/s)')
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(ylabel)
         ax.legend(loc='upper right')
-        fig.savefig(join(label + '_throughput.png'))
+        fig.savefig(filename)
 
-    def plot_latency(x, lat1, latn, label):
-        fig, ax = plt.subplots()
-        ax.plot(x, lat1, 'b-', marker='x', label='1tg')
-        ax.plot(x, latn, 'r-', marker='x', label='ntg')
-        ax.xaxis.set_ticks(x) # integer ticks
-        ax.set_xlabel('Number of states/tgraphs')
-        ax.set_ylabel('Average latency (ms)')
-        ax.legend(loc='upper left')
-        fig.savefig(join(label + '_latency.png'))
+    x_axis = [1, 2, 3, 4, 5]
+    for label in [('series', SERIES_1TG, SERIES_NTG), ('parallel', PARALLEL_1TG, PARALLEL_NTG)]:
+        tps1, lats1, tp_label, lat_label = get_ys(x_axis, label[1])
+        tpsn, latsn, _, _ = get_ys(x_axis, label[2])
 
-    x_axis = list(xrange(1, 6))
-    one_tg_tps, one_tg_lats = get_ys(x_axis, SERIES_1TG)
-    ntg_tps, ntg_lats = get_ys(x_axis, SERIES_NTG)
+        plot_stuff(x_axis, tps1, tpsn, tp_label, join(label[0] + '_throughput.png'))
+        plot_stuff(x_axis, lats1, latsn, lat_label, join(label[0] + '_latency.png'))
 
-    plot_throughput(x_axis, one_tg_tps, ntg_tps, 'series')
-    plot_latency(x_axis, one_tg_lats, ntg_lats, 'series')
-
-    one_tg_tps, one_tg_lats = get_ys(x_axis, PARALLEL_1TG)
-    ntg_tps, ntg_lats = get_ys(x_axis, PARALLEL_NTG)
-
-    plot_throughput(x_axis, one_tg_tps, ntg_tps, 'parallel')
-    plot_latency(x_axis, one_tg_lats, ntg_lats, 'parallel')
 
     factors = [10 ** i for i in xrange(1, 5)]
     keyspace_x_axis = [base * factor for factor in factors for base in [1, 4, 7]]
     keyspace_x_axis.append(10 ** 5)
-    ks_throughput, ks_latency = get_ys(keyspace_x_axis, KEYSPACE)
+    ks_throughput, ks_latency, _, _ = get_ys(keyspace_x_axis, KEYSPACE)
 
     fig, ax = plt.subplots()
     ax.plot(keyspace_x_axis, ks_throughput, 'b-', marker='x')
