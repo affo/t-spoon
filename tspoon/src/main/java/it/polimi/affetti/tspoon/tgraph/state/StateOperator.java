@@ -3,13 +3,14 @@ package it.polimi.affetti.tspoon.tgraph.state;
 import it.polimi.affetti.tspoon.common.Address;
 import it.polimi.affetti.tspoon.common.InOrderSideCollector;
 import it.polimi.affetti.tspoon.common.RandomProvider;
-import it.polimi.affetti.tspoon.runtime.JobControlClient;
-import it.polimi.affetti.tspoon.runtime.WithServer;
 import it.polimi.affetti.tspoon.tgraph.Enriched;
 import it.polimi.affetti.tspoon.tgraph.Metadata;
 import it.polimi.affetti.tspoon.tgraph.Vote;
 import it.polimi.affetti.tspoon.tgraph.db.Object;
-import it.polimi.affetti.tspoon.tgraph.query.*;
+import it.polimi.affetti.tspoon.tgraph.query.PredicateQuery;
+import it.polimi.affetti.tspoon.tgraph.query.Query;
+import it.polimi.affetti.tspoon.tgraph.query.QueryVisitor;
+import it.polimi.affetti.tspoon.tgraph.query.RandomQuery;
 import it.polimi.affetti.tspoon.tgraph.twopc.*;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.runtime.state.StateInitializationContext;
@@ -30,9 +31,9 @@ import java.util.stream.IntStream;
 public abstract class StateOperator<T, V>
         extends AbstractStreamOperator<Enriched<T>>
         implements OneInputStreamOperator<Enriched<T>, Enriched<T>>,
-        QueryVisitor, QueryListener, StateOperatorTransactionCloseListener {
+        QueryVisitor, StateOperatorTransactionCloseListener {
     private long counter = 0;
-    private final String nameSpace;
+    protected final String nameSpace;
     public final OutputTag<Update<V>> updatesTag;
     // I suppose that the type for keys is String. This assumption is coherent,
     // for instance, with Redis implementation: https://redis.io/topics/data-types-intro
@@ -44,14 +45,7 @@ public abstract class StateOperator<T, V>
     private final TwoPCRuntimeContext twoPCRuntimeContext;
 
     protected transient InOrderSideCollector<T, Update<V>> collector;
-
-    private transient JobControlClient jobControlClient;
-
-    private transient WithServer queryServer;
     private transient AbstractStateOperatorTransactionCloser transactionCloser;
-
-    // randomizer to build queries
-    private Random random = RandomProvider.get();
 
     public StateOperator(
             String nameSpace,
@@ -72,14 +66,6 @@ public abstract class StateOperator<T, V>
         ParameterTool parameterTool = (ParameterTool)
                 getRuntimeContext().getExecutionConfig().getGlobalJobParameters();
         maxNumberOfVersions = parameterTool.getInt("maxNoVersions", 100);
-        jobControlClient = JobControlClient.get(parameterTool);
-
-        queryServer = new WithServer(new QueryServer(this));
-        queryServer.open();
-
-        if (jobControlClient != null) {
-            jobControlClient.registerQueryServer(nameSpace, queryServer.getMyAddress());
-        }
 
         collector = new InOrderSideCollector<>(output, updatesTag);
 
@@ -94,11 +80,7 @@ public abstract class StateOperator<T, V>
     @Override
     public void close() throws Exception {
         super.close();
-        queryServer.close();
         transactionCloser.close();
-        if (jobControlClient != null) {
-            jobControlClient.close();
-        }
     }
 
     // --------------------------------------- Transaction Execution and Completion ---------------------------------------
@@ -133,7 +115,7 @@ public abstract class StateOperator<T, V>
                 });
         transaction.addObject(key, object);
 
-        execute(transaction, key, object, metadata, element);
+        execute(key, object, metadata, element);
     }
 
     private int versionCleanup(Object<V> object, int watermark) {
@@ -143,9 +125,16 @@ public abstract class StateOperator<T, V>
         return 0;
     }
 
-    protected abstract void execute(TransactionContext tContext, String key, Object<V> object, Metadata metadata, T element);
+    protected abstract void execute(String key, Object<V> object, Metadata metadata, T element);
 
     protected abstract void onTermination(TransactionContext tContext);
+
+    @Override
+    public java.lang.Object getMonitorForUpdateLogic() {
+        // no monitor to return.
+        // If used it is perfectly legitimate to get a runtime NPE.
+        return null;
+    }
 
     @Override
     public boolean isInterestedIn(long timestamp) {
@@ -239,18 +228,8 @@ public abstract class StateOperator<T, V>
     }
 
     // --------------------------------------- Querying ---------------------------------------
-
-    private Map<String, V> queryState(Iterable<String> keys, int timestamp) {
-        Map<String, V> queryResult = new HashMap<>();
-        for (String key : keys) {
-            V object = getObject(key).getLastVersionBefore(timestamp).object;
-            if (object != null) {
-                queryResult.put(key, object);
-            }
-        }
-
-        return queryResult;
-    }
+    // randomizer to build queries
+    private Random random = RandomProvider.get();
 
     @Override
     public void visit(Query query) {
@@ -295,12 +274,6 @@ public abstract class StateOperator<T, V>
                 LOG.error("Problem with provided predicate...");
             }
         }
-    }
-
-    @Override
-    public Map<String, ?> onQuery(Query query) {
-        query.accept(this);
-        return queryState(query.getKeys(), query.watermark);
     }
 
     // --------------------------------------- State Recovery ---------------------------------------

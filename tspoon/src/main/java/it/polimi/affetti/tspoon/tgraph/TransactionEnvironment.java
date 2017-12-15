@@ -138,7 +138,7 @@ public class TransactionEnvironment {
         }
 
         openStream.watermarks.connect(queryStream).flatMap(new QueryProcessor()).name("QueryProcessor")
-                // TODO it should be:
+                // TODO it should be (for queries on multiple TGs):
                 //      processed = queryStream.flatMap(new QueryProcessor()).select(... byStateName ...)
                 // outside of this function, in TransactionEnvironment.get()
                 // and later:

@@ -2,7 +2,6 @@ package it.polimi.affetti.tspoon.tgraph.state;
 
 import it.polimi.affetti.tspoon.tgraph.Metadata;
 import it.polimi.affetti.tspoon.tgraph.db.Object;
-import it.polimi.affetti.tspoon.tgraph.db.ObjectVersion;
 
 import java.util.HashSet;
 import java.util.Set;
@@ -13,18 +12,8 @@ import java.util.Set;
 public class PL4Strategy extends PL3Strategy {
 
     /**
-     * In PL4 we use transaction ids for versioning and not timestamps
-     *
-     * @param metadata
-     * @return
-     */
-    @Override
-    public int getVersionIdentifier(Metadata metadata) {
-        return metadata.tid;
-    }
-
-    /**
-     * Writing is allowed if every version after the watermark is greater than this transaction id.
+     * Writing is allowed if every version after the watermark had been created by a tnx with tid greater than this transaction's tid.
+     * <p>
      * This means that later transactions acted without knowing that this transaction would have been executed.
      * The StrictnessEnforcer will make later transaction REPLAY; however, this transaction is perfectly legal.
      * <p>
@@ -37,16 +26,14 @@ public class PL4Strategy extends PL3Strategy {
      */
     @Override
     public boolean isWritingAllowed(Metadata metadata, Object<?> object) {
-        int lastVersion = object.getLastAvailableVersion().version;
-        boolean isWriteOK = true;
-        for (ObjectVersion<?> v : object.getVersionsWithin(metadata.watermark, lastVersion)) {
-            isWriteOK = isWriteOK && v.version >= metadata.tid;
-        }
-        return isWriteOK;
+        return object.noneVersionMatch(version -> version.version > metadata.watermark &&
+                version.createdBy < metadata.tid);
     }
 
     /**
-     * At PL4, we track every version after the watermark.
+     * At PL4 we are interested in tracking dependencies with later transactions that happened earlier
+     * in processing time. That's why we add `createdBy` instead of `version` to the dependency set.
+     * <p>
      * NOTE that we must track every dependency to make the StrictnessEnforcer make correct decisions.
      * We provide a concrete example to better illustrate the problem; take 3 transactions in the bank
      * transfer example:
@@ -64,9 +51,20 @@ public class PL4Strategy extends PL3Strategy {
      */
     @Override
     public Set<Integer> extractDependencies(Metadata metadata, Object<?> object) {
-        int lastVersion = object.getLastAvailableVersion().version;
         Set<Integer> dependencies = new HashSet<>();
-        object.getVersionsWithin(metadata.watermark, lastVersion).forEach(v -> dependencies.add(v.version));
+        // normal dependencies
+        dependencies.addAll(super.extractDependencies(metadata, object));
+
+        // forward dependencies
+        object.getVersionsAfter(metadata.watermark)
+                .forEach(v -> {
+                    if (v.createdBy > metadata.tid) {
+                        // here's the trick
+                        dependencies.add(-v.createdBy);
+                    }
+                });
+
+
         return dependencies;
     }
 }

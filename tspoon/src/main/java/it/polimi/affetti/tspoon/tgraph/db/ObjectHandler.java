@@ -23,7 +23,7 @@ public class ObjectHandler<T> implements Serializable {
         object = value;
     }
 
-    public ObjectVersion<T> object(int timestamp) {
-        return ObjectVersion.of(timestamp, object);
+    public ObjectVersion<T> object(int tid, int timestamp) {
+        return ObjectVersion.of(timestamp, tid, object);
     }
 }

@@ -41,7 +41,7 @@ public class OptimisticOpenOperator<T> extends OpenOperator<T> {
     public OptimisticOpenOperator(
             TransactionsIndex<T> transactionsIndex,
             TwoPCRuntimeContext twoPCRuntimeContext) {
-        super(transactionsIndex, twoPCRuntimeContext);
+        super(new StandardTransactionsIndex<T>(), twoPCRuntimeContext);
         Report.registerAccumulator(DEPENDENCY_REPLAYED_COUNTER_NAME);
         Report.registerAccumulator(REPLAYED_UPON_WATERMARK_UPDATE_COUNTER_NAME);
         Report.registerAccumulator(DIRECTLY_REPLAYED_COUNTER_NAME);
@@ -123,10 +123,6 @@ public class OptimisticOpenOperator<T> extends OpenOperator<T> {
                 if (timestamp > lastCommittedWatermark) {
                     lastCommittedWatermark = timestamp;
                 }
-
-                if (newWM >= lastCommittedWatermark) {
-                    collector.safeCollect(watermarkTag, lastCommittedWatermark);
-                }
             case ABORT:
                 onTermination(tid);
                 break;
@@ -147,6 +143,10 @@ public class OptimisticOpenOperator<T> extends OpenOperator<T> {
                         directlyReplayedInvalidDependency.add(1);
                     }
                 }
+        }
+
+        if (newWM >= lastCommittedWatermark) {
+            collector.safeCollect(watermarkTag, lastCommittedWatermark);
         }
     }
 

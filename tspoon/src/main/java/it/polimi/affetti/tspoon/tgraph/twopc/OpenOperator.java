@@ -107,14 +107,23 @@ public abstract class OpenOperator<T>
 
     protected abstract void onOpenTransaction(T recordValue, Metadata metadata);
 
+    // ----------------------------- Transaction close notification logic
+
     @Override
-    public synchronized boolean isInterestedIn(long timestamp) {
+    public Object getMonitorForUpdateLogic() {
+        // synchronize with this when applying update logic
+        return this;
+    }
+
+    // no need to synchronize because they are invoked atomically on notification
+    @Override
+    public boolean isInterestedIn(long timestamp) {
         return transactionsIndex
                 .getTransactionByTimestamp((int) timestamp) != null;
     }
 
     @Override
-    public synchronized void onCloseTransaction(CloseTransactionNotification notification) {
+    public void onCloseTransaction(CloseTransactionNotification notification) {
         LocalTransactionContext localTransactionContext = transactionsIndex
                 .getTransactionByTimestamp(notification.timestamp);
         localTransactionContext.replayCause = notification.replayCause;

@@ -36,7 +36,7 @@ import java.util.stream.IntStream;
 public class TransferTestDrive {
     public static void main(String[] args) throws Exception {
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
-        env.setBufferTimeout(0);
+        env.setBufferTimeout(5);
         ParameterTool parameters = ParameterTool.fromArgs(args);
         NetUtils.launchJobControlServer(parameters);
         env.getConfig().setGlobalJobParameters(parameters);
@@ -44,7 +44,7 @@ public class TransferTestDrive {
         final int baseParallelism = 4;
         final int partitioning = 4;
         final double startAmount = 100d;
-        final Strategy strategy = Strategy.PESSIMISTIC;
+        final Strategy strategy = Strategy.OPTIMISTIC;
         final IsolationLevel isolationLevel = IsolationLevel.PL3;
         final boolean useDependencyTracking = true;
         final boolean noContention = false;
@@ -56,7 +56,7 @@ public class TransferTestDrive {
         tEnv.setStrategy(strategy);
         tEnv.setIsolationLevel(isolationLevel);
         tEnv.setUseDependencyTracking(useDependencyTracking);
-        tEnv.setDeadlockTimeout(1000000L); // making deadlock detector
+        tEnv.setDeadlockTimeout(1000000L); // making deadlock detector useless
         tEnv.setDurable(durable);
 
         final int numberOfElements = 100000;
@@ -86,14 +86,19 @@ public class TransferTestDrive {
                     }
                 });
 
-        OpenStream<Transfer> open = tEnv.open(transfers, new ConsistencyCheck(startAmount));
-
-        tEnv.setQuerySupplier(
-                new FrequencyQuerySupplier(
-                        new PredefinedQuerySupplier(
-                                // select * from balances
-                                new PredicateQuery<Double>("balances", new SelectAll()) {
-                                }), 1));
+        OpenStream<Transfer> open;
+        // we can check consistency only at level PL3 or PL4
+        if (isolationLevel == IsolationLevel.PL3 || isolationLevel == IsolationLevel.PL4) {
+            open = tEnv.open(transfers, new ConsistencyCheck(startAmount));
+            tEnv.setQuerySupplier(
+                    new FrequencyQuerySupplier(
+                            new PredefinedQuerySupplier(
+                                    // select * from balances
+                                    new PredicateQuery<Double>("balances", new SelectAll()) {
+                                    }), 1));
+        } else {
+            open = tEnv.open(transfers);
+        }
 
         TStream<Movement> halves = open.opened.flatMap(
                 (FlatMapFunction<Transfer, Movement>) t -> Arrays.asList(t.getDeposit(), t.getWithdrawal()));

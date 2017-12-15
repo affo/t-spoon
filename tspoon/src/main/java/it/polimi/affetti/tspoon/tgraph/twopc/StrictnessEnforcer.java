@@ -8,7 +8,6 @@ import org.apache.flink.configuration.Configuration;
 import org.apache.flink.util.Collector;
 
 import java.util.*;
-import java.util.stream.Collectors;
 
 /**
  * Created by affo on 03/08/17.
@@ -16,47 +15,88 @@ import java.util.stream.Collectors;
  * Used only at PL4 level. Must be single threaded.
  * <p>
  * Orders transactions and analyzes dependencies among them and enforces replay if a later transaction
- * is succeeding while an earlier and conflicting one is replaying because of the conflict.
+ * is succeeding while an earlier and conflicting one is toReplay because of the conflict.
  * <p>
  * Moreover, the function adds the dependency to the later transaction.
  */
 public class StrictnessEnforcer extends RichFlatMapFunction<Metadata, Metadata> {
-    private transient DependencyTracker dependencyTracker;
+    private transient CompleteBatcher completeBatchChecker;
+    private Map<Integer, Metadata> metadataCache;
+    private Set<Integer> replaySet;
 
     @Override
     public void open(Configuration parameters) throws Exception {
         super.open(parameters);
-        dependencyTracker = new DependencyTracker();
+        completeBatchChecker = new CompleteBatcher();
+        metadataCache = new HashMap<>();
+        replaySet = new HashSet<>();
     }
 
     @Override
     public void flatMap(Metadata metadata, Collector<Metadata> collector) throws Exception {
-        dependencyTracker.addMetadata(metadata);
+        metadataCache.put(metadata.tid, metadata);
 
-        for (Metadata m : dependencyTracker.next()) {
-            collector.collect(m);
+        if (metadata.vote == Vote.REPLAY) {
+            completeBatchChecker.signalReplay(metadata.tid);
+            collector.collect(metadata);
+            return;
         }
+
+        // this is a forward dependency
+        if (replaySet.remove(metadata.tid)) {
+            metadata.vote = Vote.REPLAY;
+            collector.collect(metadata);
+            return;
+        }
+
+        completeBatchChecker.addTransaction(metadata.tid);
+
+        for (Integer forwardDependency :
+                extractForwardDependencies(metadata.dependencyTracking)) {
+            completeBatchChecker.signalReplay(forwardDependency);
+            replaySet.add(forwardDependency);
+        }
+
+        completeBatchChecker.nextBatch().forEach(
+                tid -> {
+                    Metadata m = metadataCache.remove(tid);
+                    if (replaySet.remove(tid)) {
+                        m.vote = Vote.REPLAY;
+                    }
+                    collector.collect(m);
+                }
+        );
     }
 
-    public static class DependencyTracker {
+    private Set<Integer> extractForwardDependencies(Set<Integer> dependencies) {
+        Set<Integer> forwardDependencies = new HashSet<>();
+        Iterator<Integer> iterator = dependencies.iterator();
+        while (iterator.hasNext()) {
+            Integer next = iterator.next();
+            if (next < 0) {
+                forwardDependencies.add(-next);
+                iterator.remove();
+            }
+        }
+
+        return forwardDependencies;
+    }
+
+    /**
+     * Provides complete batches basing on the replays signalled.
+     * The idea is that we must gather every transaction until a certain threshold in order to be sure
+     * that no transaction i happened-before transaction j specifies a forward dependency towards j.
+     * In other words, we cannot emit tnx j before processing i, if i < j.
+     */
+    public static class CompleteBatcher {
+        // cannot trust timestamps, they are not ordered wrt tids!
         private OrderedTimestamps tids = new OrderedTimestamps();
-        private Map<Integer, Metadata> metas = new HashMap<>();
-        private Set<Integer> replaying = new HashSet<>();
-        // saves the tids of records from forward dependencies
-        // which we still don't have the metadata for: tid -> forwardDependencyCause
-        private Map<Integer, Integer> toReplay = new HashMap<>();
+        // tids toReplay
+        private Set<Integer> toReplay = new HashSet<>();
         private int lastRemoved = 0;
-        private int lastReplay = Integer.MAX_VALUE;
 
-        private Metadata moveToReplaying(Metadata metadata) {
-            metadata.vote = Vote.REPLAY;
-            Integer forwardDependencyCause = toReplay.remove(metadata.tid);
-            replaying.add(metadata.tid);
-
-            // add the forward dependency cause
-            metadata.dependencyTracking.add(forwardDependencyCause);
-
-            return metadata;
+        public void signalReplay(int tid) {
+            toReplay.add(tid);
         }
 
         /**
@@ -64,54 +104,14 @@ public class StrictnessEnforcer extends RichFlatMapFunction<Metadata, Metadata> 
          * <p>
          * REPLAY indexing gets updated.
          *
-         * @param metadata
+         * @param
          */
-        public void addMetadata(Metadata metadata) {
-            metas.put(metadata.tid, metadata);
-            tids.addInOrderWithoutRepetition(metadata.tid);
-
-            if (toReplay.containsKey(metadata.tid)) {
-                // forward dependency I have never seen
-                // let's save it as a future replay (it will come back)
-                moveToReplaying(metadata);
-            } else if (replaying.contains(metadata.tid) && metadata.vote != Vote.REPLAY) {
-                // not a forward dependency, but vote != REPLAY,
-                // it is a record registered as a replay that now succesfully committed/aborted
-                // it can be removed because it will never come back.
-                replaying.remove(metadata.tid);
-            }
-
-            if (metadata.vote == Vote.REPLAY) {
-                // I have never saw this record before and it is REPLAY,
-                // save it for later
-                replaying.add(metadata.tid);
-            }
-
-            Iterator<Integer> iterator = metadata.dependencyTracking.iterator();
-            while (iterator.hasNext()) {
-                Integer aboveWatermark = iterator.next();
-                if (aboveWatermark > metadata.tid) {
-                    // this means that the current transaction could see the version
-                    // of a later transaction (real transaction execution does not respect timestamps) --- or,
-                    // the other way around, the later transaction acted as if the current one never happened.
-                    // This implies that the later transaction should be replayed!
-                    toReplay.put(aboveWatermark, metadata.tid);
-
-                    // update consistently metadata's vote if present
-                    metas.computeIfPresent(aboveWatermark, (tid, meta) -> moveToReplaying(meta));
-
-                    // cut out forward dependencies for proper use in OpenOperator
-                    iterator.remove();
-                }
-            }
-
-            // update last replay
-            // I don't worry about toReplay, because I know they are not here at the moment
-            lastReplay = replaying.isEmpty() ? Integer.MAX_VALUE : Collections.min(replaying);
+        public void addTransaction(int tid) {
+            tids.addInOrderWithoutRepetition(tid);
+            toReplay.remove(tid);
         }
 
         /**
-         * The idea is that you cannot allow a value to be returned if you haven't processed every record before it.
          * <p>
          * Once you get a contiguous sequence, you can return every record until the first replay,
          * plus every record in status REPLAY.
@@ -128,18 +128,16 @@ public class StrictnessEnforcer extends RichFlatMapFunction<Metadata, Metadata> 
          *
          * @return
          */
-        public List<Metadata> next() {
-            List<Integer> toCollect = tids.removeContiguousWith(lastRemoved, lastReplay);
+        public List<Integer> nextBatch() {
+            int upperThreshold = toReplay.isEmpty() ? Integer.MAX_VALUE : Collections.min(toReplay);
+            List<Integer> batch = tids.removeContiguousWith(lastRemoved, upperThreshold);
 
-            // we update the lastRemoved only in case we detected a new contiguous batch
-            if (!toCollect.isEmpty()) {
-                lastRemoved = Collections.max(toCollect);
+            for (Integer element : batch) {
+                toReplay.remove(element);
+                lastRemoved = element;
             }
 
-            // collect any record that needs REPLAY
-            toCollect.addAll(replaying);
-
-            return toCollect.stream().map(metas::remove).filter(Objects::nonNull).collect(Collectors.toList());
+            return batch;
         }
     }
 }

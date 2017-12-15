@@ -51,5 +51,29 @@ public interface TwoPCParticipant<L extends TwoPCParticipant.Listener> {
 
     interface Listener extends Serializable {
         boolean isInterestedIn(long timestamp);
+
+        /**
+         * The TwoPCParticipant can request a monitor object to the listener in order to provide
+         * atomic operations on applying the notification logic.
+         * <p>
+         * For example it could use it like:
+         * </p>
+         * <pre>
+         * {@code
+         * Listener l = ...;
+         *
+         * synchronized(l.getMonitorForUpdateLogic()) {
+         *      if (l.isInterestedIn(42L)) {
+         *          l.onFoo();
+         *      } else {
+         *          l.onBar();
+         *      }
+         * }
+         * }
+         * </pre>
+         *
+         * @return
+         */
+        Object getMonitorForUpdateLogic();
     }
 }

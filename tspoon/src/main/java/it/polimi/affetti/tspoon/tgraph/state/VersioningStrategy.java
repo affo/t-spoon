@@ -20,8 +20,6 @@ import java.util.Set;
  * At PL3 you can read as in PL2, but you can write only if the last version is known to be finished.
  */
 public interface VersioningStrategy extends Serializable {
-    int getVersionIdentifier(Metadata metadata);
-
     <V> ObjectVersion<V> extractObjectVersion(Metadata metadata, Object<V> versions);
 
     boolean isWritingAllowed(Metadata metadata, Object<?> object);

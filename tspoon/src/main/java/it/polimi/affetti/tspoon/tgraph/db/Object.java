@@ -6,6 +6,7 @@ import java.io.Serializable;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.ListIterator;
+import java.util.function.Predicate;
 
 /**
  * Created by affo on 20/07/17.
@@ -27,7 +28,7 @@ public class Object<T> implements Serializable {
     }
 
     private ObjectVersion<T> initObject() {
-        return ObjectVersion.of(0, defaultValue);
+        return ObjectVersion.of(0, 0, defaultValue);
     }
 
     public synchronized int getVersionCount() {
@@ -78,6 +79,54 @@ public class Object<T> implements Serializable {
         }
 
         return versions;
+    }
+
+    public synchronized Iterable<ObjectVersion<T>> getVersionsAfter(int startExclusive) {
+        return getVersionsWithin(startExclusive, Integer.MAX_VALUE);
+    }
+
+    /**
+     * WARNING: iterates over every available version
+     *
+     * @param threshold
+     * @return the versions younger (with a bigger createdBy id) threshold.
+     * No guarantees on the createdBy id ordering wrt the timestamp.
+     * The versions will be in timestamp order.
+     */
+    public synchronized Iterable<ObjectVersion<T>> getVersionsByNewerTransactions(int threshold) {
+        List<ObjectVersion<T>> versions = new LinkedList<>();
+
+        for (ObjectVersion<T> obj : this.versions) {
+            if (obj.createdBy > threshold) {
+                versions.add(obj);
+            }
+        }
+
+        return versions;
+    }
+
+    /**
+     * @param predicate
+     * @return true if there is any version matching the predicate.
+     */
+    public synchronized boolean anyVersionMatch(Predicate<ObjectVersion<T>> predicate) {
+        for (ObjectVersion<T> obj : this.versions) {
+            if (predicate.test(obj)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public synchronized boolean noneVersionMatch(Predicate<ObjectVersion<T>> predicate) {
+        for (ObjectVersion<T> obj : this.versions) {
+            if (predicate.test(obj)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
 

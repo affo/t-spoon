@@ -1,5 +1,6 @@
 package it.polimi.affetti.tspoon.tgraph.state;
 
+import it.polimi.affetti.tspoon.runtime.NetUtils;
 import it.polimi.affetti.tspoon.tgraph.Enriched;
 import it.polimi.affetti.tspoon.tgraph.Metadata;
 import it.polimi.affetti.tspoon.tgraph.TransactionEnvironment;
@@ -7,14 +8,20 @@ import it.polimi.affetti.tspoon.tgraph.Vote;
 import it.polimi.affetti.tspoon.tgraph.db.Object;
 import it.polimi.affetti.tspoon.tgraph.db.ObjectHandler;
 import it.polimi.affetti.tspoon.tgraph.db.ObjectVersion;
-import it.polimi.affetti.tspoon.tgraph.twopc.AbstractStateOperatorTransactionCloser;
+import it.polimi.affetti.tspoon.tgraph.query.Query;
+import it.polimi.affetti.tspoon.tgraph.query.QueryListener;
+import it.polimi.affetti.tspoon.tgraph.query.QueryServer;
 import it.polimi.affetti.tspoon.tgraph.twopc.TwoPCRuntimeContext;
 import org.apache.flink.util.OutputTag;
+
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * Created by affo on 25/07/17.
  */
-public class OptimisticStateOperator<T, V> extends StateOperator<T, V> {
+public class OptimisticStateOperator<T, V> extends StateOperator<T, V>
+        implements QueryListener {
     private VersioningStrategy versioningStrategy;
     private boolean useDependencyTracking;
 
@@ -47,7 +54,21 @@ public class OptimisticStateOperator<T, V> extends StateOperator<T, V> {
     }
 
     @Override
-    protected void execute(TransactionContext tContext, String key, Object<V> object, Metadata metadata, T element) {
+    public void open() throws Exception {
+        super.open();
+        QueryServer queryServer = NetUtils.openAsSingleton(NetUtils.SingletonServerType.QUERY,
+                () -> new QueryServer(getRuntimeContext()));
+        queryServer.listen(this);
+    }
+
+    @Override
+    public void close() throws Exception {
+        super.close();
+        NetUtils.closeAsSingleton(NetUtils.SingletonServerType.QUERY);
+    }
+
+    @Override
+    protected void execute(String key, Object<V> object, Metadata metadata, T element) {
         // very simple. Optimistic directly executes
         ObjectVersion<V> version = versioningStrategy.extractObjectVersion(metadata, object);
         ObjectHandler<V> handler;
@@ -58,11 +79,7 @@ public class OptimisticStateOperator<T, V> extends StateOperator<T, V> {
         }
 
         stateFunction.apply(element, handler);
-
-        int versionId = versioningStrategy.getVersionIdentifier(metadata);
-        tContext.version = versionId;
-
-        ObjectVersion<V> nextVersion = handler.object(versionId);
+        ObjectVersion<V> nextVersion = handler.object(metadata.tid, metadata.timestamp);
 
         metadata.vote = stateFunction.invariant(nextVersion.object) ? Vote.COMMIT : Vote.ABORT;
 
@@ -88,5 +105,31 @@ public class OptimisticStateOperator<T, V> extends StateOperator<T, V> {
     @Override
     protected void onTermination(TransactionContext tContext) {
         // does nothing
+    }
+
+    // --------------------------------------- Querying ---------------------------------------
+
+    private Map<String, V> queryState(Iterable<String> keys, int timestamp) {
+        Map<String, V> queryResult = new HashMap<>();
+        for (String key : keys) {
+            V object = getObject(key).getLastVersionBefore(timestamp).object;
+            if (object != null) {
+                queryResult.put(key, object);
+            }
+        }
+
+        return queryResult;
+    }
+
+
+    @Override
+    public Map<String, ?> onQuery(Query query) {
+        query.accept(this);
+        return queryState(query.getKeys(), query.watermark);
+    }
+
+    @Override
+    public String getNameSpace() {
+        return nameSpace;
     }
 }

@@ -6,7 +6,6 @@ import it.polimi.affetti.tspoon.tgraph.Vote;
 import it.polimi.affetti.tspoon.tgraph.db.Object;
 import it.polimi.affetti.tspoon.tgraph.db.ObjectHandler;
 import it.polimi.affetti.tspoon.tgraph.db.ObjectVersion;
-import it.polimi.affetti.tspoon.tgraph.twopc.AbstractStateOperatorTransactionCloser;
 import it.polimi.affetti.tspoon.tgraph.twopc.TwoPCRuntimeContext;
 import org.apache.flink.util.OutputTag;
 
@@ -25,6 +24,9 @@ import java.util.Map;
  */
 public class PessimisticStateOperator<T, V> extends StateOperator<T, V>
         implements KeyLevelTaskExecutor.TaskCompletionObserver<PessimisticStateOperator.TaskResult> {
+    // Pessimistic method does not need a global tracking for versions.
+    // It is enough to store a unique incremental id per operator instance (-> kv storage shard)
+    private int localVersionId = 1;
     private transient KeyLevelTaskExecutor<TaskResult> executor;
     private final Map<Long, Enriched<T>> deferredElements = new HashMap<>();
 
@@ -66,10 +68,7 @@ public class PessimisticStateOperator<T, V> extends StateOperator<T, V>
      * In order to implement the trick, I always write the last version number + 1.
      */
     @Override
-    protected void execute(TransactionContext tContext, String key, Object<V> object, Metadata metadata, T element) {
-        // here's the trick
-        tContext.version = (int) tContext.localId;
-
+    protected void execute(String key, Object<V> object, Metadata metadata, T element) {
         executor.run(key,
                 (taskId) -> deferredElements.put(taskId, Enriched.of(metadata, element)),
                 () -> {
@@ -83,7 +82,7 @@ public class PessimisticStateOperator<T, V> extends StateOperator<T, V>
                     }
                     stateFunction.apply(element, handler);
 
-                    ObjectVersion<V> nextVersion = handler.object(tContext.version);
+                    ObjectVersion<V> nextVersion = handler.object(metadata.tid, localVersionId);
                     object.addVersion(nextVersion);
 
                     Vote vote = stateFunction.invariant(nextVersion.object) ? Vote.COMMIT : Vote.ABORT;
@@ -93,6 +92,8 @@ public class PessimisticStateOperator<T, V> extends StateOperator<T, V>
                     }
                     return taskResult;
                 });
+
+        localVersionId++;
     }
 
     @Override
@@ -104,7 +105,6 @@ public class PessimisticStateOperator<T, V> extends StateOperator<T, V>
 
     @Override
     public void onTaskCompletion(long id, TaskResult taskResult) {
-
         Enriched<T> element = deferredElements.remove(id);
         element.metadata.vote = element.metadata.vote.merge(taskResult.vote);
         collector.safeCollect(element);

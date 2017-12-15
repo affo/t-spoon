@@ -6,7 +6,6 @@ import it.polimi.affetti.tspoon.runtime.WithSingletonServer;
 import java.util.*;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 /**
  * Created by affo on 04/12/17.
@@ -77,25 +76,23 @@ public abstract class AbstractTwoPCParticipant<L extends TwoPCParticipant.Listen
         return specificListeners.remove(timestamp);
     }
 
-    private void notify(Stream<L> listeners, Consumer<L> notificationLogic) {
-        listeners.forEach(notificationLogic::accept);
-    }
-
-    private Stream<L> getFilteredGenericListeners(long timestamp) {
-        return genericListeners.stream()
-                .filter(l -> l.isInterestedIn(timestamp));
-    }
-
     protected void notifySpecificListeners(CloseTransactionNotification notification,
                                            Consumer<L> notificationLogic) throws NullPointerException {
         List<L> listeners = removeListeners(notification.timestamp);
         // no need to synchronize notification
-        notify(listeners.stream(), notificationLogic);
+        listeners.forEach(notificationLogic);
     }
 
     protected void notifyGenericListeners(CloseTransactionNotification notification,
                                           Consumer<L> notificationLogic) {
-        notify(getFilteredGenericListeners(notification.timestamp), notificationLogic);
+        for (L listener : genericListeners) {
+            // synchronization from the outside to guarantee atomic operation
+            synchronized (listener.getMonitorForUpdateLogic()) {
+                if (listener.isInterestedIn(notification.timestamp)) {
+                    notificationLogic.accept(listener);
+                }
+            }
+        }
     }
 
     protected void notifyListeners(CloseTransactionNotification notification,
@@ -119,7 +116,9 @@ public abstract class AbstractTwoPCParticipant<L extends TwoPCParticipant.Listen
             return removeListeners(notification.timestamp);
         }
 
-        return getFilteredGenericListeners(notification.timestamp).collect(Collectors.toSet());
+        return genericListeners.stream()
+                .filter(l -> l.isInterestedIn(notification.timestamp))
+                .collect(Collectors.toSet());
     }
 
     public enum SubscriptionMode {
