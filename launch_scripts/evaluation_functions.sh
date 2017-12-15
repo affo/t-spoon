@@ -32,16 +32,15 @@ function _launch_suite_keyspace {
 }
 
 function _launch_suite_query {
-    if [[ "$#" -lt 2 ]]; then
-        echo "launch_suite_query <queryPerc> <qf1,qf2,...> <params...>"
+    if [[ "$#" -lt 1 ]]; then
+        echo "launch_suite_query <qf1,qf2,...> <params...>"
         return 1
     fi
 
-    local query_perc=$1
-    local query_freqs=(`echo $2 | tr ',' '\n'`)
+    local query_freqs=(`echo $1 | tr ',' '\n'`)
 
     for qf in ${query_freqs[@]}; do
-        launch 'query_'$qf $EVAL_CLASS --queryOn true --queryPerc $query_perc --queryRate $qf "${@:3}"
+        launch_query $qf 4500 "${@:2}"
         sleep 1
     done
 }
@@ -81,7 +80,7 @@ function launch_series_1tg {
         return 1
     fi
 
-    _launch_tgs $1 1 true
+    _launch_tgs $1 1 true "${@:2}"
 }
 
 function launch_series_ntg {
@@ -90,7 +89,7 @@ function launch_series_ntg {
         return 1
     fi
 
-    _launch_tgs 1 $1 true
+    _launch_tgs 1 $1 true "${@:2}"
 }
 
 function launch_parallel_1tg {
@@ -99,7 +98,7 @@ function launch_parallel_1tg {
         return 1
     fi
 
-    _launch_tgs $1 1 false
+    _launch_tgs $1 1 false "${@:2}"
 }
 
 function launch_parallel_ntg {
@@ -108,7 +107,23 @@ function launch_parallel_ntg {
         return 1
     fi
 
-    _launch_tgs 1 $1 false
+    _launch_tgs 1 $1 false "${@:2}"
+}
+
+function launch_query {
+    if [[ "$#" -lt 2 ]]; then
+        echo "Input: <query_frequency> <update_frequency> <params...>"
+        return 1
+    fi
+
+    local query_frequency=$1
+    local update_frequency=$2
+    local n_records=$(($update_frequency * 120)) # make it last 2 minutes
+
+    launch 'query_'$query_frequency $EVAL_CLASS --queryOn true --queryPerc 0.1 \
+        --noTG 1 --noStates 1 --series true \
+        --ks 50 --inputRate $update_frequency --nRec $n_records --sled 0 \
+        --queryRate $query_frequency "${@:3}"
 }
 
 
@@ -136,7 +151,7 @@ function launch_suite_keyspace {
 
 # keyspace 50, queryPerc 0.1
 # - launch one with no updates and only querying to get the throughput
-# - 4500 updates/s and variable querying frequency (10, 100, 1000, 3000, 5000)
+# - 2000 updates/s and variable querying frequency (10, 100, 1000, 3000, 5000)
 #   measure PUT and GET latency
 function launch_suite_query {
     #launch --queryOn true --transfersOn false --queryPerc 0.1 --ks 50 \
@@ -144,7 +159,6 @@ function launch_suite_query {
 
     #sleep 2
 
-    _launch_suite_query 0.1 10,100,1000,3000,5000 \
-        --noTG 1 --noStates 1 --ks 50 --inputRate 4500 --series true
+    _launch_suite_query 10,100,1000,3000,5000
 }
 
