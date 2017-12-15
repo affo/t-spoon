@@ -83,9 +83,12 @@ if __name__ == "__main__":
     results = execute_job(args)
     results["additional-notes"] = {}
 
-    is_tunable = results["config"]["execution-config"]["user-config"].get("tunable", False)
+    user_config = results["config"]["execution-config"]["user-config"]
 
-    if not is_tunable:
+    is_tunable = user_config.get("tunable", False)
+    is_query = user_config.get("queryOn", False)
+
+    if not is_tunable and not is_query:
         throughput = float(results["accumulators"]["throughput"]["mean"])
         percentage = 0.8
         input_rate = int(math.floor(throughput * percentage))
