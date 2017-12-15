@@ -7,4 +7,6 @@ import java.util.Map;
  */
 public interface QueryListener {
     Map<String, ?> onQuery(Query query);
+
+    String getNameSpace();
 }

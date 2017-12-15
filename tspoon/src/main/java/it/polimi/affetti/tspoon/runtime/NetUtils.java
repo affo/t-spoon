@@ -23,10 +23,12 @@ public class NetUtils {
 
     public static final int OPEN_SERVER_PORT = 8000;
     public static final int STATE_SERVER_PORT = 8010;
+    private static final int QUERY_SERVER_PORT = 8020;
 
     public enum SingletonServerType {
         OPEN(OPEN_SERVER_PORT),
-        STATE(STATE_SERVER_PORT);
+        STATE(STATE_SERVER_PORT),
+        QUERY(QUERY_SERVER_PORT);
 
         private final int port;
 
@@ -78,6 +80,12 @@ public class NetUtils {
     }
 
     public synchronized static void closeAsSingleton(SingletonServerType serverType) throws Exception {
-        singletonServers.remove(serverType).close();
+        // if we remove the server we allow for multiple open/close in the same JVM process.
+        // However we introduce the possibility for singleton violation (concurrent open/close).
+        // Open/close cycles should be clearly isolated by a delta time or equivalent...
+        AbstractServer server = singletonServers.remove(serverType);
+        if (server != null) {
+            server.close();
+        }
     }
 }
