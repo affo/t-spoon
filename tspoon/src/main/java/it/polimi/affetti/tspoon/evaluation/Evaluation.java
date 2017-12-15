@@ -28,8 +28,8 @@ import java.util.List;
 public class Evaluation {
     public static final double startAmount = 100d;
 
-    private static long getWaitPeriodInMicroseconds(double inputFrequency) {
-        return (long) ((1.0 / inputFrequency) * 1000000);
+    private static long getWaitPeriodInMicroseconds(double frequency) {
+        return (long) (Math.pow(10, 6) / frequency);
     }
 
     public static void main(String[] args) throws Exception {
@@ -155,8 +155,9 @@ public class Evaluation {
             tEnv.setQuerySupplier(querySupplier);
         }
 
+        DataStream<Transfer> afterSource = transfers;
         if (!tunableExperiment) {
-            transfers = transfers
+            afterSource = transfers
                     .filter(new SkipFirstN<>(sledLen))
                     .setParallelism(1)
                     .name("SkipFirst" + sledLen);
@@ -164,7 +165,7 @@ public class Evaluation {
 
         // put a latency tracker at the beginning after the sled
         EndToEndTracker beginEndToEndTracker = new EndToEndTracker(true);
-        SingleOutputStreamOperator<Transfer> afterStartTracking = transfers
+        SingleOutputStreamOperator<Transfer> afterStartTracking = afterSource
                 .process(beginEndToEndTracker)
                 .setParallelism(1)
                 .name("StartTracker")
@@ -218,8 +219,9 @@ public class Evaluation {
         }
 
         // >>> Closing
+        DataStream<Transfer> afterOut = out;
         if (!tunableExperiment) {
-            out = out
+            afterOut = out
                     .filter(new SkipFirstN<>(sledLen))
                     .setParallelism(1)
                     .name("SkipFirst" + sledLen);
@@ -227,7 +229,7 @@ public class Evaluation {
 
         EndToEndTracker endEndToEndTracker = new EndToEndTracker(false);
 
-        SingleOutputStreamOperator<Transfer> afterEndTracking = out
+        SingleOutputStreamOperator<Transfer> afterEndTracking = afterOut
                 .process(endEndToEndTracker)
                 .setParallelism(1)
                 .name("EndTracker")
@@ -241,7 +243,7 @@ public class Evaluation {
         if (tunableExperiment) {
             // >>> Add FinishOnBackPressure
             trackingStream
-                    .addSink(new FinishOnBackPressure(3000.0, batchSize, startInputRate, resolution))
+                    .addSink(new FinishOnBackPressure(2000.0, batchSize, startInputRate, resolution))
                     .setParallelism(1).name("FinishOnBackPressure");
         } else {
             // >>> Add latency calculator
@@ -250,8 +252,7 @@ public class Evaluation {
                     .setParallelism(1).name("TimestampDelta");
 
             // >>> Add ThroughputCalculator
-            out
-                    .filter(new SkipFirstN<>(sledLen)).setParallelism(1) // calculate throughput after the sled
+            afterOut // calculate throughput after the sled.
                     // in this case, the batchSize is the subBatch size...
                     // the batchSize is the total number of records
                     .map(new ThroughputCalculator<>(batchSize))
