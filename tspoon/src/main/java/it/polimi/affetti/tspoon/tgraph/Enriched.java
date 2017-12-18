@@ -1,6 +1,12 @@
 package it.polimi.affetti.tspoon.tgraph;
 
+import org.apache.flink.api.common.typeinfo.TypeInformation;
+import org.apache.flink.api.java.typeutils.PojoField;
+import org.apache.flink.api.java.typeutils.PojoTypeInfo;
+
 import java.io.Serializable;
+import java.util.Arrays;
+import java.util.List;
 
 /**
  * Created by affo on 13/07/17.
@@ -33,5 +39,20 @@ public class Enriched<T> implements Serializable {
                 "metadata=" + metadata +
                 ", value=" + value +
                 '}';
+    }
+
+    public static <T> TypeInformation<Enriched<T>> getTypeInfo(TypeInformation<T> typeInfo) {
+        try {
+            List<PojoField> fields = Arrays.asList(
+                    new PojoField(Enriched.class.getField("metadata"),
+                            TypeInformation.of(Metadata.class)),
+                    new PojoField(Enriched.class.getField("value"), typeInfo)
+            );
+
+            Class<Enriched<T>> baseClass = (Class<Enriched<T>>) (Class<?>) Enriched.class;
+            return new PojoTypeInfo<>(baseClass, fields);
+        } catch (NoSuchFieldException e) {
+            throw new RuntimeException("Error in extracting type information from Enriched: " + e.getMessage());
+        }
     }
 }

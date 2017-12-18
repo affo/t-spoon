@@ -1,135 +1,45 @@
 package it.polimi.affetti.tspoon.tgraph.state;
 
-import it.polimi.affetti.tspoon.runtime.NetUtils;
 import it.polimi.affetti.tspoon.tgraph.Enriched;
-import it.polimi.affetti.tspoon.tgraph.Metadata;
-import it.polimi.affetti.tspoon.tgraph.TransactionEnvironment;
-import it.polimi.affetti.tspoon.tgraph.Vote;
-import it.polimi.affetti.tspoon.tgraph.db.Object;
-import it.polimi.affetti.tspoon.tgraph.db.ObjectHandler;
-import it.polimi.affetti.tspoon.tgraph.db.ObjectVersion;
-import it.polimi.affetti.tspoon.tgraph.query.Query;
-import it.polimi.affetti.tspoon.tgraph.query.QueryListener;
-import it.polimi.affetti.tspoon.tgraph.query.QueryServer;
-import it.polimi.affetti.tspoon.tgraph.twopc.TwoPCRuntimeContext;
+import it.polimi.affetti.tspoon.tgraph.db.OptimisticTransactionExecutor;
+import it.polimi.affetti.tspoon.tgraph.db.Transaction;
+import it.polimi.affetti.tspoon.tgraph.twopc.TRuntimeContext;
 import org.apache.flink.util.OutputTag;
-
-import java.util.HashMap;
-import java.util.Map;
 
 /**
  * Created by affo on 25/07/17.
  */
-public class OptimisticStateOperator<T, V> extends StateOperator<T, V>
-        implements QueryListener {
-    private VersioningStrategy versioningStrategy;
-    private boolean useDependencyTracking;
+public class OptimisticStateOperator<T, V> extends StateOperator<T, V> {
+    private transient OptimisticTransactionExecutor transactionExecutor;
 
     public OptimisticStateOperator(
             String nameSpace,
             StateFunction<T, V> stateFunction,
             OutputTag<Update<V>> updatesTag,
-            TwoPCRuntimeContext twoPCRuntimeContext) {
-        super(nameSpace, stateFunction, updatesTag, twoPCRuntimeContext);
-        TransactionEnvironment tEnv = TransactionEnvironment.get();
-        switch (tEnv.getIsolationLevel()) {
-            case PL0:
-                versioningStrategy = new PL0Strategy();
-                break;
-            case PL1:
-                versioningStrategy = new PL1Strategy();
-                break;
-            case PL2:
-                versioningStrategy = new PL2Strategy();
-                break;
-            case PL4:
-                versioningStrategy = new PL4Strategy();
-                break;
-            default:
-                versioningStrategy = new PL3Strategy();
-                break;
-        }
-
-        this.useDependencyTracking = tEnv.usingDependencyTracking();
+            TRuntimeContext tRuntimeContext) {
+        super(nameSpace, stateFunction, updatesTag, tRuntimeContext);
     }
 
     @Override
     public void open() throws Exception {
         super.open();
-        QueryServer queryServer = NetUtils.openAsSingleton(NetUtils.SingletonServerType.QUERY,
-                () -> new QueryServer(getRuntimeContext()));
-        queryServer.listen(this);
+        this.transactionExecutor = new OptimisticTransactionExecutor(
+                tRuntimeContext.getIsolationLevel(),
+                tRuntimeContext.isDependencyTrackingEnabled()
+        );
     }
 
     @Override
-    public void close() throws Exception {
-        super.close();
-        NetUtils.closeAsSingleton(NetUtils.SingletonServerType.QUERY);
+    protected void execute(String key, Enriched<T> record, Transaction<V> transaction) {
+        transactionExecutor.executeOperation(key, transaction);
+
+        record.metadata.dependencyTracking = transaction.getDependencies();
+        record.metadata.vote = transaction.vote;
+        collector.safeCollect(record);
     }
 
     @Override
-    protected void execute(String key, Object<V> object, Metadata metadata, T element) {
-        // very simple. Optimistic directly executes
-        ObjectVersion<V> version = versioningStrategy.extractObjectVersion(metadata, object);
-        ObjectHandler<V> handler;
-        if (version.object != null) {
-            handler = new ObjectHandler<>(stateFunction.copyValue(version.object));
-        } else {
-            handler = new ObjectHandler<>(stateFunction.defaultValue());
-        }
-
-        stateFunction.apply(element, handler);
-        ObjectVersion<V> nextVersion = handler.object(metadata.tid, metadata.timestamp);
-
-        metadata.vote = stateFunction.invariant(nextVersion.object) ? Vote.COMMIT : Vote.ABORT;
-
-        if (handler.write) {
-            if (!versioningStrategy.isWritingAllowed(metadata, object)) {
-                metadata.vote = Vote.REPLAY;
-            }
-        }
-
-        // add dependency
-        if (useDependencyTracking) {
-            metadata.dependencyTracking.addAll(versioningStrategy.extractDependencies(metadata, object));
-        }
-
-        // avoid wasting memory in case we generated an invalid version
-        if (metadata.vote != Vote.REPLAY) {
-            object.addVersion(nextVersion);
-        }
-
-        collector.safeCollect(Enriched.of(metadata, element));
-    }
-
-    @Override
-    protected void onTermination(TransactionContext tContext) {
+    protected void onGlobalTermination(Transaction<V> transaction) {
         // does nothing
-    }
-
-    // --------------------------------------- Querying ---------------------------------------
-
-    private Map<String, V> queryState(Iterable<String> keys, int timestamp) {
-        Map<String, V> queryResult = new HashMap<>();
-        for (String key : keys) {
-            V object = getObject(key).getLastVersionBefore(timestamp).object;
-            if (object != null) {
-                queryResult.put(key, object);
-            }
-        }
-
-        return queryResult;
-    }
-
-
-    @Override
-    public Map<String, ?> onQuery(Query query) {
-        query.accept(this);
-        return queryState(query.getKeys(), query.watermark);
-    }
-
-    @Override
-    public String getNameSpace() {
-        return nameSpace;
     }
 }

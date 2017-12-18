@@ -9,10 +9,7 @@ import it.polimi.affetti.tspoon.tgraph.backed.Movement;
 import it.polimi.affetti.tspoon.tgraph.backed.Transfer;
 import it.polimi.affetti.tspoon.tgraph.backed.TransferSource;
 import it.polimi.affetti.tspoon.tgraph.db.ObjectHandler;
-import it.polimi.affetti.tspoon.tgraph.query.FrequencyQuerySupplier;
-import it.polimi.affetti.tspoon.tgraph.query.PredefinedQuerySupplier;
-import it.polimi.affetti.tspoon.tgraph.query.PredicateQuery;
-import it.polimi.affetti.tspoon.tgraph.query.QuerySender;
+import it.polimi.affetti.tspoon.tgraph.query.*;
 import it.polimi.affetti.tspoon.tgraph.state.StateFunction;
 import it.polimi.affetti.tspoon.tgraph.state.StateStream;
 import it.polimi.affetti.tspoon.tgraph.state.Update;
@@ -38,21 +35,27 @@ public class TransferTestDrive {
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         env.setBufferTimeout(5);
         ParameterTool parameters = ParameterTool.fromArgs(args);
-        NetUtils.launchJobControlServer(parameters);
-        env.getConfig().setGlobalJobParameters(parameters);
 
         final int baseParallelism = 4;
         final int partitioning = 4;
         final double startAmount = 100d;
-        final Strategy strategy = Strategy.OPTIMISTIC;
+        final Strategy strategy = Strategy.PESSIMISTIC;
         final IsolationLevel isolationLevel = IsolationLevel.PL3;
         final boolean useDependencyTracking = true;
         final boolean noContention = false;
         final boolean durable = false;
 
+        final boolean printPlan = false;
+
+        if (!printPlan) {
+            NetUtils.launchJobControlServer(parameters);
+        }
+
+        env.getConfig().setGlobalJobParameters(parameters);
+
         env.setParallelism(baseParallelism);
 
-        TransactionEnvironment tEnv = TransactionEnvironment.get();
+        TransactionEnvironment tEnv = TransactionEnvironment.get(env);
         tEnv.setStrategy(strategy);
         tEnv.setIsolationLevel(isolationLevel);
         tEnv.setUseDependencyTracking(useDependencyTracking);
@@ -90,12 +93,11 @@ public class TransferTestDrive {
         // we can check consistency only at level PL3 or PL4
         if (isolationLevel == IsolationLevel.PL3 || isolationLevel == IsolationLevel.PL4) {
             open = tEnv.open(transfers, new ConsistencyCheck(startAmount));
+            // select * from balances
+            Query query = new PredicateQuery<>("balances", new SelectAll());
             tEnv.setQuerySupplier(
                     new FrequencyQuerySupplier(
-                            new PredefinedQuerySupplier(
-                                    // select * from balances
-                                    new PredicateQuery<Double>("balances", new SelectAll()) {
-                                    }), 1));
+                            new PredefinedQuerySupplier(query), 1));
         } else {
             open = tEnv.open(transfers);
         }
@@ -158,6 +160,12 @@ public class TransferTestDrive {
         //open.wal.print();
         //open.watermarks.print();
 
+        if (printPlan) {
+            String executionPlan = env.getExecutionPlan();
+            System.out.println(executionPlan);
+            return;
+        }
+
         JobExecutionResult result = env.execute();
 
         //System.out.println(getWatermarks(result));
@@ -219,13 +227,21 @@ public class TransferTestDrive {
         }
 
         @Override
-        public void accept(Map<String, Object> queryResult) {
-            double totalAmount = queryResult.values().stream().mapToDouble(o -> (Double) o).sum();
-            if (totalAmount % startAmount != 0) {
+        public void accept(QueryResult queryResult) {
+            final double[] totalAmount = {0};
+            final int[] size = {0};
+            queryResult.getResult().forEachRemaining(
+                    entry -> {
+                        totalAmount[0] += (Double) entry.getValue();
+                        size[0]++;
+                    }
+            );
+
+            if (totalAmount[0] % startAmount != 0) {
                 throw new RuntimeException(
-                        "Invariant violated: " + totalAmount);
+                        "Invariant violated: " + totalAmount[0]);
             } else {
-                System.out.println("Invariant verified on " + queryResult.size() + " keys");
+                System.out.println("Invariant verified on " + size[0] + " keys");
             }
         }
     }

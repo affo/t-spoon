@@ -5,7 +5,6 @@ import it.polimi.affetti.tspoon.tgraph.Enriched;
 import it.polimi.affetti.tspoon.tgraph.Metadata;
 import it.polimi.affetti.tspoon.tgraph.Vote;
 import org.apache.flink.api.common.accumulators.IntCounter;
-import org.apache.flink.util.OutputTag;
 
 import java.util.*;
 
@@ -15,10 +14,6 @@ import java.util.*;
  * Synchronization is offered by the OpenOperator class.
  */
 public class OptimisticOpenOperator<T> extends OpenOperator<T> {
-    public final OutputTag<Integer> watermarkTag = new OutputTag<Integer>("watermark") {
-    };
-
-    private int lastCommittedWatermark = 0;
     // set of tids depends on tid (tid -> [tids, ...])
     private Map<Integer, Set<Integer>> dependencies = new HashMap<>();
     // timestamp -> current watermark
@@ -38,10 +33,8 @@ public class OptimisticOpenOperator<T> extends OpenOperator<T> {
     // this is orthogonal to the first two
     private IntCounter replayedUponWatermarkUpdate = new IntCounter();
 
-    public OptimisticOpenOperator(
-            TransactionsIndex<T> transactionsIndex,
-            TwoPCRuntimeContext twoPCRuntimeContext) {
-        super(new StandardTransactionsIndex<T>(), twoPCRuntimeContext);
+    public OptimisticOpenOperator(TRuntimeContext tRuntimeContext) {
+        super(tRuntimeContext);
         Report.registerAccumulator(DEPENDENCY_REPLAYED_COUNTER_NAME);
         Report.registerAccumulator(REPLAYED_UPON_WATERMARK_UPDATE_COUNTER_NAME);
         Report.registerAccumulator(DIRECTLY_REPLAYED_COUNTER_NAME);
@@ -98,17 +91,13 @@ public class OptimisticOpenOperator<T> extends OpenOperator<T> {
 
     // thread-safe
     @Override
-    protected void closeTransaction(TransactionsIndex.LocalTransactionContext transactionContext) {
+    protected void closeTransaction(TransactionsIndex.LocalTransactionContext transactionContext, boolean wmUpdate) {
         int tid = transactionContext.tid;
         int timestamp = transactionContext.timestamp;
         Vote vote = transactionContext.vote;
         int replayCause = transactionContext.replayCause;
 
         Integer dependency = transactionsIndex.getTransactionId(replayCause);
-
-        int oldWM = transactionsIndex.getCurrentWatermark();
-        int newWM = transactionsIndex.updateWatermark(timestamp, vote);
-        boolean wmUpdate = newWM > oldWM;
 
         if (wmUpdate) {
             laterReplay.forEach(id -> {
@@ -120,9 +109,6 @@ public class OptimisticOpenOperator<T> extends OpenOperator<T> {
 
         switch (vote) {
             case COMMIT:
-                if (timestamp > lastCommittedWatermark) {
-                    lastCommittedWatermark = timestamp;
-                }
             case ABORT:
                 onTermination(tid);
                 break;
@@ -143,10 +129,6 @@ public class OptimisticOpenOperator<T> extends OpenOperator<T> {
                         directlyReplayedInvalidDependency.add(1);
                     }
                 }
-        }
-
-        if (newWM >= lastCommittedWatermark) {
-            collector.safeCollect(watermarkTag, lastCommittedWatermark);
         }
     }
 

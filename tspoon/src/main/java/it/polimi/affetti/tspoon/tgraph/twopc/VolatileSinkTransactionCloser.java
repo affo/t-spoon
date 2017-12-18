@@ -39,11 +39,11 @@ public class VolatileSinkTransactionCloser implements CloseSinkTransactionCloser
                 dependency, ""
         );
 
-        // notify coordinator
-        clients.getOrCreateClient(metadata.coordinator).send(message);
-
         for (Address cohort : metadata.cohorts) {
             clients.getOrCreateClient(cohort).send(message);
         }
+
+        // notify coordinator after cohorts for proper watermark emission
+        clients.getOrCreateClient(metadata.coordinator).send(message);
     }
 }

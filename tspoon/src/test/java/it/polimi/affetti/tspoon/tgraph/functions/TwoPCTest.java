@@ -5,7 +5,9 @@ import it.polimi.affetti.tspoon.test.ResultUtils;
 import it.polimi.affetti.tspoon.tgraph.*;
 import it.polimi.affetti.tspoon.tgraph.backed.Graph;
 import it.polimi.affetti.tspoon.tgraph.backed.GraphOutput;
-import it.polimi.affetti.tspoon.tgraph.twopc.*;
+import it.polimi.affetti.tspoon.tgraph.twopc.BufferFunction;
+import it.polimi.affetti.tspoon.tgraph.twopc.OptimisticTwoPCFactory;
+import it.polimi.affetti.tspoon.tgraph.twopc.ReduceVotesFunction;
 import org.apache.flink.api.common.JobExecutionResult;
 import org.apache.flink.api.common.functions.FlatMapFunction;
 import org.apache.flink.api.java.functions.KeySelector;
@@ -14,6 +16,7 @@ import org.apache.flink.streaming.api.datastream.ConnectedStreams;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.util.Collector;
+import org.junit.Before;
 import org.junit.Test;
 
 import java.util.*;
@@ -26,6 +29,13 @@ import static org.junit.Assert.assertEquals;
  * Created by affo on 27/07/17.
  */
 public class TwoPCTest {
+    @Before
+    public void setUp() {
+        AbstractTStream.setTransactionEnvironment(
+                TransactionEnvironment.get(StreamExecutionEnvironment.getExecutionEnvironment())
+        );
+    }
+
     @Test
     public void testReduceVotes() throws Exception {
         List<Integer> elements = Arrays.asList(2, 3, 4);
@@ -88,7 +98,7 @@ public class TwoPCTest {
                 env.setParallelism(1);
 
                 DataStream<Integer> ds = env.addSource(new CollectionSource<>(elements)).returns(Integer.class);
-                TStream<Integer> ts = OTStream.fromStream(ds, new OptimisticTwoPCFactory()).opened;
+                TStream<Integer> ts = OTStream.fromStream(ds).opened;
                 DataStream<Enriched<Integer>> enriched = ts.flatMap(
                         e -> IntStream.range(0, e).boxed().collect(Collectors.toList())
                 ).getEnclosingStream();

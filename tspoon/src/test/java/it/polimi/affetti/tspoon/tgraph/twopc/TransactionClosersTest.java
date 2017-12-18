@@ -1,6 +1,7 @@
 package it.polimi.affetti.tspoon.tgraph.twopc;
 
 import it.polimi.affetti.tspoon.tgraph.TransactionEnvironment;
+import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -15,12 +16,15 @@ import static org.junit.Assert.assertTrue;
 public class TransactionClosersTest {
     private AbstractOpenOperatorTransactionCloser coordinator;
     private AbstractStateOperatorTransactionCloser stateOp;
+    private TRuntimeContext tRuntimeContext;
 
     @Before
     public void setUp() throws Exception {
-        TwoPCRuntimeContext twoPCRuntimeContext = TransactionEnvironment.get().getTwoPCRuntimeContext();
-        coordinator = twoPCRuntimeContext.getSourceTransactionCloser();
-        stateOp = twoPCRuntimeContext.getAtStateTransactionCloser();
+        tRuntimeContext = TransactionEnvironment
+                .get(StreamExecutionEnvironment.getExecutionEnvironment())
+                .createTransactionalRuntimeContext();
+        coordinator = tRuntimeContext.getSourceTransactionCloser();
+        stateOp = tRuntimeContext.getAtStateTransactionCloser();
     }
 
     @Test
@@ -33,9 +37,8 @@ public class TransactionClosersTest {
 
         for (int i = 0; i < limit; i++) {
             pool.submit(() -> {
-                TwoPCRuntimeContext runtimeContext = TransactionEnvironment.get().getTwoPCRuntimeContext();
-                assertTrue(runtimeContext.getSourceTransactionCloser() == coordinator);
-                assertTrue(runtimeContext.getAtStateTransactionCloser() == stateOp);
+                assertTrue(tRuntimeContext.getSourceTransactionCloser() == coordinator);
+                assertTrue(tRuntimeContext.getAtStateTransactionCloser() == stateOp);
                 synchronized (monitor) {
                     count[0]++;
                     monitor.notifyAll();

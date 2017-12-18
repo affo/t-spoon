@@ -1,6 +1,5 @@
 package it.polimi.affetti.tspoon.tgraph.state;
 
-import it.polimi.affetti.tspoon.tgraph.Metadata;
 import it.polimi.affetti.tspoon.tgraph.db.Object;
 
 /**
@@ -8,8 +7,8 @@ import it.polimi.affetti.tspoon.tgraph.db.Object;
  */
 public class PL3Strategy extends PL2Strategy {
     @Override
-    public boolean isWritingAllowed(Metadata metadata, Object<?> object) {
+    public boolean isWritingAllowed(int tid, int timestamp, int watermark, Object<?> object) {
         int lastVersion = object.getLastAvailableVersion().version;
-        return metadata.watermark >= lastVersion;
+        return watermark >= lastVersion;
     }
 }

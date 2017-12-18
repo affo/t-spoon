@@ -1,11 +1,14 @@
 package it.polimi.affetti.tspoon.tgraph.twopc;
 
+import it.polimi.affetti.tspoon.tgraph.IsolationLevel;
+import it.polimi.affetti.tspoon.tgraph.Strategy;
+
 import java.io.Serializable;
 
 /**
  * Created by affo on 04/12/17.
  * <p>
- * The TwoPCRuntimeContext is passed to the relevant operators passing through the TransactionEnvironment.
+ * The TRuntimeContext is passed to the relevant operators passing through the TransactionEnvironment.
  * It is serialized and deserialized by every operator once on the task manager.
  * <p>
  * It is used to obtain singleton instances of AbstractOpenOperatorTransactionCloser and
@@ -14,12 +17,14 @@ import java.io.Serializable;
  * There is no need to return singleton instances of CloseSinkTransactionCloser, because we want the
  * maximum degree of parallelism for closing transactions.
  */
-public class TwoPCRuntimeContext implements Serializable {
+public class TRuntimeContext implements Serializable {
     private static AbstractOpenOperatorTransactionCloser openOperatorTransactionCloser;
     private static AbstractStateOperatorTransactionCloser stateOperatorTransactionCloser;
 
     private AbstractTwoPCParticipant.SubscriptionMode subscriptionMode = AbstractTwoPCParticipant.SubscriptionMode.GENERIC;
-    public boolean durable;
+    public boolean durable, useDependencyTracking;
+    public IsolationLevel isolationLevel;
+    public Strategy strategy;
 
     public void setDurabilityEnabled(boolean durable) {
         this.durable = durable;
@@ -27,6 +32,30 @@ public class TwoPCRuntimeContext implements Serializable {
 
     public boolean isDurabilityEnabled() {
         return durable;
+    }
+
+    public void setIsolationLevel(IsolationLevel isolationLevel) {
+        this.isolationLevel = isolationLevel;
+    }
+
+    public IsolationLevel getIsolationLevel() {
+        return isolationLevel;
+    }
+
+    public boolean isDependencyTrackingEnabled() {
+        return useDependencyTracking;
+    }
+
+    public void setUseDependencyTracking(boolean useDependencyTracking) {
+        this.useDependencyTracking = useDependencyTracking;
+    }
+
+    public void setStrategy(Strategy strategy) {
+        this.strategy = strategy;
+    }
+
+    public Strategy getStrategy() {
+        return strategy;
     }
 
     public void setSubscriptionMode(AbstractTwoPCParticipant.SubscriptionMode subscriptionMode) {
@@ -37,10 +66,21 @@ public class TwoPCRuntimeContext implements Serializable {
         return subscriptionMode;
     }
 
+    public <T> TransactionsIndex<T> getTransactionsIndex() {
+        /*
+        if (getStrategy() == Strategy.OPTIMISTIC) {
+            return new StandardTransactionsIndex<>();
+        }
+        */
+
+        // using only standard indexing now...
+        return new StandardTransactionsIndex<>();
+    }
+
     // ---------------------- These methods are called upon deserialization
 
     public AbstractOpenOperatorTransactionCloser getSourceTransactionCloser() {
-        synchronized (TwoPCRuntimeContext.class) {
+        synchronized (TRuntimeContext.class) {
             if (openOperatorTransactionCloser == null) {
                 if (isDurabilityEnabled()) {
                     openOperatorTransactionCloser = new DurableOpenOperatorTransactionCloser(subscriptionMode);
@@ -54,7 +94,7 @@ public class TwoPCRuntimeContext implements Serializable {
     }
 
     public AbstractStateOperatorTransactionCloser getAtStateTransactionCloser() {
-        synchronized (TwoPCRuntimeContext.class) {
+        synchronized (TRuntimeContext.class) {
             if (stateOperatorTransactionCloser == null) {
                 if (isDurabilityEnabled()) {
                     stateOperatorTransactionCloser = new DurableStateTransactionCloser(subscriptionMode);

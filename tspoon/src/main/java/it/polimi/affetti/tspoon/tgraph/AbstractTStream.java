@@ -2,10 +2,7 @@ package it.polimi.affetti.tspoon.tgraph;
 
 import it.polimi.affetti.tspoon.common.FlatMapFunction;
 import it.polimi.affetti.tspoon.common.TWindowFunction;
-import it.polimi.affetti.tspoon.tgraph.functions.FilterWrapper;
-import it.polimi.affetti.tspoon.tgraph.functions.FlatMapWrapper;
-import it.polimi.affetti.tspoon.tgraph.functions.MapWrapper;
-import it.polimi.affetti.tspoon.tgraph.functions.WindowWrapper;
+import it.polimi.affetti.tspoon.tgraph.functions.*;
 import it.polimi.affetti.tspoon.tgraph.state.StateFunction;
 import it.polimi.affetti.tspoon.tgraph.state.StateOperator;
 import it.polimi.affetti.tspoon.tgraph.state.StateStream;
@@ -23,16 +20,29 @@ import java.util.List;
  * Created by affo on 13/07/17.
  */
 public abstract class AbstractTStream<T> implements TStream<T> {
-    private DataStream<Enriched<T>> ds;
+    protected static TransactionEnvironment transactionEnvironment;
 
-    AbstractTStream(DataStream<Enriched<T>> ds) {
-        this.ds = ds;
+    protected DataStream<Enriched<T>> dataStream;
+
+    public AbstractTStream(DataStream<Enriched<T>> enriched) {
+        this.dataStream = enriched;
+    }
+
+    public static void setTransactionEnvironment(TransactionEnvironment transactionEnvironment) {
+        AbstractTStream.transactionEnvironment = transactionEnvironment;
+    }
+
+    public static TransactionEnvironment getTransactionEnvironment() {
+        return transactionEnvironment;
     }
 
     protected abstract <U> AbstractTStream<U> replace(DataStream<Enriched<U>> newStream);
 
+    protected abstract <V> StateOperator<T, V> getStateOperator(
+            String nameSpace, OutputTag<Update<V>> updatesTag, StateFunction<T, V> stateFunction);
+
     public <U> AbstractTStream<U> map(MapFunction<T, U> fn) {
-        return replace(ds.map(new MapWrapper<T, U>() {
+        return replace(dataStream.map(new MapWrapper<T, U>() {
             @Override
             public U doMap(T e) throws Exception {
                 return fn.map(e);
@@ -41,7 +51,7 @@ public abstract class AbstractTStream<T> implements TStream<T> {
     }
 
     public <U> AbstractTStream<U> flatMap(FlatMapFunction<T, U> flatMapFunction) {
-        return replace(ds.flatMap(
+        return replace(dataStream.flatMap(
                 new FlatMapWrapper<T, U>() {
                     @Override
                     protected List<U> doFlatMap(T value) throws Exception {
@@ -53,7 +63,7 @@ public abstract class AbstractTStream<T> implements TStream<T> {
 
     @Override
     public <U> TStream<U> window(TWindowFunction<T, U> windowFunction) {
-        DataStream<Enriched<U>> windowed = ds.keyBy(
+        DataStream<Enriched<U>> windowed = dataStream.keyBy(
                 new KeySelector<Enriched<T>, Integer>() {
                     @Override
                     public Integer getKey(Enriched<T> enriched) throws Exception {
@@ -69,7 +79,7 @@ public abstract class AbstractTStream<T> implements TStream<T> {
     }
 
     public AbstractTStream<T> filter(FilterFunction<T> filterFunction) {
-        return replace(ds.map(new FilterWrapper<T>() {
+        return replace(dataStream.map(new FilterWrapper<T>() {
             @Override
             protected boolean doFilter(T value) throws Exception {
                 return filterFunction.filter(value);
@@ -79,41 +89,32 @@ public abstract class AbstractTStream<T> implements TStream<T> {
 
     @Override
     public TStream<T> keyBy(KeySelector<T, ?> keySelector) {
-        ds = ds.keyBy(new KeySelector<Enriched<T>, Object>() {
+        dataStream = dataStream.keyBy(new KeySelectorWrapper<T>() {
             @Override
-            public Object getKey(Enriched<T> enriched) throws Exception {
-                return keySelector.getKey(enriched.value);
+            protected Object doGetKey(T value) throws Exception {
+                return keySelector.getKey(value);
             }
         });
+
         return this;
     }
 
     public <V> StateStream<T, V> state(
             String nameSpace, OutputTag<Update<V>> updatesTag, KeySelector<T, String> ks,
             StateFunction<T, V> stateFunction, int partitioning) {
-        ds = ds.keyBy(
-                new KeySelector<Enriched<T>, String>() {
-                    @Override
-                    public String getKey(Enriched<T> e) throws Exception {
-                        return ks.getKey(e.value);
-                    }
-                });
+        keyBy(ks);
 
         StateOperator<T, V> stateOperator = getStateOperator(nameSpace, updatesTag, stateFunction);
-        SingleOutputStreamOperator<Enriched<T>> mainStream = ds.transform(
-                "StateOperator: " + nameSpace, ds.getType(), stateOperator)
+        SingleOutputStreamOperator<Enriched<T>> mainStream = dataStream.transform(
+                "StateOperator: " + nameSpace, dataStream.getType(), stateOperator)
                 .name(nameSpace).setParallelism(partitioning);
 
         DataStream<Update<V>> updates = mainStream.getSideOutput(updatesTag);
         return new StateStream<>(replace(mainStream), updates);
     }
 
-
-    protected abstract <V> StateOperator<T, V> getStateOperator(
-            String nameSpace, OutputTag<Update<V>> updatesTag, StateFunction<T, V> stateFunction);
-
     @Override
     public DataStream<Enriched<T>> getEnclosingStream() {
-        return ds;
+        return dataStream;
     }
 }

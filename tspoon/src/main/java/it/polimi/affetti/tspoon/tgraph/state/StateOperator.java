@@ -2,15 +2,16 @@ package it.polimi.affetti.tspoon.tgraph.state;
 
 import it.polimi.affetti.tspoon.common.Address;
 import it.polimi.affetti.tspoon.common.InOrderSideCollector;
-import it.polimi.affetti.tspoon.common.RandomProvider;
+import it.polimi.affetti.tspoon.runtime.NetUtils;
 import it.polimi.affetti.tspoon.tgraph.Enriched;
 import it.polimi.affetti.tspoon.tgraph.Metadata;
 import it.polimi.affetti.tspoon.tgraph.Vote;
+import it.polimi.affetti.tspoon.tgraph.db.*;
 import it.polimi.affetti.tspoon.tgraph.db.Object;
-import it.polimi.affetti.tspoon.tgraph.query.PredicateQuery;
 import it.polimi.affetti.tspoon.tgraph.query.Query;
-import it.polimi.affetti.tspoon.tgraph.query.QueryVisitor;
-import it.polimi.affetti.tspoon.tgraph.query.RandomQuery;
+import it.polimi.affetti.tspoon.tgraph.query.QueryListener;
+import it.polimi.affetti.tspoon.tgraph.query.QueryResult;
+import it.polimi.affetti.tspoon.tgraph.query.QueryServer;
 import it.polimi.affetti.tspoon.tgraph.twopc.*;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.runtime.state.StateInitializationContext;
@@ -20,10 +21,9 @@ import org.apache.flink.streaming.api.operators.OneInputStreamOperator;
 import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
 import org.apache.flink.util.OutputTag;
 
-import java.util.*;
+import java.util.Collections;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 
 /**
  * Created by affo on 14/07/17.
@@ -31,18 +31,15 @@ import java.util.stream.IntStream;
 public abstract class StateOperator<T, V>
         extends AbstractStreamOperator<Enriched<T>>
         implements OneInputStreamOperator<Enriched<T>, Enriched<T>>,
-        QueryVisitor, StateOperatorTransactionCloseListener {
+        StateOperatorTransactionCloseListener, QueryListener {
     private long counter = 0;
     protected final String nameSpace;
     public final OutputTag<Update<V>> updatesTag;
-    // I suppose that the type for keys is String. This assumption is coherent,
-    // for instance, with Redis implementation: https://redis.io/topics/data-types-intro
-    protected final Map<String, Object<V>> state;
-    protected int maxNumberOfVersions;
+    protected transient Shard<V> shard;
     protected StateFunction<T, V> stateFunction;
-    // transaction contexts: timestamp -> context
-    private final Map<Integer, TransactionContext> transactions;
-    private final TwoPCRuntimeContext twoPCRuntimeContext;
+    protected final TRuntimeContext tRuntimeContext;
+    // timestamp -> localId
+    private final Map<Integer, Long> localIds;
 
     protected transient InOrderSideCollector<T, Update<V>> collector;
     private transient AbstractStateOperatorTransactionCloser transactionCloser;
@@ -51,13 +48,13 @@ public abstract class StateOperator<T, V>
             String nameSpace,
             StateFunction<T, V> stateFunction,
             OutputTag<Update<V>> updatesTag,
-            TwoPCRuntimeContext twoPCRuntimeContext) {
+            TRuntimeContext tRuntimeContext) {
         this.nameSpace = nameSpace;
         this.stateFunction = stateFunction;
         this.updatesTag = updatesTag;
-        this.twoPCRuntimeContext = twoPCRuntimeContext;
-        this.state = new ConcurrentHashMap<>();
-        this.transactions = new ConcurrentHashMap<>();
+        this.tRuntimeContext = tRuntimeContext;
+
+        this.localIds = new ConcurrentHashMap<>();
     }
 
     @Override
@@ -65,29 +62,36 @@ public abstract class StateOperator<T, V>
         super.open();
         ParameterTool parameterTool = (ParameterTool)
                 getRuntimeContext().getExecutionConfig().getGlobalJobParameters();
-        maxNumberOfVersions = parameterTool.getInt("maxNoVersions", 100);
+        int maxNumberOfVersions = parameterTool.getInt("maxNoVersions", 100);
+        Object.maxNumberOfVersions = maxNumberOfVersions;
+
+        int taskNumber = getRuntimeContext().getIndexOfThisSubtask();
+        shard = new Shard<>(nameSpace, taskNumber,
+                maxNumberOfVersions, ObjectFunction.fromStateFunction(stateFunction));
 
         collector = new InOrderSideCollector<>(output, updatesTag);
 
-        transactionCloser = twoPCRuntimeContext.getAtStateTransactionCloser();
+        transactionCloser = tRuntimeContext.getAtStateTransactionCloser();
         transactionCloser.open();
 
-        if (twoPCRuntimeContext.getSubscriptionMode() == AbstractTwoPCParticipant.SubscriptionMode.GENERIC) {
+        if (tRuntimeContext.getSubscriptionMode() == AbstractTwoPCParticipant.SubscriptionMode.GENERIC) {
             transactionCloser.subscribe(this);
         }
+
+        // Querying
+        QueryServer queryServer = NetUtils.openAsSingleton(NetUtils.SingletonServerType.QUERY,
+                () -> new QueryServer(getRuntimeContext()));
+        queryServer.listen(this);
     }
 
     @Override
     public void close() throws Exception {
         super.close();
         transactionCloser.close();
+        NetUtils.closeAsSingleton(NetUtils.SingletonServerType.QUERY);
     }
 
     // --------------------------------------- Transaction Execution and Completion ---------------------------------------
-
-    protected synchronized Object<V> getObject(String key) {
-        return state.computeIfAbsent(key, k -> new Object<>(stateFunction.defaultValue()));
-    }
 
     @Override
     public void processElement(StreamRecord<Enriched<T>> sr) throws Exception {
@@ -98,182 +102,85 @@ public abstract class StateOperator<T, V>
 
         // do not even process aborted or replayed stuff!
         if (metadata.vote != Vote.COMMIT) {
-            collector.safeCollect(Enriched.of(metadata, element));
+            collector.safeCollect(sr.getValue());
             return;
         }
 
         metadata.addCohort(transactionCloser.getServerAddress());
+        int timestamp = metadata.timestamp;
 
-        Object<V> object = getObject(key);
-        TransactionContext transaction = transactions.computeIfAbsent(metadata.timestamp,
-                ts -> {
-                    counter++;
-                    if (twoPCRuntimeContext.getSubscriptionMode() == AbstractTwoPCParticipant.SubscriptionMode.SPECIFIC) {
-                        transactionCloser.subscribeTo(ts, this);
-                    }
-                    return new TransactionContext(counter, metadata.tid, ts, metadata.coordinator);
-                });
-        transaction.addObject(key, object);
+        boolean newTransaction = shard.addOperation(
+                key, metadata.tid, timestamp, metadata.watermark, metadata.coordinator,
+                Operation.from(element, stateFunction));
 
-        execute(key, object, metadata, element);
-    }
-
-    private int versionCleanup(Object<V> object, int watermark) {
-        if (object.getVersionCount() > maxNumberOfVersions) {
-            return object.clearVersionsUntil(watermark);
+        if (newTransaction) {
+            counter++;
+            localIds.put(timestamp, counter);
+            if (tRuntimeContext.getSubscriptionMode() == AbstractTwoPCParticipant.SubscriptionMode.SPECIFIC) {
+                transactionCloser.subscribeTo(timestamp, this);
+            }
         }
-        return 0;
+
+        Transaction<V> transaction = shard.getTransaction(timestamp);
+        execute(key, sr.getValue(), transaction);
     }
 
-    protected abstract void execute(String key, Object<V> object, Metadata metadata, T element);
+    // hooks
+    protected abstract void execute(String key, Enriched<T> record, Transaction<V> transaction);
 
-    protected abstract void onTermination(TransactionContext tContext);
+    protected abstract void onGlobalTermination(Transaction<V> transaction);
+
+    @Override
+    public boolean isInterestedIn(long timestamp) {
+        return shard.transactionExist((int) timestamp);
+    }
 
     @Override
     public java.lang.Object getMonitorForUpdateLogic() {
-        // no monitor to return.
-        // If used it is perfectly legitimate to get a runtime NPE.
         return null;
     }
 
     @Override
-    public boolean isInterestedIn(long timestamp) {
-        return transactions.get((int) timestamp) != null;
-    }
-
-    @Override
     public void onTransactionClosedSuccess(CloseTransactionNotification notification) {
-        TransactionContext tContext = transactions.remove(notification.timestamp);
-        tContext.applyChanges(notification.vote);
-        List<Update<V>> updates = notification.vote != Vote.COMMIT ?
-                Collections.emptyList() : tContext.getUpdates();
-        collector.collectInOrder(updates, tContext.localId);
-        collector.flushOrdered(tContext.localId);
-        onTermination(tContext);
+        Transaction<V> transaction = shard.removeTransaction(notification.timestamp);
+        transaction.mergeVote(notification.vote);
+        Iterable<Update<V>> updates = transaction.applyChanges();
+
+        long localId = localIds.remove(transaction.timestamp);
+        collector.collectInOrder(updates, localId);
+        collector.flushOrdered(localId);
+
+        onGlobalTermination(transaction);
     }
 
     @Override
     public void onTransactionClosedError(
             CloseTransactionNotification notification, Throwable error) {
-        TransactionContext tContext = transactions.remove(notification.timestamp);
-        LOG.error("StateOperator - transaction (" + tContext.tid +
-                ") - error on receiving ACK from coordinator: " + error.getMessage());
+        Transaction<V> transaction = shard.removeTransaction(notification.timestamp);
+        LOG.error("StateOperator - transaction [" + transaction.tid +
+                "] - error on transaction close: " + error.getMessage());
     }
 
     @Override
     public String getUpdatesRepresentation(int timestamp) {
-        return transactions.get(timestamp).getUpdates().toString();
+        return shard.getTransaction(timestamp).getUpdates().toString();
     }
 
     @Override
     public Address getCoordinatorAddressForTransaction(int timestamp) {
-        return transactions.get(timestamp).coordinator;
-    }
-
-    public class TransactionContext {
-        public final long localId;
-        public final int tid;
-        // track versions
-        public int version;
-        // if the same key is edited twice the object is touched only once
-        public final Map<String, Object<V>> touchedObjects = new HashMap<>();
-        public final Address coordinator;
-        List<Update<V>> updates;
-
-        public TransactionContext(long localId, int tid, int timestamp, Address coordinator) {
-            this.localId = localId;
-            this.tid = tid;
-            // defaults to timestamp
-            this.version = timestamp;
-            this.coordinator = coordinator;
-        }
-
-        public void addObject(String key, Object<V> object) {
-            this.touchedObjects.put(key, object);
-        }
-
-        private List<Update<V>> calculateUpdates() {
-            return touchedObjects.entrySet().stream()
-                    .map((Map.Entry<String, Object<V>> entry) -> Update.of(tid, entry.getKey(),
-                            entry.getValue().getVersion(version).object))
-                    .collect(Collectors.toList());
-        }
-
-        /**
-         * I expect this to be called only upon transaction completion
-         *
-         * @return
-         */
-        public List<Update<V>> getUpdates() {
-            if (updates == null) {
-                updates = calculateUpdates();
-            }
-            return updates;
-        }
-
-        public void applyChanges(Vote vote) {
-            // NOTE that commit/abort on multiple objects is not atomic wrt external queries and internal operations
-            if (vote == Vote.COMMIT) {
-                for (Object<V> object : touchedObjects.values()) {
-                    object.commitVersion(version);
-                    // perform version cleanup
-                    versionCleanup(object, version);
-                }
-            } else {
-                for (Object<V> object : touchedObjects.values()) {
-                    object.deleteVersion(version);
-                }
-            }
-        }
+        return shard.getTransaction(timestamp).getCoordinator();
     }
 
     // --------------------------------------- Querying ---------------------------------------
-    // randomizer to build queries
-    private Random random = RandomProvider.get();
 
     @Override
-    public void visit(Query query) {
-        // does nothing
+    public QueryResult onQuery(Query query) {
+        return shard.runQuery(query);
     }
 
     @Override
-    public void visit(RandomQuery query) {
-        Integer noKeys = state.size();
-
-        if (state.isEmpty()) {
-            return;
-        }
-
-        Set<Integer> indexes;
-        if (noKeys > query.size) {
-            indexes = random.ints(0, noKeys).distinct().limit(query.size)
-                    .boxed().collect(Collectors.toSet());
-        } else {
-            indexes = IntStream.range(0, noKeys).boxed().collect(Collectors.toSet());
-        }
-
-        int i = 0;
-        for (String key : state.keySet()) {
-            if (indexes.contains(i)) {
-                query.addKey(key);
-            }
-            i++;
-        }
-    }
-
-    @Override
-    public <U> void visit(PredicateQuery<U> query) {
-        for (String key : state.keySet()) {
-            V value = state.get(key).getLastVersionBefore(query.watermark).object;
-            // hope that the predicate is coherent with the state
-            try {
-                if (query.test((U) value)) {
-                    query.addKey(key);
-                }
-            } catch (ClassCastException e) {
-                LOG.error("Problem with provided predicate...");
-            }
-        }
+    public Iterable<String> getNameSpaces() {
+        return Collections.singleton(nameSpace);
     }
 
     // --------------------------------------- State Recovery ---------------------------------------

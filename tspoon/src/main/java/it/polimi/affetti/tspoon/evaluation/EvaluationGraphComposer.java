@@ -17,21 +17,28 @@ import org.apache.flink.api.common.typeinfo.TypeHint;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.streaming.api.datastream.DataStream;
-import org.apache.flink.streaming.api.datastream.SplitStream;
 import org.apache.flink.util.Collector;
 import org.apache.flink.util.OutputTag;
 
 import java.io.Serializable;
-import java.util.*;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
  * Created by affo on 04/08/17.
  */
 public class EvaluationGraphComposer {
+    public static TransactionEnvironment transactionEnvironment;
     public static final String STATE_BASE_NAME = "state";
     private static int stateCount = 0;
     public static double startAmount = 100d;
+
+    public static void setTransactionEnvironment(TransactionEnvironment transactionEnvironment) {
+        EvaluationGraphComposer.transactionEnvironment = transactionEnvironment;
+    }
 
     public static TGraph generateTGraph(
             DataStream<Transfer> transfers, int noStates, int partitioning, boolean seriesOrParallel) {
@@ -54,9 +61,9 @@ public class EvaluationGraphComposer {
 
         DataStream<Transfer> out;
         if (seriesOrParallel) {
-            out = toSource(TransactionEnvironment.get().close(outOfStateStreams[noStates - 1]).get(0));
+            out = toSource(transactionEnvironment.close(outOfStateStreams[noStates - 1]).get(0));
         } else {
-            List<DataStream<Transfer>> merged = TransactionEnvironment.get().close(outOfStateStreams)
+            List<DataStream<Transfer>> merged = transactionEnvironment.close(outOfStateStreams)
                     .stream().map(EvaluationGraphComposer::toSource).collect(Collectors.toList());
             out = merged.get(0);
             /*
@@ -76,7 +83,7 @@ public class EvaluationGraphComposer {
     }
 
     public static OpenStream<Transfer> openTGraph(DataStream<Transfer> transfers) {
-        return TransactionEnvironment.get().open(transfers);
+        return transactionEnvironment.open(transfers);
     }
 
     public static TStream<Movement> toMovements(TStream<Transfer> transfers) {
@@ -131,7 +138,7 @@ public class EvaluationGraphComposer {
     }
 
     public static DataStream<TransactionResult<Movement>> closeGraph(TStream<Movement> movements) {
-        return TransactionEnvironment.get().close(movements).get(0);
+        return transactionEnvironment.close(movements).get(0);
     }
 
     public static class TGraph {

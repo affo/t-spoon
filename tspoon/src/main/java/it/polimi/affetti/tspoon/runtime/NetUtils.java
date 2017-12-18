@@ -23,7 +23,7 @@ public class NetUtils {
 
     public static final int OPEN_SERVER_PORT = 8000;
     public static final int STATE_SERVER_PORT = 8010;
-    private static final int QUERY_SERVER_PORT = 8020;
+    public static final int QUERY_SERVER_PORT = 8020;
 
     public enum SingletonServerType {
         OPEN(OPEN_SERVER_PORT),

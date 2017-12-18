@@ -8,17 +8,17 @@ import org.apache.flink.streaming.api.functions.sink.RichSinkFunction;
  * Created by affo on 18/07/17.
  */
 public class CloseSink extends RichSinkFunction<Metadata> {
-    private TwoPCRuntimeContext twoPCRuntimeContext;
+    private TRuntimeContext tRuntimeContext;
     private transient CloseSinkTransactionCloser transactionCloser;
 
-    public CloseSink(TwoPCRuntimeContext twoPCRuntimeContext) {
-        this.twoPCRuntimeContext = twoPCRuntimeContext;
+    public CloseSink(TRuntimeContext tRuntimeContext) {
+        this.tRuntimeContext = tRuntimeContext;
     }
 
     @Override
     public void open(Configuration parameters) throws Exception {
         super.open(parameters);
-        transactionCloser = twoPCRuntimeContext.getSinkTransactionCloser();
+        transactionCloser = tRuntimeContext.getSinkTransactionCloser();
         transactionCloser.open();
     }
 

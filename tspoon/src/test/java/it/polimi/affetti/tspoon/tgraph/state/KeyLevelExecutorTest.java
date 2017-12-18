@@ -1,5 +1,6 @@
 package it.polimi.affetti.tspoon.tgraph.state;
 
+import it.polimi.affetti.tspoon.tgraph.db.KeyLevelTaskExecutor;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.junit.After;
 import org.junit.Before;
@@ -75,14 +76,21 @@ public class KeyLevelExecutorTest {
     public void testSimpleFIFO() throws InterruptedException {
         executor.startProcessing();
 
-        long foo1id = executor.run(foo, () -> new TaskResult(1));
-        long foo2id = executor.run(foo, () -> new TaskResult(3));
+        long foo1id = executor.add(foo, () -> new TaskResult(1));
+        long foo2id = executor.add(foo, () -> new TaskResult(3));
 
-        long bar1id = executor.run(bar, () -> new TaskResult(2));
-        long bar2id = executor.run(bar, () -> new TaskResult(5));
-        long bar3id = executor.run(bar, () -> new TaskResult(6));
+        long bar1id = executor.add(bar, () -> new TaskResult(2));
+        long bar2id = executor.add(bar, () -> new TaskResult(5));
+        long bar3id = executor.add(bar, () -> new TaskResult(6));
 
-        long buz1id = executor.run(buz, () -> new TaskResult(4));
+        long buz1id = executor.add(buz, () -> new TaskResult(4));
+
+        executor.run(foo1id);
+        executor.run(foo2id);
+        executor.run(bar1id);
+        executor.run(bar2id);
+        executor.run(bar3id);
+        executor.run(buz1id);
 
         checkNext(
                 Tuple2.of(foo1id, 1),
@@ -116,8 +124,8 @@ public class KeyLevelExecutorTest {
         TaskResult foo2Tr = new TaskResult(2);
         foo2Tr.setReadOnly();
 
-        executor.run(foo, () -> foo1Tr);
-        executor.run(foo, () -> foo2Tr);
+        executor.run(executor.add(foo, () -> foo1Tr));
+        executor.run(executor.add(foo, () -> foo2Tr));
 
         assertEquals(1, observer.get().result.intValue());
         checkEverythingIsLocked();
@@ -139,11 +147,11 @@ public class KeyLevelExecutorTest {
         executor.enableDeadlockDetection(DEADLOCK_TIME);
         executor.startProcessing();
 
-        executor.run(foo, () -> new TaskResult(1));
+        executor.run(executor.add(foo, () -> new TaskResult(1)));
         // faster then timeout
         assertEquals(1, observer.get().result.intValue());
         // foo is still locked
-        executor.run(foo, () -> new TaskResult(1));
+        executor.run(executor.add(foo, () -> new TaskResult(1)));
 
         // slower
         Thread.sleep(DEADLOCK_TIME + 10);
@@ -164,14 +172,14 @@ public class KeyLevelExecutorTest {
         for (int i = 0; i < numberOfTasks; i++) {
             String key = keys[rand.nextInt(keys.length)];
             int finalI = i;
-            executor.run(key, () -> new TaskResult(finalI, (tr) -> {
+            executor.run(executor.add(key, () -> new TaskResult(finalI, (tr) -> {
                 try {
                     Thread.sleep(rand.nextInt(9) + 1);
                 } catch (InterruptedException e) {
                     e.printStackTrace();
                 }
                 executor.free(key);
-            }));
+            })));
         }
 
         for (int i = 0; i < numberOfTasks; i++) {

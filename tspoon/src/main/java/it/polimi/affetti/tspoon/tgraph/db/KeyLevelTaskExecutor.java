@@ -1,15 +1,14 @@
-package it.polimi.affetti.tspoon.tgraph.state;
+package it.polimi.affetti.tspoon.tgraph.db;
 
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.log4j.Logger;
 
 import java.util.*;
-import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 /**
- * Executes callables provided with method execute with a key-level locking.
- * I.e., tasks are executed in FIFO order wrt the keys provided on execute.
+ * Executes callables provided with method doRun with a key-level locking.
+ * I.e., tasks are executed in FIFO order wrt the keys provided on doRun.
  * Keys needs to be explicitely unlocked by invoking unlock.
  * <p>
  * NOTE: Tasks are "running" from #run(k, ...) to #free(k).
@@ -17,7 +16,7 @@ import java.util.function.Supplier;
  * the method invocation.
  * <p>
  * Once a task is enqueued, its key is supposed to be locked exclusively.
- * After execution, the key's read-only value is updated accordingly to the TaskResult.
+ * After execution, the key's read-only value is updated accordingly to the OperationExecutionResult.
  * <p>
  * Every time an asynchronous #run(k, ...) is issued, the Executor doesn't bother if k is read-only or not.
  * A key, indeed, is supposed to be exclusively locked if a task with that key is running.
@@ -39,6 +38,7 @@ public class KeyLevelTaskExecutor<T extends KeyLevelTaskExecutor.TaskResult> {
     private Timer deadlockTimer;
     private boolean notified;
 
+    private final Map<Long, Task> registeredTasks = new HashMap<>();
     private final List<Task> queue = new LinkedList<>();
     private final Map<String, Boolean> lockedKeys = new HashMap<>(); // key -> readOnly
     private final TaskCompletionObserver<T> observer;
@@ -142,7 +142,7 @@ public class KeyLevelTaskExecutor<T extends KeyLevelTaskExecutor.TaskResult> {
                 }
             }
 
-            // If no state is available, just wait
+            // If no key is available, just wait
             wait();
             notified = false;
         }
@@ -191,36 +191,28 @@ public class KeyLevelTaskExecutor<T extends KeyLevelTaskExecutor.TaskResult> {
         myNotify();
     }
 
-    private synchronized long execute(String key, Supplier<T> task) {
+    /**
+     * adds the task and returns its id.
+     *
+     * @param key
+     * @param task
+     * @return
+     */
+    public synchronized long add(String key, Supplier<T> task) {
         Task actualTask = new Task(key, task);
-        queue.add(actualTask);
-        myNotify();
+        registeredTasks.put(actualTask.id, actualTask);
         return actualTask.id;
     }
 
     /**
-     * Executes the task when key it's free.
+     * Executes the task when its key it's free.
      *
-     * @param key
-     * @param task
+     * @param taskId the id of the task
      * @return
      */
-    public synchronized long run(String key, Supplier<T> task) {
-        return execute(key, task);
-    }
-
-    /**
-     * As run(String, Supplier), but it executes the hook with the taskId before enqueueing the task.
-     *
-     * @param key
-     * @param preHook
-     * @param task
-     * @return
-     */
-    public synchronized long run(String key, Consumer<Long> preHook, Supplier<T> task) {
-        long id = execute(key, task);
-        preHook.accept(id);
-        return id;
+    public synchronized void run(long taskId) {
+        queue.add(registeredTasks.remove(taskId));
+        myNotify();
     }
 
     /**

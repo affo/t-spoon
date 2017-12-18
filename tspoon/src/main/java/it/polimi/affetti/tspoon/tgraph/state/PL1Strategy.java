@@ -8,8 +8,8 @@ import it.polimi.affetti.tspoon.tgraph.db.Object;
  */
 public class PL1Strategy extends PL0Strategy {
     @Override
-    public boolean isWritingAllowed(Metadata metadata, Object<?> object) {
+    public boolean isWritingAllowed(int tid, int timestamp, int watermark, Object<?> object) {
         int lastVersion = object.getLastAvailableVersion().version;
-        return metadata.timestamp > lastVersion;
+        return timestamp > lastVersion;
     }
 }

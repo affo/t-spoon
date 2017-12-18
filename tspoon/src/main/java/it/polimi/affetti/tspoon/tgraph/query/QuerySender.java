@@ -94,14 +94,14 @@ public class QuerySender extends RichSinkFunction<Query> {
 
         long start = System.currentTimeMillis();
         try {
-            Map<String, Object> queryResult = new HashMap<>();
+            QueryResult queryResult = new QueryResult();
             for (Address address : addresses) {
                 // could raise NPE
                 ObjectClient queryServer = queryServers.getOrCreateClient(address);
 
                 queryServer.send(query);
-                Map<String, Object> partialResult = (Map<String, Object>) queryServer.receive();
-                queryResult.putAll(partialResult);
+                QueryResult partialResult = (QueryResult) queryServer.receive();
+                queryResult.merge(partialResult);
             }
 
             onQueryResult.accept(queryResult);
@@ -118,13 +118,13 @@ public class QuerySender extends RichSinkFunction<Query> {
         }
     }
 
-    public interface OnQueryResult extends Consumer<Map<String, Object>>, Serializable {
+    public interface OnQueryResult extends Consumer<QueryResult>, Serializable {
     }
 
     public static class PrintQueryResult implements OnQueryResult {
 
         @Override
-        public void accept(Map<String, Object> queryResult) {
+        public void accept(QueryResult queryResult) {
             if (verbose) {
                 System.out.println(queryResult.toString());
             }
@@ -134,7 +134,7 @@ public class QuerySender extends RichSinkFunction<Query> {
     public static class LogQueryResult implements OnQueryResult {
 
         @Override
-        public void accept(Map<String, Object> queryResult) {
+        public void accept(QueryResult queryResult) {
             LOG.info(queryResult.toString());
         }
     }

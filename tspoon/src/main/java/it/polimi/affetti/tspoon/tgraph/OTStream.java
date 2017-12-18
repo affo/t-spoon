@@ -7,7 +7,6 @@ import it.polimi.affetti.tspoon.tgraph.state.Update;
 import it.polimi.affetti.tspoon.tgraph.twopc.OpenStream;
 import it.polimi.affetti.tspoon.tgraph.twopc.OptimisticOpenOperator;
 import it.polimi.affetti.tspoon.tgraph.twopc.TwoPCFactory;
-import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.streaming.api.datastream.DataStream;
@@ -18,28 +17,14 @@ import org.apache.flink.util.OutputTag;
  * Created by affo on 13/07/17.
  */
 public class OTStream<T> extends AbstractTStream<T> {
-
-    OTStream(DataStream<Enriched<T>> ds) {
-        super(ds);
+    public OTStream(DataStream<Enriched<T>> enriched) {
+        super(enriched);
     }
 
-    @Override
-    protected <U> OTStream<U> replace(DataStream<Enriched<U>> newStream) {
-        return new OTStream<>(newStream);
-    }
-
-    public static <T> OpenStream<T> fromStream(DataStream<T> ds, TwoPCFactory factory) {
-        // TODO hack: fix lifting type
-        TypeInformation<Enriched<T>> type = ds
-                .map(new MapFunction<T, Enriched<T>>() {
-                    @Override
-                    public Enriched<T> map(T t) throws Exception {
-                        return null;
-                    }
-                }).getType();
+    public static <T> OpenStream<T> fromStream(DataStream<T> ds) {
+        TypeInformation<Enriched<T>> type = Enriched.getTypeInfo(ds.getType());
         OptimisticOpenOperator<T> openOperator = new OptimisticOpenOperator<>(
-                factory.getTransactionsIndex(),
-                TransactionEnvironment.get().getTwoPCRuntimeContext());
+                transactionEnvironment.createTransactionalRuntimeContext());
         SingleOutputStreamOperator<Enriched<T>> enriched = ds
                 .transform("open", type, openOperator)
                 .name("OpenTransaction")
@@ -51,10 +36,16 @@ public class OTStream<T> extends AbstractTStream<T> {
     }
 
     @Override
+    protected <U> OTStream<U> replace(DataStream<Enriched<U>> newStream) {
+        return new OTStream<>(newStream);
+    }
+
+    @Override
     protected <V> StateOperator<T, V> getStateOperator(
-            String nameSpace, OutputTag<Update<V>> updatesTag,
-            StateFunction<T, V> stateFunction) {
+            String nameSpace, OutputTag<Update<V>> updatesTag, StateFunction<T, V> stateFunction) {
         return new OptimisticStateOperator<>(
-                nameSpace, stateFunction, updatesTag, TransactionEnvironment.get().getTwoPCRuntimeContext());
+                nameSpace, stateFunction, updatesTag,
+                getTransactionEnvironment().createTransactionalRuntimeContext()
+        );
     }
 }

@@ -11,9 +11,10 @@ public class Query implements Serializable {
     public final String nameSpace;
     public final Set<String> keys = new HashSet<>();
     public int watermark;
+    public QueryResult result;
 
     public Query() {
-        this.nameSpace = "";
+        this("");
     }
 
     public Query(String nameSpace) {
@@ -28,12 +29,16 @@ public class Query implements Serializable {
         return nameSpace;
     }
 
+    public QueryResult getResult() {
+        return result;
+    }
+
     public void addKey(String key) {
         keys.add(key);
     }
 
     public void accept(QueryVisitor visitor) {
-        visitor.visit(this);
+        this.result = visitor.visit(this);
     }
 
     @Override

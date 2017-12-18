@@ -99,7 +99,7 @@ public class Evaluation {
 
         // >>>>> Topology
         TransactionEnvironment.clear();
-        TransactionEnvironment tEnv = TransactionEnvironment.get();
+        TransactionEnvironment tEnv = TransactionEnvironment.get(env);
         tEnv.setStrategy(strategy);
         tEnv.setIsolationLevel(isolationLevel);
         tEnv.setUseDependencyTracking(useDependencyTracking);
@@ -183,6 +183,7 @@ public class Evaluation {
 
         // >>> Composing
         EvaluationGraphComposer.startAmount = startAmount;
+        EvaluationGraphComposer.setTransactionEnvironment(tEnv);
         int numberOfElements = numRecords + sledLen;
 
         List<EvaluationGraphComposer.TGraph> tGraphs = new ArrayList<>(noTGraphs);
@@ -265,7 +266,7 @@ public class Evaluation {
                     .setParallelism(1).name("FinishOnCount");
         }
 
-        if (TransactionEnvironment.get().isVerbose()) {
+        if (TransactionEnvironment.get(env).isVerbose()) {
             wal.print();
         }
 

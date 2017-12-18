@@ -3,6 +3,7 @@ package it.polimi.affetti.tspoon.tgraph.twopc;
 import it.polimi.affetti.tspoon.common.Address;
 import it.polimi.affetti.tspoon.tgraph.Metadata;
 import it.polimi.affetti.tspoon.tgraph.TransactionEnvironment;
+import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -14,27 +15,28 @@ import static org.junit.Assert.assertTrue;
  * Created by affo on 02/12/17.
  */
 public abstract class SimpleTwoPCTest {
-    private TwoPCRuntimeContext twoPCRuntimeContext;
+    private TRuntimeContext tRuntimeContext;
     private AbstractOpenOperatorTransactionCloser openOperatorTransactionCloser;
     private AbstractStateOperatorTransactionCloser stateOperatorTransactionCloser;
     private CloseSinkTransactionCloser sinkTransactionCloser;
 
     @Before
     public void setUp() throws Exception {
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         if (isDurable()) {
-            TransactionEnvironment.get().setDurable(true);
+            TransactionEnvironment.get(env).setDurable(true);
         } else {
-            TransactionEnvironment.get().setDurable(false);
+            TransactionEnvironment.get(env).setDurable(false);
         }
 
-        twoPCRuntimeContext = TransactionEnvironment.get().getTwoPCRuntimeContext();
+        tRuntimeContext = TransactionEnvironment.get(env).createTransactionalRuntimeContext();
         // TODO develop a strategy for implementing tests for different subscription modes
-        //twoPCRuntimeContext.setSubscriptionMode(AbstractTwoPCParticipant.SubscriptionMode.GENERIC);
-        openOperatorTransactionCloser = twoPCRuntimeContext.getSourceTransactionCloser();
+        tRuntimeContext.setSubscriptionMode(AbstractTwoPCParticipant.SubscriptionMode.GENERIC);
+        openOperatorTransactionCloser = tRuntimeContext.getSourceTransactionCloser();
         openOperatorTransactionCloser.open();
-        stateOperatorTransactionCloser = twoPCRuntimeContext.getAtStateTransactionCloser();
+        stateOperatorTransactionCloser = tRuntimeContext.getAtStateTransactionCloser();
         stateOperatorTransactionCloser.open();
-        sinkTransactionCloser = twoPCRuntimeContext.getSinkTransactionCloser();
+        sinkTransactionCloser = tRuntimeContext.getSinkTransactionCloser();
         sinkTransactionCloser.open();
     }
 
@@ -54,7 +56,7 @@ public abstract class SimpleTwoPCTest {
 
     @Test
     public void simpleTest() throws Exception {
-        AbstractTwoPCParticipant.SubscriptionMode subscriptionMode = twoPCRuntimeContext.getSubscriptionMode();
+        AbstractTwoPCParticipant.SubscriptionMode subscriptionMode = tRuntimeContext.getSubscriptionMode();
 
         AtOpenListener openListener = new AtOpenListener(openOperatorTransactionCloser, subscriptionMode);
         Address coordinatorAddress = openOperatorTransactionCloser.getServerAddress();
@@ -102,7 +104,7 @@ public abstract class SimpleTwoPCTest {
 
     @Test
     public void multipleStateListeners() throws Exception {
-        AbstractTwoPCParticipant.SubscriptionMode subscriptionMode = twoPCRuntimeContext.getSubscriptionMode();
+        AbstractTwoPCParticipant.SubscriptionMode subscriptionMode = tRuntimeContext.getSubscriptionMode();
         AtOpenListener openListener = new AtOpenListener(openOperatorTransactionCloser, subscriptionMode);
         Address coordinatorAddress = openOperatorTransactionCloser.getServerAddress();
 
@@ -159,7 +161,7 @@ public abstract class SimpleTwoPCTest {
 
     @Test
     public void multipleStateListenersOnSameKey() throws Exception {
-        AbstractTwoPCParticipant.SubscriptionMode subscriptionMode = twoPCRuntimeContext.getSubscriptionMode();
+        AbstractTwoPCParticipant.SubscriptionMode subscriptionMode = tRuntimeContext.getSubscriptionMode();
 
         AtOpenListener openListener = new AtOpenListener(openOperatorTransactionCloser, subscriptionMode);
         Address coordinatorAddress = openOperatorTransactionCloser.getServerAddress();
@@ -206,11 +208,7 @@ public abstract class SimpleTwoPCTest {
             AtStateListener listener = stateListeners[i];
             for (int j = 0; j < numberOfTransactions; j++) {
                 CloseTransactionNotification msg = listener.receive();
-                try {
-                    assertEquals((long) j + 1, msg.timestamp);
-                } catch (AssertionError e) {
-                    System.out.println("azz");
-                }
+                assertEquals((long) j + 1, msg.timestamp);
             }
             assertTrue(noMoreMessagesInQueue(listener));
         }

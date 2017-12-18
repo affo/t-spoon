@@ -14,21 +14,21 @@ import java.util.function.Predicate;
  * Thread-safe
  */
 public class Object<T> implements Serializable {
-    private final T defaultValue;
+    public static int maxNumberOfVersions = 100;
+    private final ObjectFunction<T> objectFunction;
     private OrderedElements<ObjectVersion<T>> versions;
-    private ObjectVersion<T> lastVersion = initObject();
-    private ObjectVersion<T> lastCommittedVersion = initObject();
+    private ObjectVersion<T> lastVersion;
+    private ObjectVersion<T> lastCommittedVersion;
 
-    /**
-     * @param defaultValue could be null
-     */
-    public Object(T defaultValue) {
-        this.defaultValue = defaultValue;
+    public Object(ObjectFunction<T> objectFunction) {
+        this.objectFunction = objectFunction;
         this.versions = new OrderedElements<>(obj -> (long) obj.version);
+        this.lastCommittedVersion = initObject();
+        this.lastVersion = initObject();
     }
 
     private ObjectVersion<T> initObject() {
-        return ObjectVersion.of(0, 0, defaultValue);
+        return ObjectVersion.of(0, 0, objectFunction.defaultValue(), objectFunction);
     }
 
     public synchronized int getVersionCount() {
@@ -130,11 +130,12 @@ public class Object<T> implements Serializable {
     }
 
 
-    public synchronized void addVersion(ObjectVersion<T> obj) {
-        versions.addInOrder(obj);
+    public synchronized void addVersion(int tid, int version, T object) {
+        ObjectVersion<T> objectVersion = ObjectVersion.of(version, tid, object, objectFunction);
+        versions.addInOrder(objectVersion);
 
-        if (obj.version > lastVersion.version) {
-            lastVersion = obj;
+        if (version > lastVersion.version) {
+            lastVersion = objectVersion;
         }
     }
 
@@ -160,7 +161,11 @@ public class Object<T> implements Serializable {
         }
     }
 
-    public synchronized int clearVersionsUntil(int version) {
+    public synchronized int performVersionCleanup(int version) {
+        if (getVersionCount() <= maxNumberOfVersions) {
+            return 0;
+        }
+
         ListIterator<ObjectVersion<T>> iterator = versions.iterator();
 
         int removedCount = 0;
@@ -175,7 +180,7 @@ public class Object<T> implements Serializable {
 
         // we need to be sure to preserve at least the last committed version
         if (getVersionCount() == 0) {
-            addVersion(lastCommittedVersion);
+            versions.addInOrder(lastCommittedVersion);
         }
 
         return removedCount;

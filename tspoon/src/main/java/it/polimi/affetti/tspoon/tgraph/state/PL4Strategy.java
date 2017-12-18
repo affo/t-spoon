@@ -1,6 +1,5 @@
 package it.polimi.affetti.tspoon.tgraph.state;
 
-import it.polimi.affetti.tspoon.tgraph.Metadata;
 import it.polimi.affetti.tspoon.tgraph.db.Object;
 
 import java.util.HashSet;
@@ -19,15 +18,11 @@ public class PL4Strategy extends PL3Strategy {
      * <p>
      * If we find a version after the watermark that is earlier than this transaction, this transaction
      * must be REPLAYed and wait for its turn.
-     *
-     * @param metadata
-     * @param object
-     * @return
      */
     @Override
-    public boolean isWritingAllowed(Metadata metadata, Object<?> object) {
-        return object.noneVersionMatch(version -> version.version > metadata.watermark &&
-                version.createdBy < metadata.tid);
+    public boolean isWritingAllowed(int tid, int timestamp, int watermark, Object<?> object) {
+        return object.noneVersionMatch(version -> version.version > watermark &&
+                version.createdBy < tid);
     }
 
     /**
@@ -44,21 +39,17 @@ public class PL4Strategy extends PL3Strategy {
      * If T2 tries to commit before T1, T1 will track T2's version and the same for T3. The problem is that if
      * we reduce the dependencyTracking using a maximum/minimum function we will erase one of T2 or T3 and
      * the StrictnessEnforcer will not abort one of the two, making them commit before T1.
-     *
-     * @param metadata
-     * @param object
-     * @return
      */
     @Override
-    public Set<Integer> extractDependencies(Metadata metadata, Object<?> object) {
+    public Set<Integer> extractDependencies(int tid, int timestamp, int watermark, Object<?> object) {
         Set<Integer> dependencies = new HashSet<>();
         // normal dependencies
-        dependencies.addAll(super.extractDependencies(metadata, object));
+        dependencies.addAll(super.extractDependencies(tid, timestamp, watermark, object));
 
         // forward dependencies
-        object.getVersionsAfter(metadata.watermark)
+        object.getVersionsAfter(watermark)
                 .forEach(v -> {
-                    if (v.createdBy > metadata.tid) {
+                    if (v.createdBy > tid) {
                         // here's the trick
                         dependencies.add(-v.createdBy);
                     }

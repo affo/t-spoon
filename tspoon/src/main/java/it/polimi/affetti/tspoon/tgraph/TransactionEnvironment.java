@@ -25,6 +25,7 @@ public class TransactionEnvironment {
     private DataStream<MultiStateQuery> queryStream;
     private TwoPCFactory factory;
     private IsolationLevel isolationLevel = PL3; // max level by default
+    private Strategy strategy;
     private boolean useDependencyTracking = true;
     private boolean verbose = false;
     private long deadlockTimeout;
@@ -34,9 +35,9 @@ public class TransactionEnvironment {
         this.queryStream = env.addSource(querySource).name("QuerySource");
     }
 
-    public synchronized static TransactionEnvironment get() {
+    public synchronized static TransactionEnvironment get(StreamExecutionEnvironment env) {
         if (instance == null) {
-            instance = new TransactionEnvironment(StreamExecutionEnvironment.getExecutionEnvironment());
+            instance = new TransactionEnvironment(env);
         }
         return instance;
     }
@@ -55,6 +56,7 @@ public class TransactionEnvironment {
     }
 
     public void setStrategy(Strategy strategy) {
+        this.strategy = strategy;
         switch (strategy) {
             case PESSIMISTIC:
                 this.factory = new PessimisticTwoPCFactory();
@@ -109,9 +111,12 @@ public class TransactionEnvironment {
         querySource.setQuerySupplier(querySupplier);
     }
 
-    public TwoPCRuntimeContext getTwoPCRuntimeContext() {
-        TwoPCRuntimeContext runtimeContext = new TwoPCRuntimeContext();
+    public TRuntimeContext createTransactionalRuntimeContext() {
+        TRuntimeContext runtimeContext = new TRuntimeContext();
         runtimeContext.setDurabilityEnabled(isDurabilityEnabled);
+        runtimeContext.setIsolationLevel(isolationLevel);
+        runtimeContext.setUseDependencyTracking(useDependencyTracking);
+        runtimeContext.setStrategy(strategy);
         return runtimeContext;
     }
 
@@ -120,10 +125,11 @@ public class TransactionEnvironment {
     }
 
     public <T> OpenStream<T> open(DataStream<T> ds, QuerySender.OnQueryResult onQueryResult) {
+        AbstractTStream.setTransactionEnvironment(this);
+
         // TODO every tGraph should receive queries only for the states it is responsible for!
         // In this implementation every tGraph receives every query...
         // NOTE: for the Evaluation it is ok, because we only query on a single tGraph (on a single state)
-        OpenStream<T> openStream = factory.open(ds);
         QuerySender querySender;
         if (onQueryResult == null) {
             querySender = new QuerySender();
@@ -131,19 +137,17 @@ public class TransactionEnvironment {
             querySender = new QuerySender(onQueryResult);
         }
 
-        // TODO differentiate querying part for pessimistic case!
-        // TODO Up to now it is still not implemented...
-        if (openStream.watermarks == null) {
-            return openStream;
-        }
+        OpenStream<T> openStream = factory.open(ds);
 
-        openStream.watermarks.connect(queryStream).flatMap(new QueryProcessor()).name("QueryProcessor")
-                // TODO it should be (for queries on multiple TGs):
-                //      processed = queryStream.flatMap(new QueryProcessor()).select(... byStateName ...)
-                // outside of this function, in TransactionEnvironment.get()
-                // and later:
-                //      processed.select(... the stateNames of this tGraph ...).connect(watermarks).addSink(querySender)
-                .addSink(querySender).name("QuerySender");
+        // It should be (for queries on multiple TGs and outside of this function, in TransactionEnvironment.get()):
+        //      processed = queryStream.flatMap(new QueryProcessor()).select(... byStateName ...)
+        // and later:
+        //      processed.select(... the stateNames of this tGraph ...).connect(watermarks).addSink(querySender)
+        DataStream<Query> queries = openStream.watermarks.connect(queryStream)
+                .flatMap(new QueryProcessor())
+                .name("QueryProcessor");
+        queries.addSink(querySender).name("QuerySender");
+
         return openStream;
     }
 
@@ -188,8 +192,8 @@ public class TransactionEnvironment {
                 .flatMap(new ReduceVotesFunction())
                 .name("SecondStepReduceVotes");
         // close transactions
-        secondMerged = factory.onClosingSink(secondMerged);
-        secondMerged.addSink(new CloseSink(getTwoPCRuntimeContext())).name("CloseSink");
+        secondMerged = factory.onClosingSink(secondMerged, this);
+        secondMerged.addSink(new CloseSink(createTransactionalRuntimeContext())).name("CloseSink");
 
         // output valid records and unwrap
         List<DataStream<TransactionResult<T>>> result = new ArrayList<>(n);
@@ -211,7 +215,8 @@ public class TransactionEnvironment {
                             })
                     .flatMap(new BufferFunction<>()).name("Buffer");
             DataStream<TransactionResult<T>> unwrapped = valid
-                    .filter(enriched -> enriched.metadata.vote != Vote.REPLAY)
+                    // filter out replayed values and null elements (they where filtered out during execution)
+                    .filter(enriched -> enriched.metadata.vote != Vote.REPLAY && enriched.value != null)
                     .map(
                             new MapFunction<Enriched<T>, TransactionResult<T>>() {
                                 @Override

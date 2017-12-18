@@ -9,15 +9,16 @@ import org.apache.flink.streaming.api.datastream.DataStream;
 /**
  * Created by affo on 17/07/17.
  */
-public class OptimisticTwoPCFactory extends AbstractTwoPCFactory {
+public class OptimisticTwoPCFactory implements TwoPCFactory {
     @Override
     public <T> OpenStream<T> open(DataStream<T> ds) {
-        return OTStream.fromStream(ds, this);
+        return OTStream.fromStream(ds);
     }
 
     @Override
-    public DataStream<Metadata> onClosingSink(DataStream<Metadata> votesMerged) {
-        if (TransactionEnvironment.get().getIsolationLevel() == IsolationLevel.PL4) {
+    public DataStream<Metadata> onClosingSink(
+            DataStream<Metadata> votesMerged, TransactionEnvironment transactionEnvironment) {
+        if (transactionEnvironment.getIsolationLevel() == IsolationLevel.PL4) {
             return votesMerged.flatMap(new StrictnessEnforcer())
                     .name("StrictnessEnforcer").setParallelism(1);
         }

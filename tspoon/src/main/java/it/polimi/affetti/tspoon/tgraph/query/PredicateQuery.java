@@ -20,7 +20,7 @@ public class PredicateQuery<T> extends Query {
 
     @Override
     public void accept(QueryVisitor visitor) {
-        visitor.visit(this);
+        this.result = visitor.visit(this);
     }
 
     public interface QueryPredicate<T> extends Predicate<T>, Serializable {

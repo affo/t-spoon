@@ -13,9 +13,8 @@ public class PessimisticOpenOperator<T> extends OpenOperator<T> {
     public static final String REPLAYED_TRANSACTIONS = "replayed_for_deadlock";
     private IntCounter replayed;
 
-    public PessimisticOpenOperator(TwoPCRuntimeContext twoPCRuntimeContext) {
-        // fix the transaction index (timestamping is useless for pessimistic)
-        super(new TidTransactionsIndex<>(), twoPCRuntimeContext);
+    public PessimisticOpenOperator(TRuntimeContext tRuntimeContext) {
+        super(tRuntimeContext);
 
         replayed = new IntCounter();
         Report.registerAccumulator(REPLAYED_TRANSACTIONS);
@@ -33,7 +32,7 @@ public class PessimisticOpenOperator<T> extends OpenOperator<T> {
     }
 
     @Override
-    protected void closeTransaction(TransactionsIndex.LocalTransactionContext transactionContext) {
+    protected void closeTransaction(TransactionsIndex.LocalTransactionContext transactionContext, boolean wmUpdate) {
         int tid = transactionContext.tid;
         Vote vote = transactionContext.vote;
 

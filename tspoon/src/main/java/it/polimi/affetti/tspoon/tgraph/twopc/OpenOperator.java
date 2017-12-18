@@ -24,25 +24,26 @@ public abstract class OpenOperator<T>
         extends AbstractStreamOperator<Enriched<T>>
         implements OneInputStreamOperator<T, Enriched<T>>,
         OpenOperatorTransactionCloseListener {
+    public final OutputTag<Integer> watermarkTag = new OutputTag<Integer>("watermark") {
+    };
     public final OutputTag<Tuple2<Long, Vote>> logTag = new OutputTag<Tuple2<Long, Vote>>("tLog") {
     };
 
+    private int lastCommittedWatermark = 0;
     // TODO temporarly avoiding log ordering
     //protected transient InOrderSideCollector<T, Tuple2<Long, Vote>> collector;
     protected transient SafeCollector<T> collector;
 
-    protected final TwoPCRuntimeContext twoPCRuntimeContext;
+    protected final TRuntimeContext tRuntimeContext;
     protected final TransactionsIndex<T> transactionsIndex;
     private transient AbstractOpenOperatorTransactionCloser openOperatorTransactionCloser;
 
     // stats
     protected Map<Vote, IntCounter> stats = new HashMap<>();
 
-    public OpenOperator(
-            TransactionsIndex<T> transactionsIndex,
-            TwoPCRuntimeContext twoPCRuntimeContext) {
-        this.twoPCRuntimeContext = twoPCRuntimeContext;
-        this.transactionsIndex = transactionsIndex;
+    public OpenOperator(TRuntimeContext tRuntimeContext) {
+        this.tRuntimeContext = tRuntimeContext;
+        this.transactionsIndex = tRuntimeContext.getTransactionsIndex();
 
         for (Vote vote : Vote.values()) {
             stats.put(vote, new IntCounter());
@@ -56,10 +57,10 @@ public abstract class OpenOperator<T>
         // TODO temporarly avoiding log ordering
         // collector = new InOrderSideCollector<>(output, logTag);
         collector = new SafeCollector<>(output);
-        openOperatorTransactionCloser = twoPCRuntimeContext.getSourceTransactionCloser();
+        openOperatorTransactionCloser = tRuntimeContext.getSourceTransactionCloser();
         openOperatorTransactionCloser.open();
 
-        if (twoPCRuntimeContext.getSubscriptionMode() == AbstractTwoPCParticipant.SubscriptionMode.GENERIC) {
+        if (tRuntimeContext.getSubscriptionMode() == AbstractTwoPCParticipant.SubscriptionMode.GENERIC) {
             openOperatorTransactionCloser.subscribe(this);
         }
 
@@ -81,7 +82,7 @@ public abstract class OpenOperator<T>
     }
 
     protected void subscribe(long timestamp) {
-        if (twoPCRuntimeContext.getSubscriptionMode() == AbstractTwoPCParticipant.SubscriptionMode.SPECIFIC) {
+        if (tRuntimeContext.getSubscriptionMode() == AbstractTwoPCParticipant.SubscriptionMode.SPECIFIC) {
             openOperatorTransactionCloser.subscribeTo(timestamp, this);
         }
     }
@@ -131,7 +132,23 @@ public abstract class OpenOperator<T>
 
         updateStats(notification.vote);
 
-        closeTransaction(localTransactionContext);
+        int timestamp = localTransactionContext.timestamp;
+        Vote vote = localTransactionContext.vote;
+        int oldWM = transactionsIndex.getCurrentWatermark();
+        int newWM = transactionsIndex.updateWatermark(timestamp, vote);
+        boolean wmUpdate = newWM > oldWM;
+
+        if (vote == Vote.COMMIT) {
+            if (timestamp > lastCommittedWatermark) {
+                lastCommittedWatermark = timestamp;
+            }
+
+            if (newWM >= lastCommittedWatermark) {
+                collector.safeCollect(watermarkTag, lastCommittedWatermark);
+            }
+        }
+
+        closeTransaction(localTransactionContext, wmUpdate);
 
         long ts = (long) notification.timestamp;
         /* TODO temporarly avoiding log ordering
@@ -141,5 +158,5 @@ public abstract class OpenOperator<T>
         collector.safeCollect(logTag, Tuple2.of(ts, notification.vote));
     }
 
-    protected abstract void closeTransaction(LocalTransactionContext transactionContext);
+    protected abstract void closeTransaction(LocalTransactionContext transactionContext, boolean wmUpdate);
 }

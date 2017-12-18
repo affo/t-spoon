@@ -1,7 +1,5 @@
 package it.polimi.affetti.tspoon.tgraph.state;
 
-import it.polimi.affetti.tspoon.tgraph.Metadata;
-import it.polimi.affetti.tspoon.tgraph.Vote;
 import it.polimi.affetti.tspoon.tgraph.db.Object;
 import it.polimi.affetti.tspoon.tgraph.db.ObjectVersion;
 
@@ -13,19 +11,17 @@ import java.util.Set;
  */
 public class PL0Strategy implements VersioningStrategy {
     @Override
-    public <V> ObjectVersion<V> extractObjectVersion(Metadata metadata, Object<V> versions) {
-        return versions.getLastVersionBefore(metadata.timestamp);
+    public <V> ObjectVersion<V> extractObjectVersion(int tid, int timestamp, int watermark, Object<V> versions) {
+        return versions.getLastVersionBefore(timestamp);
     }
 
     @Override
-    public boolean isWritingAllowed(Metadata metadata, Object<?> object) {
+    public boolean isWritingAllowed(int tid, int timestamp, int watermark, Object<?> object) {
         return true;
     }
 
     @Override
-    public Set<Integer> extractDependencies(Metadata metadata, Object<?> object) {
-        return metadata.vote == Vote.REPLAY ?
-                Collections.singleton(object.getLastAvailableVersion().version) :
-                Collections.emptySet();
+    public Set<Integer> extractDependencies(int tid, int timestamp, int watermark, Object<?> object) {
+        return Collections.singleton(object.getLastAvailableVersion().version);
     }
 }

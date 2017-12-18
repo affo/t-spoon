@@ -8,7 +8,10 @@ import org.apache.flink.api.java.utils.ParameterTool;
 import java.io.IOException;
 import java.net.Socket;
 import java.net.UnknownHostException;
-import java.util.*;
+import java.util.HashSet;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Set;
 
 /**
  * Created by affo on 02/08/17.
@@ -61,10 +64,13 @@ public class QueryServer extends AbstractServer {
      */
     public synchronized void listen(QueryListener listener) throws UnknownHostException {
         listeners.add(listener);
-        String nameSpace = listener.getNameSpace();
-        if (!registeredNameSpaces.contains(nameSpace)) {
-            jobControlClient.registerQueryServer(listener.getNameSpace(), Address.of(getIP(), getPort()));
-            registeredNameSpaces.add(nameSpace);
+        Iterable<String> nameSpaces = listener.getNameSpaces();
+        Address address = Address.of(getIP(), getPort());
+        for (String nameSpace : nameSpaces) {
+            if (!registeredNameSpaces.contains(nameSpace)) {
+                jobControlClient.registerQueryServer(nameSpace, address);
+                registeredNameSpaces.add(nameSpace);
+            }
         }
     }
 
@@ -75,10 +81,10 @@ public class QueryServer extends AbstractServer {
                     @Override
                     protected void lifeCycle() throws Exception {
                         Query query = (Query) receive();
-                        Map<String, Object> result = new HashMap<>();
+                        QueryResult result = new QueryResult();
                         for (QueryListener listener : listeners) {
-                            Map<String, ?> partialResult = listener.onQuery(query);
-                            result.putAll(partialResult);
+                            QueryResult partialResult = listener.onQuery(query);
+                            result.merge(partialResult);
                         }
                         send(result);
                     }

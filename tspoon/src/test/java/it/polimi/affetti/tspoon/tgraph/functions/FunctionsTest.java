@@ -2,9 +2,7 @@ package it.polimi.affetti.tspoon.tgraph.functions;
 
 import it.polimi.affetti.tspoon.test.CollectionSource;
 import it.polimi.affetti.tspoon.test.ResultUtils;
-import it.polimi.affetti.tspoon.tgraph.Enriched;
-import it.polimi.affetti.tspoon.tgraph.OTStream;
-import it.polimi.affetti.tspoon.tgraph.TStream;
+import it.polimi.affetti.tspoon.tgraph.*;
 import it.polimi.affetti.tspoon.tgraph.backed.Graph;
 import it.polimi.affetti.tspoon.tgraph.backed.GraphOutput;
 import it.polimi.affetti.tspoon.tgraph.twopc.*;
@@ -30,6 +28,9 @@ public class FunctionsTest {
 
     @Before
     public void setUp() {
+        AbstractTStream.setTransactionEnvironment(
+                TransactionEnvironment.get(StreamExecutionEnvironment.getExecutionEnvironment())
+        );
         factory = new OptimisticTwoPCFactory();
     }
 
@@ -42,7 +43,7 @@ public class FunctionsTest {
                 env.setParallelism(1);
 
                 DataStream<Integer> ds = env.addSource(new CollectionSource<>(elements)).returns(Integer.class);
-                TStream<Integer> ts = OTStream.fromStream(ds, factory).opened;
+                TStream<Integer> ts = OTStream.fromStream(ds).opened;
                 DataStream<Enriched<Integer>> out = ts.map((MapFunction<Integer, Integer>) i -> i * 2).getEnclosingStream();
                 return new GraphOutput<>(out);
             }
@@ -72,7 +73,7 @@ public class FunctionsTest {
                 env.setParallelism(1);
 
                 DataStream<Integer> ds = env.addSource(new CollectionSource<>(elements)).returns(Integer.class);
-                TStream<Integer> ts = OTStream.fromStream(ds, factory).opened;
+                TStream<Integer> ts = OTStream.fromStream(ds).opened;
                 DataStream<Enriched<Integer>> out = ts.flatMap(
                         e -> IntStream.range(0, e).boxed().collect(Collectors.toList())
                 ).getEnclosingStream();
@@ -109,7 +110,7 @@ public class FunctionsTest {
                 env.setParallelism(1);
 
                 DataStream<Integer> ds = env.addSource(new CollectionSource<>(elements)).returns(Integer.class);
-                TStream<Integer> ts = OTStream.fromStream(ds, factory).opened;
+                TStream<Integer> ts = OTStream.fromStream(ds).opened;
                 DataStream<Enriched<Integer>> out = ts.filter(e -> e % 2 == 0).getEnclosingStream();
                 return new GraphOutput<>(out);
             }

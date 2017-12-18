@@ -1,6 +1,5 @@
 package it.polimi.affetti.tspoon.tgraph.state;
 
-import it.polimi.affetti.tspoon.tgraph.Metadata;
 import it.polimi.affetti.tspoon.tgraph.db.Object;
 import it.polimi.affetti.tspoon.tgraph.db.ObjectVersion;
 
@@ -20,9 +19,9 @@ import java.util.Set;
  * At PL3 you can read as in PL2, but you can write only if the last version is known to be finished.
  */
 public interface VersioningStrategy extends Serializable {
-    <V> ObjectVersion<V> extractObjectVersion(Metadata metadata, Object<V> versions);
+    <V> ObjectVersion<V> extractObjectVersion(int tid, int timestamp, int watermark, Object<V> versions);
 
-    boolean isWritingAllowed(Metadata metadata, Object<?> object);
+    boolean isWritingAllowed(int tid, int timestamp, int watermark, Object<?> object);
 
-    Set<Integer> extractDependencies(Metadata metadata, Object<?> object);
+    Set<Integer> extractDependencies(int tid, int timestamp, int watermark, Object<?> object);
 }
