@@ -3,10 +3,8 @@ package it.polimi.affetti.tspoon.tgraph;
 import org.apache.flink.api.java.tuple.Tuple2;
 
 import java.io.Serializable;
-import java.util.ArrayList;
-import java.util.Iterator;
-import java.util.LinkedList;
-import java.util.List;
+import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * Created by affo on 18/11/17.
@@ -26,24 +24,33 @@ import java.util.List;
  * The new step is saved in separated fields and it is consolidated upon new step generation.
  * Generating a new step will create a new BatchID that shares the root ID except for the new step introduced.
  */
-public final class BatchID implements Serializable, Iterable<Tuple2<Integer, Integer>> {
-    private List<Integer> offsets;
-    private List<Integer> sizes;
+public final class BatchID implements Serializable,
+        Iterable<Tuple2<Integer, Integer>>,
+        Comparable<BatchID> {
+    public LinkedList<Integer> offsets;
+    public LinkedList<Integer> sizes;
 
-    private int newOffset, newSize;
+    public int newOffset, newSize;
 
     public BatchID() {
-        this(1, 1);
         offsets = new LinkedList<>();
         sizes = new LinkedList<>();
     }
 
-    private BatchID(int offset, int size) {
-        this.newOffset = offset;
-        this.newSize = size;
+    public BatchID(int tid) {
+        this(tid, 1, new LinkedList<>(), new LinkedList<>());
+        consolidate();
     }
 
-    private void consolidate() {
+    private BatchID(int offset, int size,
+                    LinkedList<Integer> offsets, LinkedList<Integer> sizes) {
+        this.newOffset = offset;
+        this.newSize = size;
+        this.offsets = offsets;
+        this.sizes = sizes;
+    }
+
+    public void consolidate() {
         // consolidate only once
         if (newOffset > 0 && newSize > 0) {
             offsets.add(newOffset);
@@ -62,13 +69,17 @@ public final class BatchID implements Serializable, Iterable<Tuple2<Integer, Int
         List<BatchID> results = new ArrayList<>(size);
 
         for (int i = 1; i <= size; i++) {
-            BatchID id = new BatchID(i, size);
-            id.offsets = offsets;
-            id.sizes = sizes;
+            BatchID id = new BatchID(i, size, offsets, sizes);
             results.add(id);
         }
 
         return results;
+    }
+
+    public void addStepManually(int offset, int size) {
+        consolidate();
+        offsets.add(offset);
+        sizes.add(size);
     }
 
     public int getNumberOfSteps() {
@@ -81,8 +92,6 @@ public final class BatchID implements Serializable, Iterable<Tuple2<Integer, Int
     }
 
     /**
-     * NOTE this method has side-effects on the current BatchID object.
-     *
      * @return a representation of this BatchID as if the sizes are (quasi) circularly left shifted.
      * E.g.:
      * 1 4 3 1
@@ -97,17 +106,21 @@ public final class BatchID implements Serializable, Iterable<Tuple2<Integer, Int
      * records (second step) generated 3 records, and so on...
      * The last step, does not produce any record (0 indeed).
      */
-    public void shiftSizes() {
+    public BatchID getShiftedRepresentation() {
         consolidate();
 
-        sizes = sizes.subList(1, sizes.size());
-        sizes.add(0);
+        BatchID shifted = new BatchID();
+
+        shifted.offsets.addAll(offsets);
+        shifted.sizes.addAll(sizes.subList(1, sizes.size()));
+        shifted.sizes.add(0);
+        return shifted;
     }
 
     /**
      * Use it only for testing
      */
-    protected BatchID clone() {
+    public BatchID clone() {
         BatchID cloned = new BatchID();
         cloned.sizes = new LinkedList<>(this.sizes);
         cloned.offsets = new LinkedList<>(this.offsets);
@@ -121,14 +134,66 @@ public final class BatchID implements Serializable, Iterable<Tuple2<Integer, Int
         StringBuilder representation = new StringBuilder();
 
         for (Tuple2<Integer, Integer> couple : this) {
-            representation.append(" - ").append(couple);
+            if (representation.length() > 0) {
+                representation.append(" - ");
+            }
+            representation.append(couple);
         }
 
         return representation.toString();
     }
 
+    public String getDottedRepresentation() {
+        String representation = String.join(".",
+                offsets.stream()
+                        .map(Object::toString)
+                        .collect(Collectors.toList()));
+        if (newOffset > 0) {
+            representation += "." + newOffset;
+        }
+        return representation;
+    }
+
+    public int getTid() {
+        return offsets.get(0);
+    }
+
+    @Override
+    public int compareTo(BatchID other) {
+        int thisLength = this.getNumberOfSteps();
+        int otherLength = other.getNumberOfSteps();
+
+        if (thisLength != otherLength) {
+            throw new IllegalArgumentException("Cannot compare batch ids with different lengths: " +
+                    thisLength + " != " + otherLength);
+        }
+
+        Iterator<Tuple2<Integer, Integer>> thisIterator = iterator();
+        Iterator<Tuple2<Integer, Integer>> otherIterator = other.iterator();
+
+        while (thisIterator.hasNext()) {
+            Tuple2<Integer, Integer> thisCouple = thisIterator.next();
+            Tuple2<Integer, Integer> otherCouple = otherIterator.next();
+
+            if (!Objects.equals(thisCouple.f1, otherCouple.f1)) {
+                throw new IllegalArgumentException("Cannot compare ids from different batches: " +
+                        this.toString() + " <<>> " + other.toString());
+            }
+
+            if (thisCouple.f0 < otherCouple.f0) {
+                return -1;
+            }
+
+            if (thisCouple.f0 > otherCouple.f0) {
+                return 1;
+            }
+        }
+
+        return 0;
+    }
+
     private class BatchIDIterator implements Iterator<Tuple2<Integer, Integer>> {
-        Iterator<Integer> offsetsIterator, sizesIterator;
+        private Iterator<Integer> offsetsIterator, sizesIterator;
         private boolean hasNext;
 
         public BatchIDIterator() {

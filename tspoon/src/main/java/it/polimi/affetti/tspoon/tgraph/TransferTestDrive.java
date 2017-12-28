@@ -39,7 +39,7 @@ public class TransferTestDrive {
         final int baseParallelism = 4;
         final int partitioning = 4;
         final double startAmount = 100d;
-        final Strategy strategy = Strategy.PESSIMISTIC;
+        final Strategy strategy = Strategy.OPTIMISTIC;
         final IsolationLevel isolationLevel = IsolationLevel.PL3;
         final boolean useDependencyTracking = true;
         final boolean noContention = false;
@@ -94,7 +94,7 @@ public class TransferTestDrive {
         if (isolationLevel == IsolationLevel.PL3 || isolationLevel == IsolationLevel.PL4) {
             open = tEnv.open(transfers, new ConsistencyCheck(startAmount));
             // select * from balances
-            Query query = new PredicateQuery<>("balances", new SelectAll());
+            Query query = new PredicateQuery<>("balances", new PredicateQuery.SelectAll<>());
             tEnv.setQuerySupplier(
                     new FrequencyQuerySupplier(
                             new PredefinedQuerySupplier(query), 1));
@@ -243,14 +243,6 @@ public class TransferTestDrive {
             } else {
                 System.out.println("Invariant verified on " + size[0] + " keys");
             }
-        }
-    }
-
-    private static class SelectAll implements PredicateQuery.QueryPredicate<Double> {
-
-        @Override
-        public boolean test(Double aDouble) {
-            return true;
         }
     }
 }

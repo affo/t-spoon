@@ -11,9 +11,31 @@ import static org.junit.Assert.*;
  * Created by affo on 20/11/17.
  */
 public class BatchIDTest {
+    public static List<BatchID> generateIdSpace(int steps, int maxChildren, int id) {
+        Random rand = new Random(id);
+        return generateIdSpace(steps, rand, maxChildren, Collections.singletonList(new BatchID(id)));
+    }
+
+    private static List<BatchID> generateIdSpace(int steps, Random rand, int maxChildren, List<BatchID> currentBatchIds) {
+        if (steps == 0) {
+            return currentBatchIds;
+        }
+
+        List<BatchID> space = new LinkedList<>();
+
+        for (BatchID id : currentBatchIds) {
+            int size = rand.nextInt(maxChildren - 1) + 1;
+            // cloning to make any batchID independent
+            List<BatchID> newStep = id.clone().addStep(size);
+            newStep.forEach(bid -> space.add(bid.clone()));
+        }
+
+        return generateIdSpace(steps - 1, rand, maxChildren, space);
+    }
+
     @Test
     public void newStepTest() {
-        BatchID batchID = new BatchID();
+        BatchID batchID = new BatchID(1);
 
         for (int i = 1; i <= 10; i++) {
             List<BatchID> newBatch = batchID.addStep(i);
@@ -26,7 +48,7 @@ public class BatchIDTest {
 
     @Test
     public void iterateTest() {
-        BatchID batchID = new BatchID();
+        BatchID batchID = new BatchID(1);
         batchID = batchID.addStep(5).get(0).addStep(3).get(0);
 
         assertEquals(3, batchID.getNumberOfSteps());
@@ -46,10 +68,10 @@ public class BatchIDTest {
 
     @Test
     public void testShift() {
-        BatchID batchID = new BatchID();
+        BatchID batchID = new BatchID(1);
         batchID = batchID.addStep(5).get(0).addStep(3).get(0);
 
-        batchID.shiftSizes();
+        batchID = batchID.getShiftedRepresentation();
         assertEquals(3, batchID.getNumberOfSteps());
 
         Iterator<Tuple2<Integer, Integer>> iterator = batchID.iterator();
@@ -65,21 +87,24 @@ public class BatchIDTest {
         assertFalse(iterator.hasNext());
     }
 
-    private List<BatchID> generateIdSpace(int step, Random rand, int maxChildren, List<BatchID> currentBatchIds) {
-        if (step == 0) {
-            return currentBatchIds;
+    @Test
+    public void oneStepCompletenessTest() {
+        BatchCompletionChecker completionChecker = new BatchCompletionChecker();
+
+        BatchID first = new BatchID(1);
+        List<BatchID> idSpace = new LinkedList<>();
+        for (BatchID bid : first.addStep(100)) {
+            idSpace.add(bid.clone());
         }
 
-        List<BatchID> space = new LinkedList<>();
+        Collections.shuffle(idSpace);
+        BatchID lastOne = idSpace.remove(0);
 
-        for (BatchID id : currentBatchIds) {
-            int size = rand.nextInt(maxChildren - 1) + 1;
-            // cloning to make any batchID independent
-            List<BatchID> newStep = id.clone().addStep(size);
-            newStep.forEach(bid -> space.add(bid.clone()));
+        for (BatchID batchID : idSpace) {
+            assertFalse(completionChecker.checkCompleteness(batchID));
         }
 
-        return generateIdSpace(step - 1, rand, maxChildren, space);
+        assertTrue(completionChecker.checkCompleteness(lastOne));
     }
 
     @Test
@@ -91,7 +116,7 @@ public class BatchIDTest {
         Random rand = new Random(0);
 
         List<BatchID> idSpace = generateIdSpace(numberOfSteps, rand, maxChildren,
-                Collections.singletonList(new BatchID()));
+                Collections.singletonList(new BatchID(1)));
 
         Collections.shuffle(idSpace);
         BatchID lastOne = idSpace.remove(0);

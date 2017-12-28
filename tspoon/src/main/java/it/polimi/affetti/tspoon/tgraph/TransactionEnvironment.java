@@ -9,6 +9,8 @@ import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 import static it.polimi.affetti.tspoon.tgraph.IsolationLevel.PL3;
 import static it.polimi.affetti.tspoon.tgraph.IsolationLevel.PL4;
@@ -178,13 +180,15 @@ public class TransactionEnvironment {
 
         // second step reduction on every exit point using a batch size
         // equal to the number of exit points
-        MapFunction<Metadata, Metadata> assignBatchSize = meta -> {
-            meta.batchSize = n;
-            return meta;
-        };
-        DataStream<Metadata> union = firstStepMerged.get(0).map(assignBatchSize);
-        for (DataStream<Metadata> unite : firstStepMerged.subList(1, n)) {
-            union = union.union(unite.map(assignBatchSize));
+        List<DataStream<Metadata>> withLastStep = IntStream.range(0, n)
+                .mapToObj(index ->
+                        firstStepMerged.get(index)
+                                .map(new LastStepAdder(index + 1, n)))
+                .collect(Collectors.toList());
+        DataStream<Metadata> union = withLastStep.get(0);
+
+        for (DataStream<Metadata> exitPoint : withLastStep.subList(1, n)) {
+            union = union.union(exitPoint);
         }
 
         DataStream<Metadata> secondMerged = union
@@ -229,5 +233,20 @@ public class TransactionEnvironment {
         }
 
         return result;
+    }
+
+    private static class LastStepAdder implements MapFunction<Metadata, Metadata> {
+        private final int offset, batchSize;
+
+        public LastStepAdder(int offset, int batchSize) {
+            this.offset = offset;
+            this.batchSize = batchSize;
+        }
+
+        @Override
+        public Metadata map(Metadata metadata) throws Exception {
+            metadata.batchID.addStepManually(offset, batchSize);
+            return metadata;
+        }
     }
 }

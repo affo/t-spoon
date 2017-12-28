@@ -1,9 +1,11 @@
 package it.polimi.affetti.tspoon.tgraph.functions;
 
 import it.polimi.affetti.tspoon.tgraph.Enriched;
+import it.polimi.affetti.tspoon.tgraph.Metadata;
 import org.apache.flink.api.common.functions.FlatMapFunction;
 import org.apache.flink.util.Collector;
 
+import java.util.Iterator;
 import java.util.List;
 
 /**
@@ -18,9 +20,11 @@ public abstract class FlatMapWrapper<I, O> implements FlatMapFunction<Enriched<I
             return;
         }
 
-        e.metadata.setBatchSize(outputList.size());
+        Iterable<Metadata> newMetas = e.metadata.newStep(outputList.size());
+        Iterator<Metadata> metadataIterator = newMetas.iterator();
         for (O outElement : outputList) {
-            collector.collect(e.replace(outElement));
+            Metadata metadata = metadataIterator.next();
+            collector.collect(Enriched.of(metadata, outElement));
         }
     }
 

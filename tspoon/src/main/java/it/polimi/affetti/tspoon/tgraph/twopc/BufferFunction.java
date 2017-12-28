@@ -1,34 +1,34 @@
 package it.polimi.affetti.tspoon.tgraph.twopc;
 
+import it.polimi.affetti.tspoon.tgraph.BatchCompletionChecker;
 import it.polimi.affetti.tspoon.tgraph.Enriched;
 import it.polimi.affetti.tspoon.tgraph.Metadata;
-import org.apache.flink.streaming.api.functions.co.CoFlatMapFunction;
+import org.apache.flink.configuration.Configuration;
+import org.apache.flink.streaming.api.functions.co.RichCoFlatMapFunction;
 import org.apache.flink.util.Collector;
 
-import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 
 /**
  * Created by affo on 29/01/17.
  */
-public class BufferFunction<T> implements
-        CoFlatMapFunction<Enriched<T>, Metadata, Enriched<T>> {
+public class BufferFunction<T> extends
+        RichCoFlatMapFunction<Enriched<T>, Metadata, Enriched<T>> {
     private Map<Integer, List<Enriched<T>>> batches = new HashMap<>();
     private Map<Integer, Metadata> votes = new HashMap<>();
-    private Map<Integer, Integer> counts = new HashMap<>();
+    private transient BatchCompletionChecker completionChecker;
 
-    private void addElement(int timestamp, Enriched<T> element) {
-        int size = element.metadata.batchSize;
-        batches.computeIfAbsent(timestamp, k -> new ArrayList<>(size)).add(element);
+    @Override
+    public void open(Configuration parameters) throws Exception {
+        super.open(parameters);
+        completionChecker = new BatchCompletionChecker();
     }
 
-    private int incrementCounter(int timestamp) {
-        int count = counts.getOrDefault(timestamp, 0);
-        count++;
-        counts.put(timestamp, count);
-        return count;
+    private void addElement(int timestamp, Enriched<T> element) {
+        batches.computeIfAbsent(timestamp, k -> new LinkedList<>()).add(element);
     }
 
     @Override
@@ -36,15 +36,15 @@ public class BufferFunction<T> implements
         int timestamp = element.metadata.timestamp;
 
         Metadata vote = votes.get(timestamp);
-        int count = incrementCounter(timestamp);
+        boolean complete = completionChecker.checkCompleteness(timestamp, element.metadata.batchID);
 
         if (vote != null) {
             element.metadata.vote = vote.vote;
             collector.collect(element);
 
-            if (count >= element.metadata.batchSize) {
+            if (complete) {
                 votes.remove(timestamp);
-                counts.remove(timestamp);
+                completionChecker.freeIndex(timestamp);
             }
         } else {
             addElement(timestamp, element);
@@ -62,16 +62,16 @@ public class BufferFunction<T> implements
             return;
         }
 
-        int batchSize = batch.get(0).metadata.batchSize;
+        boolean complete = completionChecker.getCompleteness(timestamp);
 
         for (Enriched<T> element : batch) {
             element.metadata.vote = metadata.vote;
             collector.collect(element);
         }
 
-        if (batch.size() >= batchSize) {
+        if (complete) {
             votes.remove(timestamp);
-            counts.remove(timestamp);
+            completionChecker.freeIndex(timestamp);
         }
     }
 }

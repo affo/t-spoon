@@ -5,7 +5,6 @@ import it.polimi.affetti.tspoon.test.ResultUtils;
 import it.polimi.affetti.tspoon.tgraph.*;
 import it.polimi.affetti.tspoon.tgraph.backed.Graph;
 import it.polimi.affetti.tspoon.tgraph.backed.GraphOutput;
-import it.polimi.affetti.tspoon.tgraph.twopc.*;
 import org.apache.flink.api.common.JobExecutionResult;
 import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.streaming.api.datastream.DataStream;
@@ -24,14 +23,11 @@ import static org.junit.Assert.assertEquals;
  * Created by affo on 27/07/17.
  */
 public class FunctionsTest {
-    private TwoPCFactory factory;
-
     @Before
     public void setUp() {
         AbstractTStream.setTransactionEnvironment(
                 TransactionEnvironment.get(StreamExecutionEnvironment.getExecutionEnvironment())
         );
-        factory = new OptimisticTwoPCFactory();
     }
 
     @Test
@@ -61,7 +57,8 @@ public class FunctionsTest {
 
         assertEquals(expectedOutput, output.stream().map(e -> e.value).collect(Collectors.toList()));
         assertEquals(expectedIds, output.stream().map(e -> e.metadata.tid).collect(Collectors.toList()));
-        assertEquals(expectedBatchSizes, output.stream().map(e -> e.metadata.batchSize).collect(Collectors.toList()));
+        assertEquals(expectedBatchSizes, output.stream().map(e -> e.metadata.getLastStepBatchSize())
+                .collect(Collectors.toList()));
     }
 
     @Test
@@ -98,7 +95,8 @@ public class FunctionsTest {
 
         assertEquals(expectedOutput, output.stream().map(e -> e.value).collect(Collectors.toList()));
         assertEquals(expectedIds, output.stream().map(e -> e.metadata.tid).collect(Collectors.toList()));
-        assertEquals(expectedBatchSizes, output.stream().map(e -> e.metadata.batchSize).collect(Collectors.toList()));
+        assertEquals(expectedBatchSizes, output.stream().map(e -> e.metadata.getLastStepBatchSize())
+                .collect(Collectors.toList()));
     }
 
     @Test
@@ -128,6 +126,7 @@ public class FunctionsTest {
 
         assertEquals(expectedOutput, output.stream().map(e -> e.value).collect(Collectors.toList()));
         assertEquals(expectedIds, output.stream().map(e -> e.metadata.tid).collect(Collectors.toList()));
-        assertEquals(expectedBatchSizes, output.stream().map(e -> e.metadata.batchSize).collect(Collectors.toList()));
+        assertEquals(expectedBatchSizes, output.stream().map(e -> e.metadata.getLastStepBatchSize())
+                .collect(Collectors.toList()));
     }
 }

@@ -1,39 +1,52 @@
 package it.polimi.affetti.tspoon.tgraph;
 
 import it.polimi.affetti.tspoon.common.Address;
+import org.apache.flink.api.java.tuple.Tuple2;
 
 import java.io.Serializable;
 import java.util.HashSet;
 import java.util.Iterator;
-import java.util.Set;
+import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * Created by affo on 13/07/17.
  */
 public class Metadata implements Serializable {
-    public int tid;
-    public int timestamp;
-    public Set<Address> cohorts = new HashSet<>();
+    public BatchID batchID;
+    public int tid, timestamp;
+    public HashSet<Address> cohorts = new HashSet<>();
     public Address coordinator;
     public Vote vote = Vote.COMMIT;
-    public int offset = 1;
-    public int batchSize = 1;
     public int watermark = 0;
-    public Set<Integer> dependencyTracking = new HashSet<>();
+    public HashSet<Integer> dependencyTracking = new HashSet<>();
 
     public Metadata() {
     }
 
     public Metadata(int tid) {
+        this.batchID = new BatchID(tid);
         this.tid = tid;
         this.timestamp = tid;
     }
 
     public Metadata(int tid, Vote vote, int watermark) {
-        this.tid = tid;
-        this.timestamp = tid;
+        this(tid);
         this.vote = vote;
         this.watermark = watermark;
+    }
+
+    public Metadata clone(BatchID bid) {
+        Metadata cloned = new Metadata();
+        cloned.batchID = bid;
+        cloned.tid = tid;
+        cloned.timestamp = timestamp;
+        cloned.cohorts = cohorts;
+        cloned.coordinator = coordinator;
+        cloned.vote = vote;
+        cloned.watermark = watermark;
+        cloned.dependencyTracking = dependencyTracking;
+        return cloned;
     }
 
     public void addCohort(Address cohortAddress) {
@@ -44,24 +57,30 @@ public class Metadata implements Serializable {
         return cohorts.iterator();
     }
 
-    public void setBatchSize(int batchSize) {
-        this.batchSize = batchSize;
+    // invoke it at most once per function call
+    public Iterable<Metadata> newStep(int batchSize) {
+        batchID.consolidate();
+        List<BatchID> batchIDS = this.batchID.addStep(batchSize);
+        return batchIDS.stream()
+                .map(this::clone).collect(Collectors.toList());
     }
 
-    public boolean isCollectable() {
-        return vote == Vote.COMMIT;
+    public int getLastStepBatchSize() {
+        int size = 0;
+        for (Tuple2<Integer, Integer> offsetSize : batchID) {
+            size = offsetSize.f1;
+        }
+        return size;
     }
 
     @Override
     public String toString() {
         return "Metadata{" +
-                "tid=" + tid +
+                "bid=" + batchID +
                 ", timestamp=" + timestamp +
                 ", cohorts=" + cohorts +
                 ", coordinator=" + coordinator +
                 ", vote=" + vote +
-                ", offset=" + offset +
-                ", batchSize=" + batchSize +
                 ", watermark=" + watermark +
                 ", dependencyTracking=" + dependencyTracking +
                 '}';

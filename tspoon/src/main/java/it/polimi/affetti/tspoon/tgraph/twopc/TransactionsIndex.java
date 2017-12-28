@@ -47,7 +47,8 @@ public abstract class TransactionsIndex<T> implements Serializable {
     }
 
     public LocalTransactionContext getTransactionByTimestamp(int timestamp) {
-        return getTransaction(getTransactionId(timestamp));
+        Integer tid = getTransactionId(timestamp);
+        return getTransaction(tid);
     }
 
     protected abstract Integer getTransactionId(int timestamp);

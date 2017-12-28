@@ -16,22 +16,36 @@ import java.util.stream.IntStream;
 public class BatchCompletionChecker {
     private final Map<Integer, Tree> trees = new HashMap<>();
 
+    public boolean checkCompleteness(BatchID someBatchID) {
+        return checkCompleteness(null, someBatchID);
+    }
+
     /**
      * @param someBatchID must be at least 1 step
      * @return
      */
-    public boolean checkCompleteness(BatchID someBatchID) {
+    public boolean checkCompleteness(Integer index, BatchID someBatchID) {
         // turn to shifted representation
-        someBatchID.shiftSizes();
+        someBatchID = someBatchID.getShiftedRepresentation();
 
         Tuple2<Integer, Integer> firsElement = someBatchID.iterator().next();
-        final int tid = firsElement.f0;
+        if (index == null) {
+            index = firsElement.f0;
+        }
         final int firstFanout = firsElement.f1;
-        Tree tree = trees.computeIfAbsent(tid, (key) -> new Tree(firstFanout));
+        Tree tree = trees.computeIfAbsent(index, (key) -> new Tree(firstFanout));
 
         tree.ackNode(someBatchID);
 
         return tree.isComplete();
+    }
+
+    public boolean getCompleteness(Integer index) {
+        return trees.get(index).isComplete();
+    }
+
+    public void freeIndex(int index) {
+        trees.remove(index);
     }
 
     private class Tree {

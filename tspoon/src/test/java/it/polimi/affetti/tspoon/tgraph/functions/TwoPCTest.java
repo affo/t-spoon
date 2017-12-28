@@ -6,7 +6,6 @@ import it.polimi.affetti.tspoon.tgraph.*;
 import it.polimi.affetti.tspoon.tgraph.backed.Graph;
 import it.polimi.affetti.tspoon.tgraph.backed.GraphOutput;
 import it.polimi.affetti.tspoon.tgraph.twopc.BufferFunction;
-import it.polimi.affetti.tspoon.tgraph.twopc.OptimisticTwoPCFactory;
 import it.polimi.affetti.tspoon.tgraph.twopc.ReduceVotesFunction;
 import org.apache.flink.api.common.JobExecutionResult;
 import org.apache.flink.api.common.functions.FlatMapFunction;
@@ -52,10 +51,11 @@ public class TwoPCTest {
 
                             @Override
                             public void flatMap(Integer integer, Collector<Metadata> collector) throws Exception {
-                                for (int i = 0; i < integer; i++) {
-                                    Metadata m = new Metadata(tid);
-                                    m.batchSize = integer;
+                                Metadata metadata = new Metadata(tid);
+                                int i = 0;
+                                for (Metadata m : metadata.newStep(integer)) {
                                     m.vote = votes[i];
+                                    i++;
                                     collector.collect(m);
                                 }
                                 tid++;
