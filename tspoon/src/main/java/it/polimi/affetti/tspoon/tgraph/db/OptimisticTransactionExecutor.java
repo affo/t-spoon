@@ -38,6 +38,11 @@ public class OptimisticTransactionExecutor {
     }
 
     public <V> void executeOperation(String key, Transaction<V> transaction) {
+        if (transaction.vote != Vote.COMMIT) {
+            // do not process not COMMITted transactions
+            return;
+        }
+
         int tid = transaction.tid;
         int timestamp = transaction.timestamp;
         int watermark = transaction.watermark;

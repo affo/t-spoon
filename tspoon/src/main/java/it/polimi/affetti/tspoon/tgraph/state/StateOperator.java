@@ -5,9 +5,8 @@ import it.polimi.affetti.tspoon.common.InOrderSideCollector;
 import it.polimi.affetti.tspoon.runtime.NetUtils;
 import it.polimi.affetti.tspoon.tgraph.Enriched;
 import it.polimi.affetti.tspoon.tgraph.Metadata;
-import it.polimi.affetti.tspoon.tgraph.Vote;
-import it.polimi.affetti.tspoon.tgraph.db.*;
 import it.polimi.affetti.tspoon.tgraph.db.Object;
+import it.polimi.affetti.tspoon.tgraph.db.*;
 import it.polimi.affetti.tspoon.tgraph.query.Query;
 import it.polimi.affetti.tspoon.tgraph.query.QueryListener;
 import it.polimi.affetti.tspoon.tgraph.query.QueryResult;
@@ -100,18 +99,12 @@ public abstract class StateOperator<T, V>
         T element = sr.getValue().value;
         Metadata metadata = sr.getValue().metadata;
 
-        // do not even process aborted or replayed stuff!
-        if (metadata.vote != Vote.COMMIT) {
-            collector.safeCollect(sr.getValue());
-            return;
-        }
-
         metadata.addCohort(transactionCloser.getServerAddress());
         int timestamp = metadata.timestamp;
 
         boolean newTransaction = shard.addOperation(
-                key, metadata.tid, timestamp, metadata.watermark, metadata.coordinator,
-                Operation.from(element, stateFunction));
+                key, metadata.tid, timestamp, metadata.watermark,
+                metadata.vote, metadata.coordinator, Operation.from(element, stateFunction));
 
         if (newTransaction) {
             counter++;

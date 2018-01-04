@@ -7,6 +7,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Random;
 import java.util.concurrent.BlockingQueue;
@@ -22,7 +23,7 @@ import static org.junit.Assert.*;
  * Created by affo on 16/11/17.
  */
 public class KeyLevelExecutorTest {
-    private final static long DEADLOCK_TIME = 5L;
+    private final static long DEADLOCK_TIME = 100L;
 
     private KeyLevelTaskExecutor<TaskResult> executor;
     private Observer observer;
@@ -147,16 +148,33 @@ public class KeyLevelExecutorTest {
         executor.enableDeadlockDetection(DEADLOCK_TIME);
         executor.startProcessing();
 
-        executor.run(executor.add(foo, () -> new TaskResult(1)));
-        // faster then timeout
-        assertEquals(1, observer.get().result.intValue());
-        // foo is still locked
-        executor.run(executor.add(foo, () -> new TaskResult(1)));
+        long first = executor.add(foo, () -> new TaskResult(41));
+        executor.run(first);
+        long second = executor.add(foo, () -> new TaskResult(42));
+        executor.run(second);
+        long third = executor.add(foo, () -> new TaskResult(43));
+        executor.run(third);
 
-        // slower
-        Thread.sleep(DEADLOCK_TIME + 10);
-        // see #onTaskDeadlock implementation below
-        assertEquals(-1, observer.get().result.intValue());
+        // `first`'s futureResult
+        assertEquals(41, observer.getUndefinitely().result.intValue());
+        // `second` cannot run because `first` blocks --> getting the dependencies
+        assertEquals(first, observer.getUndefinitely().result.intValue());
+        assertEquals(third, observer.getUndefinitely().result.intValue());
+        // Note that tasks are invoked in reverse order by contract
+        // `third` cannot run because `second` and `first` block --> getting the dependencies
+        assertEquals(first, observer.getUndefinitely().result.intValue());
+        assertEquals(second, observer.getUndefinitely().result.intValue());
+
+
+        long fourth = executor.add(foo, () -> new TaskResult(44));
+
+        executor.free(foo);
+        executor.run(fourth);
+
+        // `first`, `second`, and `third` are killed because they deadlocked --> getting `fourth` futureResult
+        assertEquals(44, observer.getUndefinitely().result.intValue());
+
+        executor.free(foo);
 
         checkEverythingIsLocked();
         assertEquals(0, executor.getNumberOfEnqueuedTasks());
@@ -227,10 +245,16 @@ public class KeyLevelExecutorTest {
         }
 
         @Override
-        public void onTaskDeadlock(long id) {
-            TaskResult taskResult = new TaskResult(-1);
-            taskResult.tid = id;
-            results.add(taskResult);
+        public void onDeadlock(LinkedHashMap<Long, List<Long>> deadlockedWithDependencies) {
+            for (List<Long> dependencies : deadlockedWithDependencies.values()) {
+                if (dependencies.isEmpty()) {
+                    results.add(new TaskResult(Math.toIntExact(-1)));
+                } else {
+                    for (Long dep : dependencies) {
+                        results.add(new TaskResult(Math.toIntExact(dep)));
+                    }
+                }
+            }
         }
     }
 }
