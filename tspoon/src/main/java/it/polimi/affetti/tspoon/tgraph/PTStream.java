@@ -1,15 +1,10 @@
 package it.polimi.affetti.tspoon.tgraph;
 
-import it.polimi.affetti.tspoon.tgraph.state.PessimisticStateOperator;
-import it.polimi.affetti.tspoon.tgraph.state.StateFunction;
-import it.polimi.affetti.tspoon.tgraph.state.StateOperator;
-import it.polimi.affetti.tspoon.tgraph.state.Update;
+import it.polimi.affetti.tspoon.tgraph.functions.Scheduler;
+import it.polimi.affetti.tspoon.tgraph.state.*;
 import it.polimi.affetti.tspoon.tgraph.twopc.OpenStream;
-import it.polimi.affetti.tspoon.tgraph.twopc.PessimisticOpenOperator;
-import org.apache.flink.api.common.typeinfo.TypeInformation;
-import org.apache.flink.api.java.tuple.Tuple2;
+import org.apache.flink.api.java.functions.KeySelector;
 import org.apache.flink.streaming.api.datastream.DataStream;
-import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.util.OutputTag;
 
 /**
@@ -21,22 +16,14 @@ public class PTStream<T> extends AbstractTStream<T> {
     }
 
     public static <T> OpenStream<T> fromStream(DataStream<T> ds) {
-        TypeInformation<Enriched<T>> type = Enriched.getTypeInfo(ds.getType());
-        PessimisticOpenOperator<T> openOperator = new PessimisticOpenOperator<>(
-                getTransactionEnvironment().createTransactionalRuntimeContext());
-        SingleOutputStreamOperator<Enriched<T>> enriched = ds
-                .transform("open", type, openOperator)
-                .name("OpenTransaction")
-                .setParallelism(1);
-
-        DataStream<Integer> watermarks = enriched.getSideOutput(openOperator.watermarkTag);
-        DataStream<Tuple2<Long, Vote>> tLog = enriched.getSideOutput(openOperator.logTag);
-        return new OpenStream<>(new PTStream<>(enriched), watermarks, tLog);
+        OpenOutputs<T> outputs = AbstractTStream.open(ds);
+        return new OpenStream<>(
+                new PTStream<>(outputs.enrichedDataStream),
+                outputs.watermarks, outputs.tLog);
     }
 
     @Override
     protected <U> PTStream<U> replace(DataStream<Enriched<U>> newStream) {
-        applySchedulerIfNecessary(newStream);
         return new PTStream<>(newStream);
     }
 
@@ -56,15 +43,31 @@ public class PTStream<T> extends AbstractTStream<T> {
         return stateOperator;
     }
 
-    private <U> void applySchedulerIfNecessary(DataStream<Enriched<U>> newStream) {
-        boolean isNecessary = getTransactionEnvironment().getIsolationLevel() == IsolationLevel.PL4 &&
-                true; // TODO extend condition
-        if (isNecessary) {
-            applyScheduler(newStream);
-        }
+    @Override
+    public <V> StateStream<T, V> state(
+            String nameSpace,
+            OutputTag<Update<V>> updatesTag,
+            KeySelector<T, String> ks,
+            StateFunction<T, V> stateFunction,
+            int partitioning) {
+        dataStream = applySchedulerIfNecessary(dataStream);
+        return super.state(nameSpace, updatesTag, ks, stateFunction, partitioning);
     }
 
-    private <U> void applyScheduler(DataStream<Enriched<U>> newStream) {
-        // TODO apply the scheduler, please
+    private <U> DataStream<Enriched<U>> applySchedulerIfNecessary(DataStream<Enriched<U>> newStream) {
+        IsolationLevel isolationLevel = getTransactionEnvironment().getIsolationLevel();
+
+        if (isolationLevel == IsolationLevel.PL4) {
+            return applyScheduler(newStream);
+        }
+
+        return newStream;
+    }
+
+    private <U> DataStream<Enriched<U>> applyScheduler(DataStream<Enriched<U>> newStream) {
+        return newStream
+                .flatMap(new Scheduler<>())
+                .setParallelism(1)
+                .name("Scheduler");
     }
 }

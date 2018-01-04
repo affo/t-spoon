@@ -13,7 +13,7 @@ import java.util.*;
  * <p>
  * Synchronization is offered by the OpenOperator class.
  */
-public class OptimisticOpenOperator<T> extends OpenOperator<T> {
+public class ConcreteOpenOperator<T> extends OpenOperator<T> {
     // set of tids depends on tid (tid -> [tids, ...])
     private Map<Integer, Set<Integer>> dependencies = new HashMap<>();
     // timestamp -> current watermark
@@ -33,7 +33,7 @@ public class OptimisticOpenOperator<T> extends OpenOperator<T> {
     // this is orthogonal to the first two
     private IntCounter replayedUponWatermarkUpdate = new IntCounter();
 
-    public OptimisticOpenOperator(TRuntimeContext tRuntimeContext) {
+    public ConcreteOpenOperator(TRuntimeContext tRuntimeContext) {
         super(tRuntimeContext);
         Report.registerAccumulator(DEPENDENCY_REPLAYED_COUNTER_NAME);
         Report.registerAccumulator(REPLAYED_UPON_WATERMARK_UPDATE_COUNTER_NAME);

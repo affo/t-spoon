@@ -221,6 +221,7 @@ public class TransactionEnvironment {
             DataStream<TransactionResult<T>> unwrapped = valid
                     // filter out replayed values and null elements (they where filtered out during execution)
                     .filter(enriched -> enriched.metadata.vote != Vote.REPLAY && enriched.value != null)
+                    .name("FilterREPLAYed")
                     .map(
                             new MapFunction<Enriched<T>, TransactionResult<T>>() {
                                 @Override
@@ -228,7 +229,8 @@ public class TransactionEnvironment {
                                     Metadata metadata = enriched.metadata;
                                     return new TransactionResult<>(metadata.tid, metadata.vote, enriched.value);
                                 }
-                            });
+                            })
+                    .name("ToTransactionResult");
             result.add(unwrapped);
         }
 

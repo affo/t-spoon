@@ -7,9 +7,12 @@ import it.polimi.affetti.tspoon.tgraph.state.StateFunction;
 import it.polimi.affetti.tspoon.tgraph.state.StateOperator;
 import it.polimi.affetti.tspoon.tgraph.state.StateStream;
 import it.polimi.affetti.tspoon.tgraph.state.Update;
+import it.polimi.affetti.tspoon.tgraph.twopc.ConcreteOpenOperator;
 import org.apache.flink.api.common.functions.FilterFunction;
 import org.apache.flink.api.common.functions.MapFunction;
+import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.java.functions.KeySelector;
+import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.util.OutputTag;
@@ -41,6 +44,20 @@ public abstract class AbstractTStream<T> implements TStream<T> {
     protected abstract <V> StateOperator<T, V> getStateOperator(
             String nameSpace, OutputTag<Update<V>> updatesTag, StateFunction<T, V> stateFunction);
 
+    protected static <T> OpenOutputs<T> open(DataStream<T> dataStream) {
+        TypeInformation<Enriched<T>> type = Enriched.getTypeInfo(dataStream.getType());
+        ConcreteOpenOperator<T> openOperator = new ConcreteOpenOperator<>(
+                transactionEnvironment.createTransactionalRuntimeContext());
+        SingleOutputStreamOperator<Enriched<T>> enriched = dataStream
+                .transform("open", type, openOperator)
+                .name("OpenTransaction")
+                .setParallelism(1);
+
+        DataStream<Integer> watermarks = enriched.getSideOutput(openOperator.watermarkTag);
+        DataStream<Tuple2<Long, Vote>> tLog = enriched.getSideOutput(openOperator.logTag);
+        return new OpenOutputs<>(enriched, watermarks, tLog);
+    }
+
     public <U> AbstractTStream<U> map(MapFunction<T, U> fn) {
         return replace(dataStream.map(new MapWrapper<T, U>() {
             @Override
@@ -57,8 +74,7 @@ public abstract class AbstractTStream<T> implements TStream<T> {
                     protected List<U> doFlatMap(T value) throws Exception {
                         return flatMapFunction.flatMap(value);
                     }
-                }
-        ));
+                }));
     }
 
     @Override
@@ -69,12 +85,13 @@ public abstract class AbstractTStream<T> implements TStream<T> {
                     public Integer getKey(Enriched<T> enriched) throws Exception {
                         return enriched.metadata.timestamp;
                     }
-                }).flatMap(new WindowWrapper<T, U>() {
-            @Override
-            protected U apply(List<T> value) throws Exception {
-                return windowFunction.apply(value);
-            }
-        });
+                })
+                .flatMap(new WindowWrapper<T, U>() {
+                    @Override
+                    protected U apply(List<T> value) throws Exception {
+                        return windowFunction.apply(value);
+                    }
+                }).name("TWindow");
         return replace(windowed);
     }
 
@@ -116,5 +133,20 @@ public abstract class AbstractTStream<T> implements TStream<T> {
     @Override
     public DataStream<Enriched<T>> getEnclosingStream() {
         return dataStream;
+    }
+
+    protected static class OpenOutputs<T> {
+        public DataStream<Enriched<T>> enrichedDataStream;
+        public DataStream<Integer> watermarks;
+        public DataStream<Tuple2<Long, Vote>> tLog;
+
+        public OpenOutputs(
+                DataStream<Enriched<T>> enrichedDataStream,
+                DataStream<Integer> watermarks,
+                DataStream<Tuple2<Long, Vote>> tLog) {
+            this.enrichedDataStream = enrichedDataStream;
+            this.watermarks = watermarks;
+            this.tLog = tLog;
+        }
     }
 }
