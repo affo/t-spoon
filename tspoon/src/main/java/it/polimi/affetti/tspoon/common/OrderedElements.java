@@ -1,6 +1,7 @@
 package it.polimi.affetti.tspoon.common;
 
 import java.io.Serializable;
+import java.util.Collections;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.ListIterator;
@@ -82,25 +83,58 @@ public class OrderedElements<E> implements Iterable<E>, Serializable {
      * @return
      */
     private List<E> operateOnContiguous(Long startTimestamp, long threshold, boolean remove) {
+        return peekContiguous(startTimestamp, element -> {
+            long ts = timestampExtractor.apply(element);
+            if (ts >= threshold) {
+                return Collections.singletonList(IterationAction.STOP_ITERATION);
+            }
+
+            List<IterationAction> actions = new LinkedList<>();
+            actions.add(IterationAction.ADD_TO_RESULT);
+            if (remove) {
+                actions.add(IterationAction.REMOVE_FROM_ELEMENTS);
+            }
+
+            return actions;
+        });
+    }
+
+    /**
+     *
+     * @param startTimestamp can be null
+     * @param closure operation to use the element, returns the action to apply to the element
+     * @return
+     */
+    public List<E> peekContiguous(Long startTimestamp, Function<E, Iterable<IterationAction>> closure) {
         List<E> result = new LinkedList<>();
 
         if (!isEmpty()) {
             ListIterator<E> it = iterator();
+            boolean stop = false;
 
-            while (it.hasNext()) {
+            while (it.hasNext() && !stop) {
                 E element = it.next();
                 long currentTimestamp = timestampExtractor.apply(element);
-                if (currentTimestamp >= threshold ||
-                        startTimestamp != null && startTimestamp + 1 != currentTimestamp) {
-                    // gapDetected or above threshold, exit
+                if (startTimestamp != null && startTimestamp + 1 != currentTimestamp) {
+                    // gapDetected, exiting
                     break;
                 }
+
                 startTimestamp = currentTimestamp;
 
-                result.add(element);
-
-                if (remove) {
-                    it.remove();
+                Iterable<IterationAction> actions = closure.apply(element);
+                for (IterationAction action : actions) {
+                    switch (action) {
+                        case ADD_TO_RESULT:
+                            result.add(element);
+                            break;
+                        case REMOVE_FROM_ELEMENTS:
+                            it.remove();
+                            break;
+                        case STOP_ITERATION:
+                            stop = true;
+                            break;
+                    }
                 }
             }
         }
@@ -172,5 +206,9 @@ public class OrderedElements<E> implements Iterable<E>, Serializable {
     }
 
     public interface TimestampExtractor<E> extends Function<E, Long>, Serializable {
+    }
+
+    public enum IterationAction {
+        ADD_TO_RESULT, REMOVE_FROM_ELEMENTS, STOP_ITERATION
     }
 }
