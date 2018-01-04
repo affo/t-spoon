@@ -64,6 +64,10 @@ public class JobControlClient extends StringClient {
         this.send(String.format(JobControlServer.discoverFormat, nameSpace));
         String response = receive();
 
+        if (response == null) {
+            throw new IOException("Null response received: " + response);
+        }
+
         Set<Address> addresses = new HashSet<>();
 
         for (String ipPort : response.split(",")) {

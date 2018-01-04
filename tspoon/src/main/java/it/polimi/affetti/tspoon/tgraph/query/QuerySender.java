@@ -78,19 +78,18 @@ public class QuerySender extends RichSinkFunction<Query> {
     @Override
     @SuppressWarnings("unchecked")
     public void invoke(Query query) throws Exception {
-        Set<Address> addresses = addressesCache.computeIfAbsent(query.getNameSpace(),
-                nameSpace -> {
-                    if (jobControlClient == null) {
-                        return null;
-                    }
+        String nameSpace = query.getNameSpace();
+        Set<Address> addresses = addressesCache.get(query.getNameSpace());
 
-                    try {
-                        return jobControlClient.discoverQueryServer(nameSpace);
-                    } catch (IOException e) {
-                        e.printStackTrace();
-                    }
-                    return null;
-                });
+        try {
+            if (addresses == null) {
+                addresses = jobControlClient.discoverQueryServer(nameSpace);
+                addressesCache.put(nameSpace, addresses);
+            }
+        } catch (IOException e) {
+            LOG.error("Problem in discovering query server for " + nameSpace + ": " + e.getMessage());
+            return;
+        }
 
         long start = System.currentTimeMillis();
         try {
