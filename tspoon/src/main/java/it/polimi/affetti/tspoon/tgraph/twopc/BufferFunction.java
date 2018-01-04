@@ -62,14 +62,12 @@ public class BufferFunction<T> extends
             return;
         }
 
-        boolean complete = completionChecker.getCompleteness(timestamp);
-
         for (Enriched<T> element : batch) {
             element.metadata.vote = metadata.vote;
             collector.collect(element);
         }
 
-        if (complete) {
+        if (completionChecker.getCompleteness(timestamp)) {
             votes.remove(timestamp);
             completionChecker.freeIndex(timestamp);
         }
