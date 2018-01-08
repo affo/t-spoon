@@ -38,6 +38,7 @@ public class Evaluation {
         // Flink suggests to keep it within 5 and 10 ms:
         // https://ci.apache.org/projects/flink/flink-docs-release-1.3/dev/datastream_api.html#controlling-latency
         env.setBufferTimeout(5);
+        env.getConfig().setLatencyTrackingInterval(-1);
         ParameterTool parameters = ParameterTool.fromArgs(args);
 
         final String label = parameters.get("label");
