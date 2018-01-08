@@ -55,8 +55,7 @@ if __name__ == '__main__':
         for curve in curves:
             fig, ax = plt.subplots()
             plt.gca().set_aspect('equal')
-            curve.plot(ax=ax, x='expectedRate', y=key)
-            curve.plot(ax=ax, x='expectedRate', y='actualRate')
+            curve.plot(ax=ax, x='actualRate', y=key)
 
             image_path = prefix + str(i) + '-' + key + '.png'
             fig.savefig(image_path)
