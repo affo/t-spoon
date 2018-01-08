@@ -1,5 +1,8 @@
 package it.polimi.affetti.tspoon.tgraph;
 
+import it.polimi.affetti.tspoon.serialization.BatchIDSerializer;
+import it.polimi.affetti.tspoon.serialization.EnrichedSerializer;
+import it.polimi.affetti.tspoon.serialization.MetadataSerializer;
 import it.polimi.affetti.tspoon.tgraph.query.*;
 import it.polimi.affetti.tspoon.tgraph.twopc.*;
 import org.apache.flink.api.common.functions.MapFunction;
@@ -40,8 +43,16 @@ public class TransactionEnvironment {
     public synchronized static TransactionEnvironment get(StreamExecutionEnvironment env) {
         if (instance == null) {
             instance = new TransactionEnvironment(env);
+            instance.registerCustomSerializers(env);
         }
         return instance;
+    }
+
+    private void registerCustomSerializers(StreamExecutionEnvironment env) {
+        env.getConfig().enableForceKryo();
+        env.getConfig().addDefaultKryoSerializer(BatchID.class, BatchIDSerializer.class);
+        env.getConfig().addDefaultKryoSerializer(Metadata.class, MetadataSerializer.class);
+        env.getConfig().addDefaultKryoSerializer(Enriched.class, EnrichedSerializer.class);
     }
 
     // only to run 2 jobs

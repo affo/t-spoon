@@ -88,7 +88,7 @@ public final class BatchID implements Serializable,
 
     @Override
     public Iterator<Tuple2<Integer, Integer>> iterator() {
-        return new BatchIDIterator();
+        return new BatchIDIterator(this);
     }
 
     /**
@@ -190,41 +190,5 @@ public final class BatchID implements Serializable,
         }
 
         return 0;
-    }
-
-    private class BatchIDIterator implements Iterator<Tuple2<Integer, Integer>> {
-        private Iterator<Integer> offsetsIterator, sizesIterator;
-        private boolean hasNext;
-
-        public BatchIDIterator() {
-            offsetsIterator = offsets.iterator();
-            sizesIterator = sizes.iterator();
-            hasNext = offsetsIterator.hasNext();
-        }
-
-        @Override
-        public boolean hasNext() {
-            if (!offsetsIterator.hasNext() && newOffset == 0) {
-                // in a consolidated batch ID
-                return false;
-            }
-
-            return hasNext;
-        }
-
-        @Override
-        public Tuple2<Integer, Integer> next() {
-            int offset, size;
-            if (!offsetsIterator.hasNext()) {
-                offset = newOffset;
-                size = newSize;
-                hasNext = false;
-            } else {
-                offset = offsetsIterator.next();
-                size = sizesIterator.next();
-            }
-
-            return Tuple2.of(offset, size);
-        }
     }
 }
