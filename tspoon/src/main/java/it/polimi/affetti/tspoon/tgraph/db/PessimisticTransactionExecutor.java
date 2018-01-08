@@ -3,25 +3,23 @@ package it.polimi.affetti.tspoon.tgraph.db;
 import it.polimi.affetti.tspoon.tgraph.Vote;
 
 import java.util.*;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.LinkedBlockingQueue;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 /**
- * Provides results of executing transaction from a synchronous queue
- *
- * @param <R> The type of the future result to return
+ * Provides results of executing transaction from a synchronous queue.
+ * NOTE: Callback execution is synchronized.
+ * I guarantee this
  */
-public class PessimisticTransactionExecutor<R> implements
-        KeyLevelTaskExecutor.TaskCompletionObserver<PessimisticTransactionExecutor<R>.OperationExecutionResult> {
+public class PessimisticTransactionExecutor implements
+        KeyLevelTaskExecutor.TaskCompletionObserver<PessimisticTransactionExecutor.OperationExecutionResult> {
     private KeyLevelTaskExecutor<OperationExecutionResult> executor;
     // taskId -> timestamp
     private Map<Long, Integer> taskTimestampMapping;
     // timestamp -> tasks
     private Map<Integer, List<Long>> timestampTaskMapping;
-    // taskId -> futureResult
-    private Map<Long, R> futureResults;
-    private final BlockingQueue<OperationExecutionResult> resultQueue;
+    // taskId -> callback
+    private Map<Long, Consumer<OperationExecutionResult>> callbacks;
 
     public PessimisticTransactionExecutor(int numberOfExecutors) {
         this(numberOfExecutors, -1);
@@ -30,9 +28,7 @@ public class PessimisticTransactionExecutor<R> implements
     public PessimisticTransactionExecutor(int numberOfExecutors, long deadlockTimeout) {
         taskTimestampMapping = new HashMap<>();
         timestampTaskMapping = new HashMap<>();
-        futureResults = new HashMap<>();
-
-        resultQueue = new LinkedBlockingQueue<>();
+        callbacks = new HashMap<>();
 
         executor = new KeyLevelTaskExecutor<>(numberOfExecutors, this);
         if (deadlockTimeout > 0) {
@@ -41,10 +37,10 @@ public class PessimisticTransactionExecutor<R> implements
         executor.startProcessing();
     }
 
-    private synchronized void registerTask(long taskId, int timestamp, R futureResult) {
+    private synchronized void registerTask(long taskId, int timestamp, Consumer<OperationExecutionResult> callback) {
         taskTimestampMapping.put(taskId, timestamp);
         timestampTaskMapping.computeIfAbsent(timestamp, ts -> new LinkedList<>()).add(taskId);
-        futureResults.put(taskId, futureResult);
+        callbacks.put(taskId, callback);
     }
 
     private synchronized void unregisterTransaction(int timestamp) {
@@ -52,7 +48,7 @@ public class PessimisticTransactionExecutor<R> implements
         taskIds.forEach(
                 id -> {
                     taskTimestampMapping.remove(id);
-                    futureResults.remove(id);
+                    callbacks.remove(id);
                 }
         );
     }
@@ -88,11 +84,11 @@ public class PessimisticTransactionExecutor<R> implements
      *
      * At PL4, transaction ordering matches the timestamp, so there is no problem with external querying.
      */
-    public <V> void executeOperation(String key, Transaction<V> transaction, R futureResult) {
+    public <V> void executeOperation(String key, Transaction<V> transaction, Consumer<OperationExecutionResult> callback) {
         Supplier<OperationExecutionResult> task = () -> {
             if (transaction.vote != Vote.COMMIT) {
                 // no further processing for REPLAYed or ABORTed transactions
-                return new OperationExecutionResult(transaction.vote, futureResult);
+                return new OperationExecutionResult(transaction.vote);
             }
 
             Object<V> object = transaction.getObject(key);
@@ -104,7 +100,7 @@ public class PessimisticTransactionExecutor<R> implements
             transaction.mergeVote(vote);
             object.addVersion(transaction.tid, transaction.timestamp, handler.object);
 
-            OperationExecutionResult taskResult = new OperationExecutionResult(vote, futureResult);
+            OperationExecutionResult taskResult = new OperationExecutionResult(vote);
             if (!handler.write) {
                 taskResult.setReadOnly();
                 transaction.setReadOnly(true);
@@ -114,12 +110,8 @@ public class PessimisticTransactionExecutor<R> implements
         };
 
         long id = executor.add(key, task);
-        registerTask(id, transaction.timestamp, futureResult);
+        registerTask(id, transaction.timestamp, callback);
         executor.run(id);
-    }
-
-    public OperationExecutionResult getResult() throws InterruptedException {
-        return resultQueue.take();
     }
 
     public <V> void onGlobalTermination(Transaction<V> transaction) {
@@ -132,7 +124,12 @@ public class PessimisticTransactionExecutor<R> implements
 
     @Override
     public void onTaskCompletion(long id, OperationExecutionResult taskResult) {
-        resultQueue.add(taskResult);
+        Consumer<OperationExecutionResult> callback;
+        synchronized (this) {
+            callback = callbacks.get(id);
+        }
+
+        callback.accept(taskResult);
     }
 
     @Override
@@ -142,9 +139,9 @@ public class PessimisticTransactionExecutor<R> implements
             List<Long> dependencies = entry.getValue();
 
             OperationExecutionResult operationResult;
+            Consumer<OperationExecutionResult> callback;
             synchronized (this) {
-                R result = futureResults.get(id);
-                operationResult = new OperationExecutionResult(Vote.REPLAY, result);
+                operationResult = new OperationExecutionResult(Vote.REPLAY);
                 for (Long dependency : dependencies) {
                     Integer timestamp = taskTimestampMapping.get(dependency);
                     if (timestamp == null) {
@@ -156,24 +153,23 @@ public class PessimisticTransactionExecutor<R> implements
                     }
                     operationResult.addDependency(timestamp);
                 }
+
+                callback = callbacks.get(id);
             }
 
-            resultQueue.add(operationResult);
+            callback.accept(operationResult);
         }
     }
 
     public class OperationExecutionResult extends KeyLevelTaskExecutor.TaskResult {
         public final Vote vote;
-        public final R futureResult;
-
         private final HashSet<Integer> replayCauses = new HashSet<>();
 
-        private OperationExecutionResult(Vote vote, R futureResult) {
+        public OperationExecutionResult(Vote vote) {
             this.vote = vote;
-            this.futureResult = futureResult;
         }
 
-        private void addDependency(int timestamp) {
+        public void addDependency(int timestamp) {
             replayCauses.add(timestamp);
         }
 

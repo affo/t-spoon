@@ -60,7 +60,7 @@ public abstract class WindowWrapper<I, O> extends RichFlatMapFunction<Enriched<I
                             () -> new RuntimeException("Empty batch in windowing function")); // merge metadata
 
             // reset the batch id
-            Metadata newMetadata = reduced.clone(new BatchID(reduced.tid));
+            Metadata newMetadata = reduced.deepClone(new BatchID(reduced.tid));
             List<I> values = batch.stream().map(el -> el.value).collect(Collectors.toList());
             O result = apply(values);
             collector.collect(Enriched.of(newMetadata, result));

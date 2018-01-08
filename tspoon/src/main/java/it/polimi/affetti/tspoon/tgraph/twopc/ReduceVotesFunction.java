@@ -30,7 +30,7 @@ public class ReduceVotesFunction extends RichFlatMapFunction<Metadata, Metadata>
         Metadata accumulated = votes.get(timestamp);
         if (accumulated == null) {
             // first one
-            accumulated = metadata.clone(new BatchID(metadata.tid));
+            accumulated = metadata.deepClone(new BatchID(metadata.tid));
         } else {
             accumulated.vote = accumulated.vote.merge(metadata.vote);
             accumulated.cohorts.addAll(metadata.cohorts);

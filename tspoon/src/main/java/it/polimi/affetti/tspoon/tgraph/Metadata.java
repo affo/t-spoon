@@ -36,16 +36,16 @@ public class Metadata implements Serializable {
         this.watermark = watermark;
     }
 
-    public Metadata clone(BatchID bid) {
+    public Metadata deepClone(BatchID bid) {
         Metadata cloned = new Metadata();
         cloned.batchID = bid;
         cloned.tid = tid;
         cloned.timestamp = timestamp;
-        cloned.cohorts = cohorts;
+        cloned.cohorts = new HashSet<>(cohorts);
         cloned.coordinator = coordinator;
         cloned.vote = vote;
         cloned.watermark = watermark;
-        cloned.dependencyTracking = dependencyTracking;
+        cloned.dependencyTracking = new HashSet<>(dependencyTracking);
         return cloned;
     }
 
@@ -62,7 +62,8 @@ public class Metadata implements Serializable {
         batchID.consolidate();
         List<BatchID> batchIDS = this.batchID.addStep(batchSize);
         return batchIDS.stream()
-                .map(this::clone).collect(Collectors.toList());
+                .map(bid -> this.deepClone(bid.clone()))
+                .collect(Collectors.toList());
     }
 
     public int getLastStepBatchSize() {

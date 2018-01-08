@@ -119,7 +119,7 @@ public abstract class StateOperator<T, V>
     }
 
     // hooks
-    protected abstract void execute(String key, Enriched<T> record, Transaction<V> transaction);
+    protected abstract void execute(String key, Enriched<T> record, Transaction<V> transaction) throws Exception;
 
     protected abstract void onGlobalTermination(Transaction<V> transaction);
 

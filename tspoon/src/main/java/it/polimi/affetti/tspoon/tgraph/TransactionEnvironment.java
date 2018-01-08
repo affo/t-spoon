@@ -1,12 +1,11 @@
 package it.polimi.affetti.tspoon.tgraph;
 
-import it.polimi.affetti.tspoon.serialization.BatchIDSerializer;
-import it.polimi.affetti.tspoon.serialization.EnrichedSerializer;
-import it.polimi.affetti.tspoon.serialization.MetadataSerializer;
+import it.polimi.affetti.tspoon.common.Address;
 import it.polimi.affetti.tspoon.tgraph.query.*;
 import it.polimi.affetti.tspoon.tgraph.twopc.*;
 import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.api.java.functions.KeySelector;
+import org.apache.flink.api.java.typeutils.runtime.kryo.JavaSerializer;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 
@@ -50,9 +49,11 @@ public class TransactionEnvironment {
 
     private void registerCustomSerializers(StreamExecutionEnvironment env) {
         env.getConfig().enableForceKryo();
-        env.getConfig().addDefaultKryoSerializer(BatchID.class, BatchIDSerializer.class);
-        env.getConfig().addDefaultKryoSerializer(Metadata.class, MetadataSerializer.class);
-        env.getConfig().addDefaultKryoSerializer(Enriched.class, EnrichedSerializer.class);
+        // known bug: https://issues.apache.org/jira/browse/FLINK-6025
+        env.getConfig().registerTypeWithKryoSerializer(Address.class, JavaSerializer.class);
+        env.getConfig().registerTypeWithKryoSerializer(BatchID.class, JavaSerializer.class);
+        env.getConfig().registerTypeWithKryoSerializer(Metadata.class, JavaSerializer.class);
+        env.getConfig().registerTypeWithKryoSerializer(Enriched.class, JavaSerializer.class);
     }
 
     // only to run 2 jobs
