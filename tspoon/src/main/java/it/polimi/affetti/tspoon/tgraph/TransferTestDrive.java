@@ -7,6 +7,7 @@ import it.polimi.affetti.tspoon.metrics.Report;
 import it.polimi.affetti.tspoon.runtime.NetUtils;
 import it.polimi.affetti.tspoon.tgraph.backed.Movement;
 import it.polimi.affetti.tspoon.tgraph.backed.Transfer;
+import it.polimi.affetti.tspoon.tgraph.backed.TransferID;
 import it.polimi.affetti.tspoon.tgraph.backed.TransferSource;
 import it.polimi.affetti.tspoon.tgraph.db.ObjectHandler;
 import it.polimi.affetti.tspoon.tgraph.query.*;
@@ -70,7 +71,7 @@ public class TransferTestDrive {
                         String from = "a" + (i * 2);
                         String to = "a" + (i * 2 + 1);
                         double amount = 10.0;
-                        return new Transfer((long) i, from, to, amount);
+                        return new Transfer(new TransferID(0, (long) i), from, to, amount);
                     }).toArray(size -> new Transfer[size]);
 
             transferSource = new TransferSource(transfers);
@@ -82,9 +83,15 @@ public class TransferTestDrive {
         //transfers.print();
 
         transfers = transfers.process(
-                new RecordTracker<Transfer>("responseTime", true) {
+                new RecordTracker<Transfer, TransferID>("responseTime", true) {
                     @Override
-                    protected long extractId(Transfer element) {
+                    public OutputTag<TransferID> createRecordTrackingOutputTag(String label) {
+                        return new OutputTag<TransferID>(label) {
+                        };
+                    }
+
+                    @Override
+                    protected TransferID extractId(Transfer element) {
                         return element.f0;
                     }
                 });
@@ -136,9 +143,15 @@ public class TransferTestDrive {
 
         DataStream<TransactionResult<Movement>> output = tEnv.close(balances.leftUnchanged).get(0);
         output.process(
-                new RecordTracker<TransactionResult<Movement>>("responseTime", false) {
+                new RecordTracker<TransactionResult<Movement>, TransferID>("responseTime", false) {
                     @Override
-                    protected long extractId(TransactionResult<Movement> element) {
+                    public OutputTag<TransferID> createRecordTrackingOutputTag(String label) {
+                        return new OutputTag<TransferID>(label) {
+                        };
+                    }
+
+                    @Override
+                    protected TransferID extractId(TransactionResult<Movement> element) {
                         return element.f2.f0;
                     }
                 })

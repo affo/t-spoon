@@ -8,15 +8,15 @@ import java.util.Map;
  * Created by affo on 12/12/17.
  */
 public class TimeDelta implements Serializable {
-    private Map<Long, Long> beginTimestamps = new HashMap<>();
-    private Map<Long, Long> endTimestamps = new HashMap<>();
+    private Map<String, Long> beginTimestamps = new HashMap<>();
+    private Map<String, Long> endTimestamps = new HashMap<>();
     private Metric deltaStat = new Metric();
 
     /**
      * @param id
      * @return true if the value added generated a new entry for the underlying metric
      */
-    public boolean start(long id) {
+    public boolean start(String id) {
         beginTimestamps.put(id, System.currentTimeMillis());
         return addToMetric(id);
     }
@@ -25,12 +25,12 @@ public class TimeDelta implements Serializable {
      * @param id
      * @return true if the value added generated a new entry for the underlying metric
      */
-    public boolean end(long id) {
+    public boolean end(String id) {
         endTimestamps.put(id, System.currentTimeMillis());
         return addToMetric(id);
     }
 
-    private boolean addToMetric(long id) {
+    private boolean addToMetric(String id) {
         Double delta = removeDelta(id);
         if (delta == null || delta < 0) {
             return false;
@@ -49,7 +49,7 @@ public class TimeDelta implements Serializable {
      * @param id
      * @return
      */
-    private Double removeDelta(long id) {
+    private Double removeDelta(String id) {
         Long begin = beginTimestamps.get(id);
         Long end = endTimestamps.get(id);
         Double delta = null;

@@ -83,7 +83,7 @@ public class QuerySender extends RichSinkFunction<Query> {
 
         try {
             if (addresses == null) {
-                addresses = jobControlClient.discoverQueryServer(nameSpace);
+                addresses = jobControlClient.discoverServers(nameSpace);
                 addressesCache.put(nameSpace, addresses);
             }
         } catch (IOException e) {

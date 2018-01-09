@@ -56,12 +56,12 @@ public class JobControlClient extends StringClient {
         this.publish(JobControlObserver.batchEndPattern);
     }
 
-    public void registerQueryServer(String nameSpace, Address address) {
-        this.send(String.format(JobControlServer.registerFormat, nameSpace, address.ip, address.port));
+    public void registerServer(String label, Address address) {
+        this.send(String.format(JobControlServer.registerFormat, label, address.ip, address.port));
     }
 
-    public Set<Address> discoverQueryServer(String nameSpace) throws IOException {
-        this.send(String.format(JobControlServer.discoverFormat, nameSpace));
+    public Set<Address> discoverServers(String label) throws IOException {
+        this.send(String.format(JobControlServer.discoverFormat, label));
         String response = receive();
 
         if (response == null) {
@@ -76,5 +76,24 @@ public class JobControlClient extends StringClient {
         }
 
         return addresses;
+    }
+
+    /**
+     * Returns only the first registered server for the provided label
+     * @param label
+     * @return
+     * @throws IOException
+     */
+    public Address discoverServer(String label) throws IOException {
+        this.send(String.format(JobControlServer.discoverFormat, label));
+        String response = receive();
+
+        if (response == null) {
+            throw new IOException("Null response received: " + response);
+        }
+
+        String[] ips = response.split(",");
+        String[] tokens = ips[0].split(":");
+        return Address.of(tokens[0], Integer.parseInt(tokens[1]));
     }
 }

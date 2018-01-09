@@ -8,13 +8,13 @@ import java.util.Random;
 /**
  * Created by affo on 26/07/17.
  */
-public class Transfer extends Tuple4<Long, String, String, Double> {
+public class Transfer extends Tuple4<TransferID, String, String, Double> {
     private static Random random = RandomProvider.get();
 
     public Transfer() {
     }
 
-    public Transfer(Long id, String from, String to, Double amount) {
+    public Transfer(TransferID id, String from, String to, Double amount) {
         super(id, from, to, amount);
     }
 
@@ -26,7 +26,7 @@ public class Transfer extends Tuple4<Long, String, String, Double> {
         return new Movement(this.f0, this.f2, this.f3);
     }
 
-    public static Transfer generateTransfer(long id, int noAccounts, double startAmount) {
+    public static Transfer generateTransfer(TransferID id, int noAccounts, double startAmount) {
         String from = "a" + random.nextInt(noAccounts);
         String to;
         do {

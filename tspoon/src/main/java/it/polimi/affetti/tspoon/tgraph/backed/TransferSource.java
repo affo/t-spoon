@@ -40,7 +40,7 @@ public class TransferSource extends ControlledSource<Transfer> {
             if (elements != null) {
                 transfer = elements.get(i);
             } else {
-                transfer = Transfer.generateTransfer(i, noAccounts, startAmount);
+                transfer = Transfer.generateTransfer(new TransferID(0, (long) i), noAccounts, startAmount);
             }
             sourceContext.collect(transfer);
             if (microSleep > 0) {

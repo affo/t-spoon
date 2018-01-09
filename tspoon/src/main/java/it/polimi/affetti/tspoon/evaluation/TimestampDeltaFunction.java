@@ -2,6 +2,7 @@ package it.polimi.affetti.tspoon.evaluation;
 
 import it.polimi.affetti.tspoon.metrics.Report;
 import it.polimi.affetti.tspoon.metrics.TimeDelta;
+import it.polimi.affetti.tspoon.tgraph.backed.TransferID;
 import org.apache.flink.api.common.functions.RichFlatMapFunction;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.configuration.Configuration;
@@ -14,7 +15,7 @@ import org.apache.log4j.Logger;
  * Outputs the measurements performed for further processing.
  */
 public class TimestampDeltaFunction extends
-        RichFlatMapFunction<Tuple2<Long, Boolean>, Tuple2<String, Double>> {
+        RichFlatMapFunction<Tuple2<TransferID, Boolean>, Tuple2<String, Double>> {
     public static final String LATENCY_ACC = "latency";
 
     private transient Logger LOG;
@@ -36,10 +37,10 @@ public class TimestampDeltaFunction extends
 
     @Override
     public void flatMap(
-            Tuple2<Long, Boolean> toTrack,
+            Tuple2<TransferID, Boolean> toTrack,
             Collector<Tuple2<String, Double>> collector) throws Exception {
         boolean isBegin = toTrack.f1;
-        long id = toTrack.f0;
+        String id = toTrack.f0.toString();
 
         if (isBegin) {
             boolean newPointGenerated = timeDelta.start(id);

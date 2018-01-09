@@ -1,51 +1,35 @@
 package it.polimi.affetti.tspoon.metrics;
 
+import java.io.Serializable;
+
 /**
  * Created by affo on 12/12/17.
  */
-public class Throughput extends Metric {
-    private final int batchSize, every;
-    private int count;
+public class Throughput implements Serializable {
+    private final String label;
     private Long lastTS;
+    private double throughput;
 
-    public Throughput(int batchSize, int every) {
-        if (batchSize % every != 0) {
-            throw new RuntimeException("Batch size must be a multiple of sub batch size: " +
-                    batchSize + " % " + every + " != 0");
-        }
+    public Throughput() {
+        this("");
+    }
 
-        this.batchSize = batchSize;
-        this.every = every;
-        this.count = 0;
+    public Throughput(String label) {
+        this.label = label;
         this.lastTS = null;
     }
 
-    /**
-     * @return true if the batch is closed
-     */
-    public boolean add() {
-        if (lastTS == null) {
-            // first addition
-            lastTS = System.currentTimeMillis();
-        }
-
-        count++;
-
-        if (count % every == 0) {
-            long newTS = System.currentTimeMillis();
-            double elapsedTime = (double) (newTS - lastTS);
-            add(every / (elapsedTime / 1000));
-            lastTS = newTS;
-        }
-
-        return count == batchSize;
+    public void open() {
+        lastTS = System.currentTimeMillis();
     }
 
-    public int getCount() {
-        return count;
+    public void close(int batchSize) {
+        long newTS = System.currentTimeMillis();
+        long elapsedTime = newTS - lastTS;
+        this.throughput = batchSize / (elapsedTime / 1000.0);
     }
 
-    public int getBatchSize() {
-        return batchSize;
+    public double getThroughput() {
+        return throughput;
     }
 }

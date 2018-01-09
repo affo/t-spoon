@@ -7,6 +7,7 @@ import it.polimi.affetti.tspoon.tgraph.TransactionResult;
 import it.polimi.affetti.tspoon.tgraph.Vote;
 import it.polimi.affetti.tspoon.tgraph.backed.Movement;
 import it.polimi.affetti.tspoon.tgraph.backed.Transfer;
+import it.polimi.affetti.tspoon.tgraph.backed.TransferID;
 import it.polimi.affetti.tspoon.tgraph.db.ObjectHandler;
 import it.polimi.affetti.tspoon.tgraph.state.StateFunction;
 import it.polimi.affetti.tspoon.tgraph.state.StateStream;
@@ -158,7 +159,7 @@ public class EvaluationGraphComposer {
      * Output order could be different from input one.
      */
     private static class TransferMerger implements Serializable {
-        private Map<Long, Movement> firsts = new HashMap<>();
+        private Map<TransferID, Movement> firsts = new HashMap<>();
 
         public Transfer getTransfer(Movement movement) {
             Movement first = firsts.remove(movement.f0);

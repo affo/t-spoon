@@ -188,6 +188,8 @@ public class KeyLevelTaskExecutor<T extends KeyLevelTaskExecutor.TaskResult> {
             if (timePassed > maxTimeInQueue) {
                 iterator.remove();
                 removed.add(next);
+            } else {
+                break;
             }
         }
 

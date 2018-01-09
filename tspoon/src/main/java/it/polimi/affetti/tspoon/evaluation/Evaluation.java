@@ -9,9 +9,12 @@ import it.polimi.affetti.tspoon.tgraph.Strategy;
 import it.polimi.affetti.tspoon.tgraph.TransactionEnvironment;
 import it.polimi.affetti.tspoon.tgraph.Vote;
 import it.polimi.affetti.tspoon.tgraph.backed.Transfer;
+import it.polimi.affetti.tspoon.tgraph.backed.TransferID;
 import it.polimi.affetti.tspoon.tgraph.backed.TransferSource;
 import it.polimi.affetti.tspoon.tgraph.query.*;
 import org.apache.flink.api.common.JobExecutionResult;
+import org.apache.flink.api.common.typeinfo.TypeHint;
+import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.streaming.api.TimeCharacteristic;
@@ -66,7 +69,7 @@ public class Evaluation {
 
         // parameters specific for tunable evaluation
         final boolean tunableExperiment = parameters.getBoolean("tunable", false);
-        final int batchSize = parameters.getInt("batchSize", 20000);
+        final int batchSize = parameters.getInt("batchSize", 50000);
         final int resolution = parameters.getInt("resolution", 200);
         final int startInputRate = parameters.getInt("startInputRate", 1000);
 
@@ -116,11 +119,12 @@ public class Evaluation {
 
         DataStream<Transfer> transfers;
         if (tunableExperiment) {
-            TunableSource tunableSource = new TunableSource(startInputRate, resolution, batchSize);
+            TunableSource.TunableTransferSource tunableSource =
+                    new TunableSource.TunableTransferSource(startInputRate, resolution, batchSize);
             transfers = env.addSource(tunableSource)
-                    .name("Parallel Source")
+                    .name("TunableParallelSource")
                     .map(new TunableSource.ToTransfers(keySpaceSize, startAmount))
-                    .setParallelism(1);
+                    .name("ToTransfers");
         } else {
             TransferSource transferSource = new TransferSource(limit, keySpaceSize, startAmount);
             if (waitPeriodMicro > 0) {
@@ -166,20 +170,19 @@ public class Evaluation {
 
         // put a latency tracker at the beginning after the sled
         EndToEndTracker beginEndToEndTracker = new EndToEndTracker(true);
+        // This tracks the generation of records, and does it by using a hand-managed channel to avoid back-pressure
         SingleOutputStreamOperator<Transfer> afterStartTracking = afterSource
                 .process(beginEndToEndTracker)
-                .setParallelism(1)
-                .name("StartTracker")
-                .setBufferTimeout(0);
+                .name("BeginTracker");
 
-        DataStream<Tuple2<Long, Boolean>> startTracking = afterStartTracking
-                .getSideOutput(beginEndToEndTracker.getRecordTrackingOutputTag());
+        DataStream<TransferID> startTracking = afterStartTracking
+                .getSideOutput(beginEndToEndTracker.getRecordTracking());
 
         // in case of parallel tgraphs, split the original stream for load balancing
         SplitStream<Transfer> splitTransfers = null;
         if (!seriesOrParallel) {
             splitTransfers = transfers.split(
-                    t -> Collections.singletonList(String.valueOf(t.f0 % noTGraphs)));
+                    t -> Collections.singletonList(String.valueOf(t.f0.f1 % noTGraphs)));
         }
 
         // >>> Composing
@@ -237,15 +240,27 @@ public class Evaluation {
                 .name("EndTracker")
                 .setBufferTimeout(0);
 
-        DataStream<Tuple2<Long, Boolean>> endTracking = afterEndTracking
-                .getSideOutput(endEndToEndTracker.getRecordTrackingOutputTag());
+        DataStream<TransferID> endTracking = afterEndTracking
+                .getSideOutput(endEndToEndTracker.getRecordTracking());
 
-        DataStream<Tuple2<Long, Boolean>> trackingStream = startTracking.union(endTracking);
+        TypeInformation<Tuple2<TransferID, Boolean>> tupleTypeInfo =
+                TypeInformation.of(new TypeHint<Tuple2<TransferID, Boolean>>() {
+                });
+        DataStream<Tuple2<TransferID, Boolean>> trackingStream = startTracking
+                .map(tid -> Tuple2.of(tid, true))
+                .returns(tupleTypeInfo)
+                .name("AddBeginBoolean")
+                .union(
+                        endTracking
+                                .map(tid -> Tuple2.of(tid, false))
+                                .returns(tupleTypeInfo)
+                                .name("AddEndBoolean")
+                );
 
         if (tunableExperiment) {
             // >>> Add FinishOnBackPressure
-            trackingStream
-                    .addSink(new FinishOnBackPressure(2000.0, batchSize, startInputRate, resolution))
+            endTracking // attach only to end tracking. We will use a server for begin requests.
+                    .addSink(new FinishOnBackPressure(0.5, batchSize, startInputRate, resolution))
                     .setParallelism(1).name("FinishOnBackPressure");
         } else {
             // >>> Add latency calculator

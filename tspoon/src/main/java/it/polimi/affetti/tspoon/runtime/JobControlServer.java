@@ -20,7 +20,7 @@ public class JobControlServer extends AbstractServer {
     public static final String discoverFormat = discoverPattern + ",%s";
 
     private List<StringClientHandler> observers = new LinkedList<>();
-    private final Map<String, Set<Address>> queryServersRegistry = new ConcurrentHashMap<>();
+    private final Map<String, Set<Address>> serversRegistry = new ConcurrentHashMap<>();
 
     private synchronized void subscribe(StringClientHandler handler) {
         LOG.info("Subscription received: " + handler.socket);
@@ -39,23 +39,24 @@ public class JobControlServer extends AbstractServer {
         }
     }
 
-    private void registerForDiscovery(String nameSpace, Address address) {
-        LOG.info("Registering " + nameSpace + " for discovery at " + address);
-        synchronized (queryServersRegistry) {
-            queryServersRegistry.computeIfAbsent(nameSpace, k -> new HashSet<>()).add(address);
-            queryServersRegistry.notifyAll();
+    private void registerForDiscovery(String label, Address address) {
+        LOG.info("Registering " + label + " for discovery at " + address);
+        synchronized (serversRegistry) {
+            serversRegistry.computeIfAbsent(label, k -> new HashSet<>()).add(address);
+            serversRegistry.notifyAll();
         }
     }
 
-    private Set<Address> getAddressesForQueryServer(String nameSpace) throws InterruptedException {
-        LOG.info("Discovery request for " + nameSpace);
+    private Set<Address> getRegisteredAddresses(String label) throws InterruptedException {
+        LOG.info("Discovery request for " + label);
         Set<Address> result;
-        synchronized (queryServersRegistry) {
-            result = queryServersRegistry.get(nameSpace);
-            while (result == null) {
-                queryServersRegistry.wait();
-                result = queryServersRegistry.get(nameSpace);
-            }
+        synchronized (serversRegistry) {
+            do {
+                result = serversRegistry.get(label);
+                if (result == null) {
+                    serversRegistry.wait();
+                }
+            } while (result == null);
         }
         return result;
     }
@@ -82,7 +83,7 @@ public class JobControlServer extends AbstractServer {
                 } else if (request.startsWith(discoverPattern)) {
                     String[] tokens = request.split(",");
                     String nameSpace = tokens[1];
-                    Set<String> stringAddresses = getAddressesForQueryServer(nameSpace)
+                    Set<String> stringAddresses = getRegisteredAddresses(nameSpace)
                             .stream().map(Address::toString).collect(Collectors.toSet());
                     send(String.join(",", stringAddresses));
                 } else {

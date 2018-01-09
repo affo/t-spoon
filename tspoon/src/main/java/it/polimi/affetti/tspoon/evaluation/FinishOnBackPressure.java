@@ -3,7 +3,9 @@ package it.polimi.affetti.tspoon.evaluation;
 import it.polimi.affetti.tspoon.common.TunableSource;
 import it.polimi.affetti.tspoon.metrics.*;
 import it.polimi.affetti.tspoon.runtime.JobControlClient;
-import org.apache.flink.api.java.tuple.Tuple2;
+import it.polimi.affetti.tspoon.runtime.ProcessRequestServer;
+import it.polimi.affetti.tspoon.runtime.WithServer;
+import it.polimi.affetti.tspoon.tgraph.backed.TransferID;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.functions.sink.RichSinkFunction;
@@ -17,26 +19,38 @@ import java.util.Map;
 /**
  * Created by affo on 07/12/17.
  */
-public class FinishOnBackPressure extends RichSinkFunction<Tuple2<Long, Boolean>> {
-    public static final int SUB_BATCH_SIZE = 1000;
+public class FinishOnBackPressure extends RichSinkFunction<TransferID> {
+    public static final String REQUEST_TRACKER_SERVER_NAME = "request-tracker";
+
+    //public static final int SUB_BATCH_SIZE = 50000;
     public static final String THROUGHPUT_CURVE_ACC = "throughput-curve";
     public static final String LATENCY_CURVE_ACC = "latency-curve";
     public static final String MAX_TP_AND_LATENCY_ACC = "max-throughput-and-latency";
     private transient Logger LOG;
 
     private transient JobControlClient jobControlClient;
+    private int countStart, countEnd;
     private final int batchSize, resolution;
     public int expectedInputRate;
-    private final double tolerance;
+    private final double errorPercentage;
     private final MetricCurveAccumulator throughputCurve, latencyCurve;
     private TimeDelta currentLatency;
     private Throughput currentInputRate, currentThroughput;
 
     private ThroughputAndLatency maxThroughputAndLatency = new ThroughputAndLatency();
 
-    public FinishOnBackPressure(double tolerance, int batchSize, int startInputRate, int resolution) {
+    /*
+    We send the begin of requests in a separate channel in order to avoid the BackPressure bias.
+     */
+    private transient WithServer requestTracker;
+
+    public FinishOnBackPressure(double errorPercentage, int batchSize, int startInputRate, int resolution) {
+        if (errorPercentage < 0 || errorPercentage >= 1) {
+            throw new IllegalArgumentException("Error Percentage must be a percentage: " + errorPercentage);
+        }
+
         this.resolution = resolution;
-        this.tolerance = tolerance;
+        this.errorPercentage = errorPercentage;
         this.batchSize = batchSize;
         this.throughputCurve = new MetricCurveAccumulator();
         this.latencyCurve = new MetricCurveAccumulator();
@@ -50,8 +64,10 @@ public class FinishOnBackPressure extends RichSinkFunction<Tuple2<Long, Boolean>
     }
 
     private void resetMetrics() {
-        currentInputRate = new Throughput(batchSize, SUB_BATCH_SIZE);
-        currentThroughput = new Throughput(batchSize, SUB_BATCH_SIZE);
+        // we calculate the inputRate only on starting records
+        currentInputRate = new Throughput("ActualInputRate");
+        // we calculate the throughput on every record (start and end) of the batch
+        currentThroughput = new Throughput("Throughput");
         currentLatency = new TimeDelta();
     }
 
@@ -66,55 +82,79 @@ public class FinishOnBackPressure extends RichSinkFunction<Tuple2<Long, Boolean>
 
         getRuntimeContext().addAccumulator(THROUGHPUT_CURVE_ACC, throughputCurve);
         getRuntimeContext().addAccumulator(LATENCY_CURVE_ACC, latencyCurve);
-        getRuntimeContext().addAccumulator(MAX_TP_AND_LATENCY_ACC, new SingleValueAccumulator<>(maxThroughputAndLatency));
+        getRuntimeContext().addAccumulator(MAX_TP_AND_LATENCY_ACC,
+                new SingleValueAccumulator<>(maxThroughputAndLatency));
+
+        requestTracker = new WithServer(new TrackingServer());
+        requestTracker.open();
+        jobControlClient.registerServer(REQUEST_TRACKER_SERVER_NAME, requestTracker.getMyAddress());
     }
 
     @Override
     public void close() throws Exception {
         super.close();
         jobControlClient.close();
+        requestTracker.close();
     }
 
     @Override
-    public void invoke(Tuple2<Long, Boolean> tracking) throws Exception {
-        long id = tracking.f0;
-        if (tracking.f1) {
-            start(id);
-        } else {
-            end(id);
+    public void invoke(TransferID tid) throws Exception {
+        end(tid);
+    }
+
+    private synchronized void start(String id) {
+        if (countStart == 0) {
+            currentThroughput.open();
+            currentInputRate.open();
+        }
+
+        countStart++;
+        currentLatency.start(id);
+
+        if (countStart % batchSize == 0) {
+            currentInputRate.close(batchSize);
+        }
+
+        if ((countEnd + countStart) % (batchSize * 2) == 0) {
+            currentThroughput.close(batchSize);
+            closeBatch();
         }
     }
 
-    private void start(long id) {
-        currentLatency.start(id);
-        currentInputRate.add();
-    }
+    private synchronized void end(TransferID id) {
+        currentLatency.end(id.toString());
 
-    private void end(long id) {
-        currentLatency.end(id);
-        boolean batchClosed = currentThroughput.add();
+        if (countStart == 0) {
+            currentThroughput.open();
+        }
 
-        if (batchClosed) {
+        countEnd++;
+
+        if ((countEnd + countStart) % (batchSize * 2) == 0) {
+            currentThroughput.close(batchSize);
             closeBatch();
         }
     }
 
     private void closeBatch() {
-        double averageInputRate = currentInputRate.metric.getMean();
-        double currentAverageThroughput = currentThroughput.metric.getMean();
+        countStart = 0;
+        countEnd = 0;
+
+        double averageInputRate = currentInputRate.getThroughput();
+        double currentAverageThroughput = currentThroughput.getThroughput();
 
         maxThroughputAndLatency.add(currentAverageThroughput, currentLatency.getMeanValue());
 
-        throughputCurve.add(Point.of(averageInputRate, expectedInputRate, currentThroughput));
-        latencyCurve.add(Point.of(averageInputRate, expectedInputRate, currentLatency.getMetric()));
+        throughputCurve.add(Point.of(averageInputRate, expectedInputRate, currentAverageThroughput));
+        latencyCurve.add(Point.of(averageInputRate, expectedInputRate, currentLatency.getMeanValue()));
 
         LOG.info("Batch of " + batchSize + " records @ " + averageInputRate + "[records/sec] closed: " +
                 "avgThroughput: " + currentAverageThroughput + ", avgLatency: " + currentLatency.getMeanValue());
 
-        if (averageInputRate < expectedInputRate - tolerance) {
-            LOG.info("Actual input rate is far from expected: ([actual] " + averageInputRate +
-                    " < [expected] " + expectedInputRate +
-                    " - [tolerance]" + tolerance + "), finishing job.");
+        if (averageInputRate - currentAverageThroughput > averageInputRate * errorPercentage) {
+            LOG.info("Actual input rate is far from throughput: ([actual] " + averageInputRate +
+                    ", [throughput] " + currentAverageThroughput +
+                    ", [tolerance]" + errorPercentage + "), finishing job.");
             jobControlClient.publishFinishMessage();
             return;
         }
@@ -150,15 +190,15 @@ public class FinishOnBackPressure extends RichSinkFunction<Tuple2<Long, Boolean>
 
     private static class Point extends MetricCurveAccumulator.Point {
         public final double actualRate, expectedRate;
-        public final Metric value;
+        public final Double value;
 
-        public Point(double actualRate, double expectedRate, Metric value) {
+        public Point(double actualRate, double expectedRate, Double value) {
             this.actualRate = actualRate;
             this.expectedRate = expectedRate;
             this.value = value;
         }
 
-        public static Point of(double actualRate, double expectedRate, Metric value) {
+        public static Point of(double actualRate, double expectedRate, Double value) {
             return new Point(actualRate, expectedRate, value);
         }
 
@@ -167,8 +207,15 @@ public class FinishOnBackPressure extends RichSinkFunction<Tuple2<Long, Boolean>
             Map<String, Object> map = new HashMap<>();
             map.put("actualRate", actualRate);
             map.put("expectedRate", expectedRate);
-            map.put("value", value.toJSON());
+            map.put("value", value);
             return new JSONObject(map);
+        }
+    }
+
+    private class TrackingServer extends ProcessRequestServer {
+        @Override
+        protected void parseRequest(String transferId) {
+            start(transferId);
         }
     }
 }

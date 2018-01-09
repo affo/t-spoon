@@ -68,7 +68,7 @@ public class QueryServer extends AbstractServer {
         Address address = Address.of(getIP(), getPort());
         for (String nameSpace : nameSpaces) {
             if (!registeredNameSpaces.contains(nameSpace)) {
-                jobControlClient.registerQueryServer(nameSpace, address);
+                jobControlClient.registerServer(nameSpace, address);
                 registeredNameSpaces.add(nameSpace);
             }
         }
