@@ -40,7 +40,9 @@ public class Evaluation {
         env.setStreamTimeCharacteristic(TimeCharacteristic.ProcessingTime);
         // Flink suggests to keep it within 5 and 10 ms:
         // https://ci.apache.org/projects/flink/flink-docs-release-1.3/dev/datastream_api.html#controlling-latency
-        env.setBufferTimeout(5);
+        // Anyway, we keep it to 0 to be as reactive as possible when new records are produced.
+        // Buffering could lead to unexpected behavior (in terms of performance) in the transaction management.
+        env.setBufferTimeout(0);
         env.getConfig().setLatencyTrackingInterval(-1);
         ParameterTool parameters = ParameterTool.fromArgs(args);
 
@@ -260,7 +262,7 @@ public class Evaluation {
         if (tunableExperiment) {
             // >>> Add FinishOnBackPressure
             endTracking // attach only to end tracking. We will use a server for begin requests.
-                    .addSink(new FinishOnBackPressure(0.5, batchSize, startInputRate, resolution))
+                    .addSink(new FinishOnBackPressure(0.25, batchSize, startInputRate, resolution))
                     .setParallelism(1).name("FinishOnBackPressure");
         } else {
             // >>> Add latency calculator
