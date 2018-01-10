@@ -38,18 +38,17 @@ if __name__ == '__main__':
                 for point in curve:
                     throughput = point["value"]
                     del point["value"]
-                    point[key] = throughput["mean"]
+                    point[key] = throughput
 
                 curve = pd.DataFrame(curve)
+                curves.append(curve)
             except Exception as e:
                 print "Some exception happened:", e
-            finally:
-                curves.append(curve)
 
         return curves
 
     for key in ['throughput', 'latency']:
-        curves = get_curves(prefix, [1], key)
+        curves = get_curves(prefix, [1, 2, 3, 4, 5], key)
 
         i = 1
         for curve in curves:
