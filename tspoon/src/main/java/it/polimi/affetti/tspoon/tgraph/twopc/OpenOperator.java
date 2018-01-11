@@ -152,8 +152,11 @@ public class OpenOperator<T>
     }
 
     private void updateStats(Vote vote) {
-        numberOfClosedTransactionsClosed.add(1);
         stats.get(vote).add(1);
+
+        if (vote != Vote.REPLAY) {
+            numberOfClosedTransactionsClosed.add(1);
+        }
 
         double totalTransactions = numberOfClosedTransactionsClosed.getLocalValue();
         double replayed = stats.get(Vote.REPLAY).getLocalValue();
