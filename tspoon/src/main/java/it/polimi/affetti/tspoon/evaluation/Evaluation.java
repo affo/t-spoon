@@ -65,7 +65,7 @@ public class Evaluation {
         final boolean useDependencyTracking = parameters.getBoolean("dependencyTracking", true);
         final boolean durable = parameters.getBoolean("durable", true);
         final int isolationLevelNumber = parameters.getInt("isolationLevel", 3);
-        final long deadlockTimeout = parameters.getLong("deadlockTimeout", 15L);
+        final long deadlockTimeout = parameters.getLong("deadlockTimeout", 100L);
 
         final boolean printPlan = parameters.getBoolean("printPlan", false);
 
