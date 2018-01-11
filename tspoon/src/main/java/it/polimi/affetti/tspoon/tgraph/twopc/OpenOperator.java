@@ -1,12 +1,11 @@
 package it.polimi.affetti.tspoon.tgraph.twopc;
 
-import it.polimi.affetti.tspoon.common.Address;
 import it.polimi.affetti.tspoon.common.SafeCollector;
 import it.polimi.affetti.tspoon.metrics.Report;
+import it.polimi.affetti.tspoon.metrics.SingleValueAccumulator;
 import it.polimi.affetti.tspoon.tgraph.Enriched;
 import it.polimi.affetti.tspoon.tgraph.Metadata;
 import it.polimi.affetti.tspoon.tgraph.Vote;
-import it.polimi.affetti.tspoon.tgraph.twopc.TransactionsIndex.LocalTransactionContext;
 import org.apache.flink.api.common.accumulators.IntCounter;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.streaming.api.operators.AbstractStreamOperator;
@@ -14,16 +13,21 @@ import org.apache.flink.streaming.api.operators.OneInputStreamOperator;
 import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
 import org.apache.flink.util.OutputTag;
 
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
 
 /**
  * Created by affo on 14/07/17.
  */
-public abstract class OpenOperator<T>
+public class OpenOperator<T>
         extends AbstractStreamOperator<Enriched<T>>
         implements OneInputStreamOperator<T, Enriched<T>>,
         OpenOperatorTransactionCloseListener {
+    private static final String NUMBER_OF_CLOSED_TRANSACTIONS = "total-closed-transactions";
+    private static final String DEPENDENCY_REPLAYED_COUNTER_NAME = "replayed-upon-dependency-satisfaction";
+    private static final String DIRECTLY_REPLAYED_COUNTER_NAME = "directly-replayed";
+    private static final String REPLAYED_PERCENTAGE = "replayed-percentage";
+    private static final String REPLAYED_UPON_WATERMARK_UPDATE_COUNTER_NAME = "replayed-upon-watermark-update";
+
     public final OutputTag<Integer> watermarkTag = new OutputTag<Integer>("watermark") {
     };
     public final OutputTag<Tuple2<Long, Vote>> logTag = new OutputTag<Tuple2<Long, Vote>>("tLog") {
@@ -34,12 +38,23 @@ public abstract class OpenOperator<T>
     //protected transient InOrderSideCollector<T, Tuple2<Long, Vote>> collector;
     protected transient SafeCollector<T> collector;
 
+    // set of tids depends on tid (tid -> [tids, ...])
+    private Map<Integer, Set<Integer>> dependencies = new HashMap<>();
+    // timestamp -> current watermark
+    private Map<Integer, Integer> playedWithWatermark = new HashMap<>();
+    private Set<Integer> laterReplay = new HashSet<>();
+
     protected final TRuntimeContext tRuntimeContext;
     protected final TransactionsIndex<T> transactionsIndex;
     private transient AbstractOpenOperatorTransactionCloser openOperatorTransactionCloser;
 
     // stats
-    protected Map<Vote, IntCounter> stats = new HashMap<>();
+    private IntCounter numberOfClosedTransactionsClosed = new IntCounter();
+    private IntCounter replayedUponWatermarkUpdate = new IntCounter();
+    private IntCounter replayedUponDependencySatisfaction = new IntCounter();
+    private IntCounter directlyReplayed = new IntCounter();
+    private SingleValueAccumulator<Double> replayedPercentage = new SingleValueAccumulator<>(0.0);
+    private Map<Vote, IntCounter> stats = new HashMap<>();
 
     public OpenOperator(TRuntimeContext tRuntimeContext) {
         this.tRuntimeContext = tRuntimeContext;
@@ -49,6 +64,12 @@ public abstract class OpenOperator<T>
             stats.put(vote, new IntCounter());
             Report.registerAccumulator(vote.toString().toLowerCase() + "-counter");
         }
+
+        Report.registerAccumulator(NUMBER_OF_CLOSED_TRANSACTIONS);
+        Report.registerAccumulator(DEPENDENCY_REPLAYED_COUNTER_NAME);
+        Report.registerAccumulator(REPLAYED_UPON_WATERMARK_UPDATE_COUNTER_NAME);
+        Report.registerAccumulator(DIRECTLY_REPLAYED_COUNTER_NAME);
+        Report.registerAccumulator(REPLAYED_PERCENTAGE);
     }
 
     @Override
@@ -69,6 +90,12 @@ public abstract class OpenOperator<T>
             Vote vote = s.getKey();
             getRuntimeContext().addAccumulator(vote.toString().toLowerCase() + "-counter", s.getValue());
         }
+
+        getRuntimeContext().addAccumulator(NUMBER_OF_CLOSED_TRANSACTIONS, numberOfClosedTransactionsClosed);
+        getRuntimeContext().addAccumulator(DEPENDENCY_REPLAYED_COUNTER_NAME, replayedUponDependencySatisfaction);
+        getRuntimeContext().addAccumulator(REPLAYED_UPON_WATERMARK_UPDATE_COUNTER_NAME, replayedUponWatermarkUpdate);
+        getRuntimeContext().addAccumulator(DIRECTLY_REPLAYED_COUNTER_NAME, directlyReplayed);
+        getRuntimeContext().addAccumulator(REPLAYED_PERCENTAGE, replayedPercentage);
     }
 
     @Override
@@ -77,36 +104,33 @@ public abstract class OpenOperator<T>
         openOperatorTransactionCloser.close();
     }
 
-    private void updateStats(Vote vote) {
-        stats.get(vote).add(1);
-    }
-
-    protected void subscribe(long timestamp) {
-        if (tRuntimeContext.getSubscriptionMode() == AbstractTwoPCParticipant.SubscriptionMode.SPECIFIC) {
-            openOperatorTransactionCloser.subscribeTo(timestamp, this);
-        }
-    }
-
     @Override
     public synchronized void processElement(StreamRecord<T> sr) throws Exception {
         T element = sr.getValue();
-        LocalTransactionContext tContext = transactionsIndex.newTransaction(element);
-        Metadata metadata = new Metadata(tContext.tid);
-        metadata.timestamp = tContext.timestamp;
-        metadata.coordinator = getCoordinatorAddress();
+        TransactionsIndex<T>.LocalTransactionContext tContext = transactionsIndex.newTransaction(element);
+        collect(tContext);
+    }
+
+    private void collect(TransactionsIndex<T>.LocalTransactionContext transactionContext) {
+        int tid = transactionContext.tid;
+        Metadata metadata = new Metadata(tid);
+        metadata.timestamp = transactionContext.timestamp;
+        metadata.coordinator = openOperatorTransactionCloser.getServerAddress();
         metadata.watermark = transactionsIndex.getCurrentWatermark();
 
-        subscribe(tContext.timestamp);
+        if (tRuntimeContext.getSubscriptionMode() == AbstractTwoPCParticipant.SubscriptionMode.SPECIFIC) {
+            openOperatorTransactionCloser.subscribeTo(metadata.timestamp, this);
+        }
 
-        onOpenTransaction(element, metadata);
-        collector.safeCollect(sr.replace(Enriched.of(metadata, element)));
+        playedWithWatermark.put(metadata.tid, metadata.watermark);
+        collector.safeCollect(Enriched.of(metadata, transactionContext.element));
     }
 
-    protected Address getCoordinatorAddress() {
-        return openOperatorTransactionCloser.getServerAddress();
+    private void collect(int tid) {
+        T element = transactionsIndex.getTransaction(tid).element;
+        TransactionsIndex<T>.LocalTransactionContext tContext = transactionsIndex.newTransaction(element, tid);
+        this.collect(tContext);
     }
-
-    protected abstract void onOpenTransaction(T recordValue, Metadata metadata);
 
     // ----------------------------- Transaction close notification logic
 
@@ -123,32 +147,63 @@ public abstract class OpenOperator<T>
                 .getTransactionByTimestamp((int) timestamp) != null;
     }
 
+    private void updateStats(Vote vote) {
+        numberOfClosedTransactionsClosed.add(1);
+        stats.get(vote).add(1);
+
+        double totalTransactions = numberOfClosedTransactionsClosed.getLocalValue();
+        double replayed = stats.get(Vote.REPLAY).getLocalValue();
+        replayedPercentage.update((replayed / totalTransactions) * 100.0);
+    }
+
     @Override
     public void onCloseTransaction(CloseTransactionNotification notification) {
-        LocalTransactionContext localTransactionContext = transactionsIndex
+        TransactionsIndex<T>.LocalTransactionContext localTransactionContext = transactionsIndex
                 .getTransactionByTimestamp(notification.timestamp);
-        localTransactionContext.replayCause = notification.replayCause;
-        localTransactionContext.vote = notification.vote;
 
         updateStats(notification.vote);
 
+        int tid = localTransactionContext.tid;
         int timestamp = localTransactionContext.timestamp;
-        Vote vote = localTransactionContext.vote;
+        Vote vote = notification.vote;
+        Integer dependency = transactionsIndex.getTransactionId(notification.replayCause);
+
         int oldWM = transactionsIndex.getCurrentWatermark();
         int newWM = transactionsIndex.updateWatermark(timestamp, vote);
         boolean wmUpdate = newWM > oldWM;
 
-        if (vote == Vote.COMMIT) {
-            if (timestamp > lastCommittedWatermark) {
-                lastCommittedWatermark = timestamp;
-            }
-
-            if (newWM >= lastCommittedWatermark) {
-                collector.safeCollect(watermarkTag, lastCommittedWatermark);
-            }
+        if (wmUpdate) {
+            laterReplay.forEach(id -> {
+                collect(id);
+                replayedUponWatermarkUpdate.add(1); // stats
+            });
+            laterReplay.clear();
         }
 
-        closeTransaction(localTransactionContext, wmUpdate);
+        switch (vote) {
+            case COMMIT:
+                if (timestamp > lastCommittedWatermark) {
+                    lastCommittedWatermark = timestamp;
+                }
+
+                if (newWM >= lastCommittedWatermark) {
+                    collector.safeCollect(watermarkTag, lastCommittedWatermark);
+                }
+            case ABORT:
+                transactionsIndex.deleteTransaction(tid);
+                satisfyDependency(tid);
+                break;
+            case REPLAY:
+                if (dependency != null && tid > dependency && transactionsIndex.getTransaction(dependency) != null) {
+                    //  - the timestamp has a mapping in tids
+                    //  - this transaction depends on a previous one
+                    //  - the transaction on which the current one depends has not commited/aborted
+                    addDependency(tid, dependency);
+                } else {
+                    directlyReplayed.add(1);
+                    replayElement(tid);
+                }
+        }
 
         long ts = (long) notification.timestamp;
         /* TODO temporarly avoiding log ordering
@@ -158,5 +213,34 @@ public abstract class OpenOperator<T>
         collector.safeCollect(logTag, Tuple2.of(ts, notification.vote));
     }
 
-    protected abstract void closeTransaction(LocalTransactionContext transactionContext, boolean wmUpdate);
+    private void replayElement(Integer tid) {
+        // do not replay with the same watermark...
+        int playedWithWatermark = this.playedWithWatermark.remove(tid);
+        if (playedWithWatermark < transactionsIndex.getCurrentWatermark()) {
+            collect(tid);
+        } else {
+            laterReplay.add(tid);
+        }
+    }
+
+    // The first depends on the second one
+    private void addDependency(int dependsOn, int tid) {
+        dependencies.computeIfAbsent(tid, k -> new HashSet<>()).add(dependsOn);
+    }
+
+    private void satisfyDependency(int tid) {
+        Set<Integer> deps = dependencies.remove(tid);
+        if (deps != null) {
+            // draw a chain of ordered dependencies
+            ArrayList<Integer> depList = new ArrayList<>(deps);
+            Collections.sort(depList);
+            for (int i = 0; i < depList.size() - 1; i++) {
+                addDependency(depList.get(i + 1), depList.get(i));
+            }
+
+            // replay only the first one
+            replayElement(depList.get(0));
+            replayedUponDependencySatisfaction.add(1); // stats
+        }
+    }
 }

@@ -7,7 +7,7 @@ import it.polimi.affetti.tspoon.tgraph.state.StateFunction;
 import it.polimi.affetti.tspoon.tgraph.state.StateOperator;
 import it.polimi.affetti.tspoon.tgraph.state.StateStream;
 import it.polimi.affetti.tspoon.tgraph.state.Update;
-import it.polimi.affetti.tspoon.tgraph.twopc.ConcreteOpenOperator;
+import it.polimi.affetti.tspoon.tgraph.twopc.OpenOperator;
 import org.apache.flink.api.common.functions.FilterFunction;
 import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
@@ -46,7 +46,7 @@ public abstract class AbstractTStream<T> implements TStream<T> {
 
     protected static <T> OpenOutputs<T> open(DataStream<T> dataStream) {
         TypeInformation<Enriched<T>> type = Enriched.getTypeInfo(dataStream.getType());
-        ConcreteOpenOperator<T> openOperator = new ConcreteOpenOperator<>(
+        OpenOperator<T> openOperator = new OpenOperator<>(
                 transactionEnvironment.createTransactionalRuntimeContext());
         SingleOutputStreamOperator<Enriched<T>> enriched = dataStream
                 .transform("open", type, openOperator)

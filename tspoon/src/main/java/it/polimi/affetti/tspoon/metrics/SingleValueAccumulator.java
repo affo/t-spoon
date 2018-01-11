@@ -7,6 +7,8 @@ import java.io.Serializable;
 
 /**
  * Created by affo on 12/12/17.
+ *
+ * Should be used by a single-threaded operator, because the value is overridden on merge.
  */
 public class SingleValueAccumulator<T extends Serializable> implements SimpleAccumulator<T> {
     private T value;
@@ -18,6 +20,11 @@ public class SingleValueAccumulator<T extends Serializable> implements SimpleAcc
     @Override
     public void add(T t) {
         value = t;
+    }
+
+    // more idiomatic
+    public void update(T t) {
+        add(t);
     }
 
     @Override

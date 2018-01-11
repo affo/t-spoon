@@ -75,8 +75,6 @@ public abstract class TransactionsIndex<T> implements Serializable {
     public class LocalTransactionContext {
         public int tid;
         public int timestamp;
-        public Vote vote;
-        public int replayCause;
         public T element;
     }
 }
