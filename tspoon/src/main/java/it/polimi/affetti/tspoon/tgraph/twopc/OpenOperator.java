@@ -5,6 +5,7 @@ import it.polimi.affetti.tspoon.metrics.Report;
 import it.polimi.affetti.tspoon.metrics.SingleValueAccumulator;
 import it.polimi.affetti.tspoon.tgraph.Enriched;
 import it.polimi.affetti.tspoon.tgraph.Metadata;
+import it.polimi.affetti.tspoon.tgraph.Strategy;
 import it.polimi.affetti.tspoon.tgraph.Vote;
 import org.apache.flink.api.common.accumulators.IntCounter;
 import org.apache.flink.api.java.tuple.Tuple2;
@@ -13,7 +14,10 @@ import org.apache.flink.streaming.api.operators.OneInputStreamOperator;
 import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
 import org.apache.flink.util.OutputTag;
 
-import java.util.*;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * Created by affo on 14/07/17.
@@ -38,8 +42,8 @@ public class OpenOperator<T>
     //protected transient InOrderSideCollector<T, Tuple2<Long, Vote>> collector;
     protected transient SafeCollector<T> collector;
 
-    // set of tids depends on tid (tid -> [tids, ...])
-    private Map<Integer, Set<Integer>> dependencies = new HashMap<>();
+    // tid -> dependent tid (if mapping t1 -> t2 is present, this means that t2 depends on t1)
+    private Map<Integer, Integer> dependencies = new HashMap<>();
     // timestamp -> current watermark
     private Map<Integer, Integer> playedWithWatermark = new HashMap<>();
     private Set<Integer> laterReplay = new HashSet<>();
@@ -167,6 +171,7 @@ public class OpenOperator<T>
         int timestamp = localTransactionContext.timestamp;
         Vote vote = notification.vote;
         Integer dependency = transactionsIndex.getTransactionId(notification.replayCause);
+        boolean dependencyNotSatisfied = dependency != null; // the transaction has not yet committed/aborted
 
         int oldWM = transactionsIndex.getCurrentWatermark();
         int newWM = transactionsIndex.updateWatermark(timestamp, vote);
@@ -190,14 +195,13 @@ public class OpenOperator<T>
                     collector.safeCollect(watermarkTag, lastCommittedWatermark);
                 }
             case ABORT:
+                // when committing/aborting you can delete the transaction
                 transactionsIndex.deleteTransaction(tid);
                 satisfyDependency(tid);
                 break;
             case REPLAY:
-                if (dependency != null && tid > dependency && transactionsIndex.getTransaction(dependency) != null) {
-                    //  - the timestamp has a mapping in tids
-                    //  - this transaction depends on a previous one
-                    //  - the transaction on which the current one depends has not commited/aborted
+                // this transaction depends on a previous one
+                if (dependencyNotSatisfied && tid > dependency) {
                     addDependency(tid, dependency);
                 } else {
                     directlyReplayed.add(1);
@@ -205,42 +209,57 @@ public class OpenOperator<T>
                 }
         }
 
-        long ts = (long) notification.timestamp;
         /* TODO temporarly avoiding log ordering
         collector.collectInOrder(Tuple2.of(ts, notification.vote), ts);
         collector.flushOrdered(transactionsIndex.getCurrentWatermark());
         */
-        collector.safeCollect(logTag, Tuple2.of(ts, notification.vote));
+        collector.safeCollect(logTag,
+                Tuple2.of((long) notification.timestamp, notification.vote));
     }
 
     private void replayElement(Integer tid) {
-        // do not replay with the same watermark...
-        int playedWithWatermark = this.playedWithWatermark.remove(tid);
-        if (playedWithWatermark < transactionsIndex.getCurrentWatermark()) {
-            collect(tid);
+        if (tRuntimeContext.getStrategy() == Strategy.OPTIMISTIC) {
+            // do not replay with the same watermark...
+            // let something change before replay!
+            int playedWithWatermark = this.playedWithWatermark.remove(tid);
+            if (playedWithWatermark < transactionsIndex.getCurrentWatermark()) {
+                collect(tid);
+            } else {
+                laterReplay.add(tid);
+            }
         } else {
-            laterReplay.add(tid);
+            // in the pessimistic case there is no need to worry about the watermark
+            collect(tid);
         }
     }
 
-    // The first depends on the second one
+    // The first depends on the second one (dependsOn > tid)
     private void addDependency(int dependsOn, int tid) {
-        dependencies.computeIfAbsent(tid, k -> new HashSet<>()).add(dependsOn);
+        Integer alreadyDependent = dependencies.get(tid);
+
+        if (alreadyDependent == null) {
+            dependencies.put(tid, dependsOn);
+            return;
+        }
+
+        if (dependsOn <= alreadyDependent) {
+            // insert a step in the dependency chain
+            dependencies.put(tid, dependsOn);
+            dependencies.put(dependsOn, alreadyDependent);
+            return;
+        }
+
+        // dependsOn can depend on the transaction that already depends on tid:
+        // extend the dependency chain
+        addDependency(dependsOn, alreadyDependent);
     }
 
     private void satisfyDependency(int tid) {
-        Set<Integer> deps = dependencies.remove(tid);
-        if (deps != null) {
-            // draw a chain of ordered dependencies
-            ArrayList<Integer> depList = new ArrayList<>(deps);
-            Collections.sort(depList);
-            for (int i = 0; i < depList.size() - 1; i++) {
-                addDependency(depList.get(i + 1), depList.get(i));
-            }
+        Integer dependent = dependencies.remove(tid);
 
-            // replay only the first one
-            replayElement(depList.get(0));
-            replayedUponDependencySatisfaction.add(1); // stats
+        if (dependent != null) {
+            replayElement(dependent);
+            replayedUponDependencySatisfaction.add(1);
         }
     }
 }
