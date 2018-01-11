@@ -115,7 +115,7 @@ public class KeyLevelTaskExecutor<T extends KeyLevelTaskExecutor.TaskResult> {
 
     private class Task {
         public final long creationTime;
-        public long executionTime;
+        public long registrationTime;
         public final long id;
         public final String key;
         public final Supplier<T> actualTask; // returns the id of the task
@@ -129,12 +129,13 @@ public class KeyLevelTaskExecutor<T extends KeyLevelTaskExecutor.TaskResult> {
             taskProgressiveID++;
         }
 
-        public T execute() {
+        public synchronized T execute() {
+            executed = true;
             return actualTask.get();
         }
 
-        public void setExecutionTime() {
-            this.executionTime = System.currentTimeMillis();
+        public void setRegistrationTime() {
+            this.registrationTime = System.currentTimeMillis();
         }
 
         @Override
@@ -160,7 +161,6 @@ public class KeyLevelTaskExecutor<T extends KeyLevelTaskExecutor.TaskResult> {
             for (Task task : queue.values()) {
                 if (!lockedKeys.containsKey(task.key)) {
                     lockedKeys.put(task.key, false); // put as not read-only
-                    task.executed = true;
                     return task;
                 }
             }
@@ -184,7 +184,7 @@ public class KeyLevelTaskExecutor<T extends KeyLevelTaskExecutor.TaskResult> {
         Iterator<Task> iterator = queue.values().iterator();
         while (iterator.hasNext()) {
             Task next = iterator.next();
-            long timePassed = now - next.executionTime;
+            long timePassed = now - next.registrationTime;
             if (timePassed > maxTimeInQueue) {
                 iterator.remove();
                 removed.add(next);
@@ -221,6 +221,38 @@ public class KeyLevelTaskExecutor<T extends KeyLevelTaskExecutor.TaskResult> {
         myNotify();
     }
 
+    /**
+     * Acks the completion of a task and frees the corresponding keys if necessary
+     * @param taskID
+     */
+    public synchronized void ackCompletion(long taskID) {
+        String key;
+        try {
+            key = registeredTasks.remove(taskID).key;
+        } catch (NullPointerException npe) {
+            throw new IllegalStateException("Task not found: " + taskID);
+        }
+
+        boolean oldestForKey = true;
+        Iterator<Task> iterator = queue.values().iterator();
+        while (iterator.hasNext()) {
+            Task next = iterator.next();
+            if (next.id == taskID) {
+                iterator.remove();
+                break;
+            }
+
+            if (next.key.equals(key)) {
+                oldestForKey = false;
+            }
+        }
+
+        if (oldestForKey) {
+            lockedKeys.remove(key); // next task in queue can proceed
+            myNotify();
+        }
+    }
+
     private synchronized Task removeOldestTask(String key) {
         Task oldest = null;
         Iterator<Task> iterator = queue.values().iterator();
@@ -228,6 +260,7 @@ public class KeyLevelTaskExecutor<T extends KeyLevelTaskExecutor.TaskResult> {
             Task next = iterator.next();
             if (next.key.equals(key)) {
                 iterator.remove();
+                registeredTasks.remove(next.id);
                 oldest = next;
                 break;
             }
@@ -256,9 +289,9 @@ public class KeyLevelTaskExecutor<T extends KeyLevelTaskExecutor.TaskResult> {
      * @return
      */
     public synchronized void run(long taskId) {
-        Task task = registeredTasks.remove(taskId);
+        Task task = registeredTasks.get(taskId);
         queue.put(task.id, task); // put in execution order
-        task.setExecutionTime();
+        task.setRegistrationTime();
         myNotify();
     }
 

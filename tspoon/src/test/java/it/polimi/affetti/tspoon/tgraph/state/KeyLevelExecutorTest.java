@@ -196,7 +196,7 @@ public class KeyLevelExecutorTest {
                 } catch (InterruptedException e) {
                     e.printStackTrace();
                 }
-                executor.free(key);
+                executor.ackCompletion(tr.tid);
             })));
         }
 

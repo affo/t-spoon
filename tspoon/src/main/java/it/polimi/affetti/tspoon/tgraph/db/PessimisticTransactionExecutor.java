@@ -115,8 +115,13 @@ public class PessimisticTransactionExecutor implements
     }
 
     public <V> void onGlobalTermination(Transaction<V> transaction) {
-        for (String key : transaction.getKeys()) {
-            executor.free(key);
+        List<Long> taskIds;
+        synchronized (this) {
+            taskIds = timestampTaskMapping.get(transaction.timestamp);
+        }
+
+        for (Long taskId : taskIds) {
+            executor.ackCompletion(taskId);
         }
 
         unregisterTransaction(transaction.timestamp);
