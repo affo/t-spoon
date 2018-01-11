@@ -88,7 +88,11 @@ public class PessimisticTransactionExecutor implements
         Supplier<OperationExecutionResult> task = () -> {
             if (transaction.vote != Vote.COMMIT) {
                 // no further processing for REPLAYed or ABORTed transactions
-                return new OperationExecutionResult(transaction.vote);
+                OperationExecutionResult operationExecutionResult = new OperationExecutionResult(transaction.vote);
+                for (Integer dependency : transaction.getDependencies()) {
+                    operationExecutionResult.addDependency(dependency);
+                }
+                return operationExecutionResult;
             }
 
             Object<V> object = transaction.getObject(key);

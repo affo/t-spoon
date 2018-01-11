@@ -102,9 +102,7 @@ public abstract class StateOperator<T, V>
         metadata.addCohort(transactionCloser.getServerAddress());
         int timestamp = metadata.timestamp;
 
-        boolean newTransaction = shard.addOperation(
-                key, metadata.tid, timestamp, metadata.watermark,
-                metadata.vote, metadata.coordinator, Operation.from(element, stateFunction));
+        boolean newTransaction = shard.addOperation(key, metadata, Operation.from(element, stateFunction));
 
         if (newTransaction) {
             counter++;

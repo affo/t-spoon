@@ -1,8 +1,7 @@
 package it.polimi.affetti.tspoon.tgraph.db;
 
-import it.polimi.affetti.tspoon.common.Address;
 import it.polimi.affetti.tspoon.common.RandomProvider;
-import it.polimi.affetti.tspoon.tgraph.Vote;
+import it.polimi.affetti.tspoon.tgraph.Metadata;
 import it.polimi.affetti.tspoon.tgraph.query.*;
 import org.apache.log4j.Logger;
 
@@ -51,17 +50,17 @@ public class Shard<V> implements
      * Returns true if it creates a new Transaction
      */
     public boolean addOperation(
-            String key, int tid, int timestamp, int watermark,
-            Vote vote, Address coordinator, Operation<V> operation) throws Exception {
+            String key, Metadata metadata, Operation<V> operation) throws Exception {
         Object<V> object = getObject(key);
 
         final boolean[] newTransaction = {false};
-        Transaction<V> transaction = transactions.computeIfAbsent(timestamp,
+        Transaction<V> transaction = transactions.computeIfAbsent(metadata.timestamp,
                 ts -> {
                     newTransaction[0] = true;
-                    return new Transaction<>(tid, ts, watermark, coordinator);
+                    return new Transaction<>(metadata.tid, ts, metadata.watermark, metadata.coordinator);
                 });
-        transaction.mergeVote(vote);
+        transaction.mergeVote(metadata.vote);
+        transaction.addDependencies(metadata.dependencyTracking);
         transaction.addOperation(key, object, operation);
 
         return newTransaction[0];
