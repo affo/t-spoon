@@ -3,10 +3,7 @@ package it.polimi.affetti.tspoon.tgraph.twopc;
 import it.polimi.affetti.tspoon.common.SafeCollector;
 import it.polimi.affetti.tspoon.metrics.Report;
 import it.polimi.affetti.tspoon.metrics.SingleValueAccumulator;
-import it.polimi.affetti.tspoon.tgraph.Enriched;
-import it.polimi.affetti.tspoon.tgraph.Metadata;
-import it.polimi.affetti.tspoon.tgraph.Strategy;
-import it.polimi.affetti.tspoon.tgraph.Vote;
+import it.polimi.affetti.tspoon.tgraph.*;
 import org.apache.flink.api.common.accumulators.IntCounter;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.streaming.api.operators.AbstractStreamOperator;
@@ -44,7 +41,7 @@ public class OpenOperator<T>
 
     // tid -> dependent tid (if mapping t1 -> t2 is present, this means that t2 depends on t1)
     private Map<Integer, Integer> dependencies = new HashMap<>();
-    // timestamp -> current watermark
+    // tid -> current watermark
     private Map<Integer, Integer> playedWithWatermark = new HashMap<>();
     private Set<Integer> laterReplay = new HashSet<>();
 
@@ -53,7 +50,7 @@ public class OpenOperator<T>
     private transient AbstractOpenOperatorTransactionCloser openOperatorTransactionCloser;
 
     // stats
-    private IntCounter numberOfClosedTransactionsClosed = new IntCounter();
+    private IntCounter numberOfClosedTransactions = new IntCounter();
     private IntCounter replayedUponWatermarkUpdate = new IntCounter();
     private IntCounter replayedUponDependencySatisfaction = new IntCounter();
     private IntCounter directlyReplayed = new IntCounter();
@@ -95,7 +92,7 @@ public class OpenOperator<T>
             getRuntimeContext().addAccumulator(vote.toString().toLowerCase() + "-counter", s.getValue());
         }
 
-        getRuntimeContext().addAccumulator(NUMBER_OF_CLOSED_TRANSACTIONS, numberOfClosedTransactionsClosed);
+        getRuntimeContext().addAccumulator(NUMBER_OF_CLOSED_TRANSACTIONS, numberOfClosedTransactions);
         getRuntimeContext().addAccumulator(DEPENDENCY_REPLAYED_COUNTER_NAME, replayedUponDependencySatisfaction);
         getRuntimeContext().addAccumulator(REPLAYED_UPON_WATERMARK_UPDATE_COUNTER_NAME, replayedUponWatermarkUpdate);
         getRuntimeContext().addAccumulator(DIRECTLY_REPLAYED_COUNTER_NAME, directlyReplayed);
@@ -155,10 +152,10 @@ public class OpenOperator<T>
         stats.get(vote).add(1);
 
         if (vote != Vote.REPLAY) {
-            numberOfClosedTransactionsClosed.add(1);
+            numberOfClosedTransactions.add(1);
         }
 
-        double totalTransactions = numberOfClosedTransactionsClosed.getLocalValue();
+        double totalTransactions = numberOfClosedTransactions.getLocalValue();
         double replayed = stats.get(Vote.REPLAY).getLocalValue();
         replayedPercentage.update((replayed / totalTransactions) * 100.0);
     }
@@ -201,6 +198,7 @@ public class OpenOperator<T>
                 // when committing/aborting you can delete the transaction
                 transactionsIndex.deleteTransaction(tid);
                 satisfyDependency(tid);
+                playedWithWatermark.remove(tid);
                 break;
             case REPLAY:
                 // this transaction depends on a previous one
@@ -221,7 +219,8 @@ public class OpenOperator<T>
     }
 
     private void replayElement(Integer tid) {
-        if (tRuntimeContext.getStrategy() == Strategy.OPTIMISTIC) {
+        if (tRuntimeContext.getStrategy() == Strategy.OPTIMISTIC &&
+                tRuntimeContext.getIsolationLevel() != IsolationLevel.PL4) {
             // do not replay with the same watermark...
             // let something change before replay!
             int playedWithWatermark = this.playedWithWatermark.remove(tid);
@@ -231,7 +230,11 @@ public class OpenOperator<T>
                 laterReplay.add(tid);
             }
         } else {
-            // in the pessimistic case there is no need to worry about the watermark
+            // - In the pessimistic case there is no need to worry about the watermark
+            // - In the case of PL4 optimistic, the watermark is the last completed tid.
+            //   It could be the case that you need to REPLAY the same transaction twice under the same watermark:
+            //   Think of forward dependencies for example, their REPLAY is not caused by a small watermark,
+            //   but by being happened too early in time...
             collect(tid);
         }
     }

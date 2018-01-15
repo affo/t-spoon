@@ -102,7 +102,8 @@ public class PessimisticTransactionExecutor implements
             transaction.getOperation(key).accept(handler);
             Vote vote = handler.applyInvariant() ? Vote.COMMIT : Vote.ABORT;
             transaction.mergeVote(vote);
-            object.addVersion(transaction.tid, transaction.timestamp, handler.object);
+            ObjectVersion<V> objectVersion = object.addVersion(transaction.tid, transaction.timestamp, handler.object);
+            transaction.addVersion(key, objectVersion);
 
             OperationExecutionResult taskResult = new OperationExecutionResult(vote);
             if (!handler.write) {

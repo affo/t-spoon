@@ -4,10 +4,13 @@ import it.polimi.affetti.tspoon.common.OrderedTimestamps;
 import it.polimi.affetti.tspoon.tgraph.Metadata;
 import it.polimi.affetti.tspoon.tgraph.Vote;
 import org.apache.flink.api.common.functions.RichFlatMapFunction;
+import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.util.Collector;
 
 import java.util.*;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Created by affo on 03/08/17.
@@ -16,70 +19,98 @@ import java.util.*;
  * <p>
  * Orders transactions and analyzes dependencies among them and enforces replay if a later transaction
  * is succeeding while an earlier and conflicting one is toReplay because of the conflict.
- * <p>
  * Moreover, the function adds the dependency to the later transaction.
+ * <p>
+ * The logic is that if a COMMITted/ABORTed transaction is collected, then every single transaction before (in tid order)
+ * has either committed or aborted. The strictness enforcer waits for the replays to happen, in order to validate every
+ * subsequent transaction.
  */
 public class StrictnessEnforcer extends RichFlatMapFunction<Metadata, Metadata> {
-    private transient CompleteBatcher completeBatchChecker;
+    private transient Sequencer sequencer;
     private Map<Integer, Metadata> metadataCache;
-    private Set<Integer> replaySet;
+    // tid -> (tid, timestamp) of the newest (in terms of tid) forward dependency signaller
+    private Map<Integer, Tuple2<Integer, Integer>> forwardDependencies;
 
     @Override
     public void open(Configuration parameters) throws Exception {
         super.open(parameters);
-        completeBatchChecker = new CompleteBatcher();
+        sequencer = new Sequencer();
         metadataCache = new HashMap<>();
-        replaySet = new HashSet<>();
+        forwardDependencies = new HashMap<>();
     }
 
     @Override
     public void flatMap(Metadata metadata, Collector<Metadata> collector) throws Exception {
-        metadataCache.put(metadata.tid, metadata);
+        int tid = metadata.tid;
 
         if (metadata.vote == Vote.REPLAY) {
-            completeBatchChecker.signalReplay(metadata.tid);
+            sequencer.signalReplay(tid);
             collector.collect(metadata);
             return;
         }
 
-        // this is a forward dependency
-        if (replaySet.remove(metadata.tid)) {
-            metadata.vote = Vote.REPLAY;
-            collector.collect(metadata);
-            return;
+        metadataCache.put(tid, metadata);
+
+        // process only when not REPLAY or forward dependency
+        if (!forwardDependencies.containsKey(tid)) {
+            sequencer.addTransaction(tid);
+            // update dependencies and signal forward dependencies
+            metadata.dependencyTracking = metadata.dependencyTracking.stream()
+                    .flatMap(dep -> {
+                        if (dep < 0) {
+                            int forwardDep = -dep;
+
+                            sequencer.signalReplay(forwardDep);
+
+                            Tuple2<Integer, Integer> tidTs = forwardDependencies.get(forwardDep);
+                            if (tidTs == null || tidTs.f0 < tid) {
+                                // newer signaller detected
+                                forwardDependencies.put(forwardDep, Tuple2.of(tid, metadata.timestamp));
+                            }
+
+                            return Stream.empty();
+                        }
+
+                        return Stream.of(dep);
+                    })
+                    .collect(Collectors.toCollection(HashSet::new));
         }
 
-        completeBatchChecker.addTransaction(metadata.tid);
+        // it could be that:
+        //  - the Metadata for a previously signalled fwdDep has come -> collect it
+        //  - this new record signalled some previously processed Metadata -> collect them (it)
+        collectForwardDependencies(collector);
 
-        for (Integer forwardDependency :
-                extractForwardDependencies(metadata.dependencyTracking)) {
-            completeBatchChecker.signalReplay(forwardDependency);
-            replaySet.add(forwardDependency);
+        for (Integer toCollect : sequencer.nextAvailableSequence()) {
+            Metadata m = metadataCache.remove(toCollect);
+            collector.collect(m);
         }
-
-        completeBatchChecker.nextBatch().forEach(
-                tid -> {
-                    Metadata m = metadataCache.remove(tid);
-                    if (replaySet.remove(tid)) {
-                        m.vote = Vote.REPLAY;
-                    }
-                    collector.collect(m);
-                }
-        );
     }
 
-    private Set<Integer> extractForwardDependencies(Set<Integer> dependencies) {
-        Set<Integer> forwardDependencies = new HashSet<>();
-        Iterator<Integer> iterator = dependencies.iterator();
+    /**
+     * Collects forward dependencies and removes them if collected
+     * @param collector
+     */
+    private void collectForwardDependencies(Collector<Metadata> collector) {
+        Iterator<Map.Entry<Integer, Tuple2<Integer, Integer>>> iterator = forwardDependencies.entrySet().iterator();
+
         while (iterator.hasNext()) {
-            Integer next = iterator.next();
-            if (next < 0) {
-                forwardDependencies.add(-next);
+            Map.Entry<Integer, Tuple2<Integer, Integer>> entry = iterator.next();
+            int tid = entry.getKey();
+            int dependencyTimestamp = entry.getValue().f1;
+            Metadata metadata = metadataCache.remove(tid);
+
+            // it could be that the Metadata for forward dependency has not yet come
+            if (metadata != null) {
+                metadata.vote = Vote.REPLAY;
+                // add the newest signaller as unique dependency
+                metadata.dependencyTracking = new HashSet<>();
+                metadata.dependencyTracking.add(dependencyTimestamp);
+
+                collector.collect(metadata);
                 iterator.remove();
             }
         }
-
-        return forwardDependencies;
     }
 
     /**
@@ -88,10 +119,9 @@ public class StrictnessEnforcer extends RichFlatMapFunction<Metadata, Metadata> 
      * that no transaction i happened-before transaction j specifies a forward dependency towards j.
      * In other words, we cannot emit tnx j before processing i, if i < j.
      */
-    public static class CompleteBatcher {
+    public static class Sequencer {
         // cannot trust timestamps, they are not ordered wrt tids!
         private OrderedTimestamps tids = new OrderedTimestamps();
-        // tids toReplay
         private Set<Integer> toReplay = new HashSet<>();
         private int lastRemoved = 0;
 
@@ -113,8 +143,7 @@ public class StrictnessEnforcer extends RichFlatMapFunction<Metadata, Metadata> 
 
         /**
          * <p>
-         * Once you get a contiguous sequence, you can return every record until the first replay,
-         * plus every record in status REPLAY.
+         * Once you get a contiguous sequence, you can return every record until the first replay
          * <p>
          * The algorithm keeps the list of order tids consistent with the fact that REPLAYs happen.
          * For instance, if we have 1 -> 2 -> 3 -> 4 and 3 must be replayed, we can't remove the entire sequence.
@@ -125,19 +154,21 @@ public class StrictnessEnforcer extends RichFlatMapFunction<Metadata, Metadata> 
          * - T10 updates object X, but X has version 9 and 10 has watermark 8 --> 10 has to be REPLAYed (dependency = [9]);
          * - T11 updates object X, 11 has watermark 9 --> no problem, T11 COMMIT;
          * - T10 gets replayed and now it has a forward dependency with T11, but T11 has already COMMITted!
-         *
-         * @return
+         * <p>
+         * NOTE that the Sequencer provides forward dependencies only when it is useful to collect them.
+         * And so when every record before has committed or aborted. The Sequencer, however, does not remove the tids
+         * of forward dependencies, because they will be REPLAYed.
          */
-        public List<Integer> nextBatch() {
-            int upperThreshold = toReplay.isEmpty() ? Integer.MAX_VALUE : Collections.min(toReplay);
-            List<Integer> batch = tids.removeContiguousWith(lastRemoved, upperThreshold);
+        public List<Integer> nextAvailableSequence() {
+            int firstReplay = toReplay.isEmpty() ? Integer.MAX_VALUE : Collections.min(toReplay);
+            List<Integer> batch = tids.removeContiguousWith(lastRemoved, firstReplay);
 
-            for (Integer element : batch) {
-                toReplay.remove(element);
-                lastRemoved = element;
+            if (!batch.isEmpty()) {
+                lastRemoved = Collections.max(batch);
             }
 
             return batch;
         }
     }
 }
+

@@ -67,13 +67,10 @@ public class TRuntimeContext implements Serializable {
     }
 
     public <T> TransactionsIndex<T> getTransactionsIndex() {
-        /*
-        if (getStrategy() == Strategy.OPTIMISTIC) {
-            return new StandardTransactionsIndex<>();
+        if (getStrategy() == Strategy.OPTIMISTIC && getIsolationLevel() == IsolationLevel.PL4) {
+            return new TidForWatermarkingTransactionsIndex<>();
         }
-        */
 
-        // using only standard indexing now...
         return new StandardTransactionsIndex<>();
     }
 

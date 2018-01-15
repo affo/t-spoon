@@ -8,13 +8,14 @@ import it.polimi.affetti.tspoon.tgraph.state.*;
  * Created by affo on 19/12/17.
  */
 public class OptimisticTransactionExecutor {
-    private IsolationLevel isolationLevel;
     private VersioningStrategy versioningStrategy;
-    private boolean useDependencyTracking;
+    private DependencyTrackingStrategy dependencyTrackingStrategy;
 
     public OptimisticTransactionExecutor(
             IsolationLevel isolationLevel, boolean useDependencyTracking) {
-        this.isolationLevel = isolationLevel;
+        DependencyTrackingStrategy baseDependencyTrackingStrategy = useDependencyTracking ?
+                new StandardDependencyTrackingStrategy() :
+                new NoDependencyTrackingStrategy();
 
         switch (isolationLevel) {
             case PL0:
@@ -26,15 +27,22 @@ public class OptimisticTransactionExecutor {
             case PL2:
                 versioningStrategy = new PL2Strategy();
                 break;
+            case PL3:
+                versioningStrategy = new PL3Strategy();
+                break;
             case PL4:
                 versioningStrategy = new PL4Strategy();
                 break;
-            default:
-                versioningStrategy = new PL3Strategy();
-                break;
         }
 
-        this.useDependencyTracking = useDependencyTracking;
+        switch (isolationLevel) {
+            case PL4:
+                dependencyTrackingStrategy = new PL4DependencyTrackingStrategy(baseDependencyTrackingStrategy);
+                break;
+            default:
+                dependencyTrackingStrategy = baseDependencyTrackingStrategy;
+                break;
+        }
     }
 
     public <V> void executeOperation(String key, Transaction<V> transaction) {
@@ -48,7 +56,7 @@ public class OptimisticTransactionExecutor {
         int watermark = transaction.watermark;
 
         Object<V> object = transaction.getObject(key);
-        ObjectVersion<V> version = versioningStrategy.extractObjectVersion(
+        ObjectVersion<V> version = versioningStrategy.readVersion(
                 tid, timestamp, watermark, object);
         ObjectHandler<V> handler = version.createHandler();
 
@@ -57,23 +65,20 @@ public class OptimisticTransactionExecutor {
         Vote vote = handler.applyInvariant() ? Vote.COMMIT : Vote.ABORT;
 
         if (handler.write) {
-            if (!versioningStrategy.isWritingAllowed(tid, timestamp, watermark, object)) {
+            if (!versioningStrategy.canWrite(tid, timestamp, watermark, object)) {
                 vote = Vote.REPLAY;
             }
         }
 
+        transaction.mergeVote(vote);
+
         // add dependencies
-        if (isolationLevel == IsolationLevel.PL4 ||
-                (useDependencyTracking && vote == Vote.REPLAY)) {
-            transaction.addDependencies(
-                    versioningStrategy.extractDependencies(tid, timestamp, watermark, object));
-        }
+        dependencyTrackingStrategy.updateDependencies(transaction, object);
 
         // avoid wasting memory in case we generated an invalid version
         if (vote != Vote.REPLAY) {
-            object.addVersion(tid, timestamp, handler.object);
+            ObjectVersion<V> objectVersion = versioningStrategy.installVersion(tid, timestamp, object, handler.object);
+            transaction.addVersion(key, objectVersion);
         }
-
-        transaction.mergeVote(vote);
     }
 }

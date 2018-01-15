@@ -130,13 +130,15 @@ public class Object<T> implements Serializable {
     }
 
 
-    public synchronized void addVersion(int tid, int version, T object) {
+    public synchronized ObjectVersion<T> addVersion(int tid, int version, T object) {
         ObjectVersion<T> objectVersion = ObjectVersion.of(version, tid, object, objectFunction);
         versions.addInOrder(objectVersion);
 
         if (version > lastVersion.version) {
             lastVersion = objectVersion;
         }
+
+        return objectVersion;
     }
 
     public synchronized void deleteVersion(int version) {

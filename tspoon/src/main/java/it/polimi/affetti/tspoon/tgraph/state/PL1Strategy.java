@@ -7,7 +7,7 @@ import it.polimi.affetti.tspoon.tgraph.db.Object;
  */
 public class PL1Strategy extends PL0Strategy {
     @Override
-    public boolean isWritingAllowed(int tid, int timestamp, int watermark, Object<?> object) {
+    public boolean canWrite(int tid, int timestamp, int watermark, Object<?> object) {
         int lastVersion = object.getLastAvailableVersion().version;
         return timestamp > lastVersion;
     }

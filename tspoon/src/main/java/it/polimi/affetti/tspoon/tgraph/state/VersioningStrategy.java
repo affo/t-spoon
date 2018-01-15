@@ -4,7 +4,6 @@ import it.polimi.affetti.tspoon.tgraph.db.Object;
 import it.polimi.affetti.tspoon.tgraph.db.ObjectVersion;
 
 import java.io.Serializable;
-import java.util.Set;
 
 /**
  * Created by affo on 18/07/17.
@@ -19,9 +18,9 @@ import java.util.Set;
  * At PL3 you can read as in PL2, but you can write only if the last version is known to be finished.
  */
 public interface VersioningStrategy extends Serializable {
-    <V> ObjectVersion<V> extractObjectVersion(int tid, int timestamp, int watermark, Object<V> versions);
+    <V> ObjectVersion<V> readVersion(int tid, int timestamp, int watermark, Object<V> versions);
 
-    boolean isWritingAllowed(int tid, int timestamp, int watermark, Object<?> object);
+    boolean canWrite(int tid, int timestamp, int watermark, Object<?> object);
 
-    Set<Integer> extractDependencies(int tid, int timestamp, int watermark, Object<?> object);
+    <V> ObjectVersion<V> installVersion(int tid, int timestamp, Object<V> object, V version);
 }

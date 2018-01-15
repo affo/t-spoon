@@ -15,6 +15,7 @@ public class Transaction<V> {
     public Vote vote = Vote.COMMIT;
     private final Set<Integer> dependencies;
     private final Map<String, Object<V>> touchedObjects = new HashMap<>();
+    private final Map<String, ObjectVersion<V>> objectVersions = new HashMap<>();
     private final Map<String, Operation<V>> ops = new HashMap<>();
     private final Address coordinator;
     private List<Update<V>> updates;
@@ -44,6 +45,10 @@ public class Transaction<V> {
         this.ops.put(key, operation);
     }
 
+    public void addVersion(String key, ObjectVersion<V> objectVersion) {
+        objectVersions.put(key, objectVersion);
+    }
+
     Object<V> getObject(String key) {
         return touchedObjects.get(key);
     }
@@ -68,6 +73,10 @@ public class Transaction<V> {
         return coordinator;
     }
 
+    public void addDependency(int dependency) {
+        this.dependencies.add(dependency);
+    }
+
     public void addDependencies(Collection<Integer> dependencies) {
         this.dependencies.addAll(dependencies);
     }
@@ -77,9 +86,9 @@ public class Transaction<V> {
     }
 
     private List<Update<V>> calculateUpdates() {
-        return touchedObjects.entrySet().stream()
-                .map((Map.Entry<String, Object<V>> entry) -> Update.of(tid, entry.getKey(),
-                        entry.getValue().getVersion(timestamp).object))
+        return objectVersions.entrySet().stream()
+                .map((Map.Entry<String, ObjectVersion<V>> entry) -> Update.of(tid, entry.getKey(),
+                        entry.getValue().object))
                 .collect(Collectors.toList());
     }
 
@@ -97,22 +106,44 @@ public class Transaction<V> {
 
     public Iterable<Update<V>> applyChanges() {
         List<Update<V>> updates = Collections.emptyList();
-        // NOTE that commit/abort on multiple objects is not atomic wrt external queries and internal operations
         if (!isReadOnly()) {
             if (vote == Vote.COMMIT) {
-                for (Object<V> object : touchedObjects.values()) {
-                    object.commitVersion(timestamp);
-                    object.performVersionCleanup(timestamp);
-                }
-
+                commit();
+                // calculate the updates for the first time
                 updates = getUpdates();
             } else {
-                for (Object<V> object : touchedObjects.values()) {
-                    object.deleteVersion(timestamp);
-                }
+                abort();
             }
         }
 
         return updates;
+    }
+
+    // NOTE that commit/abort on multiple objects is not atomic wrt external queries and internal operations
+    public void commit() {
+        if (vote != Vote.COMMIT) {
+            throw new IllegalStateException("Cannot commit transaction with vote: " + vote);
+        }
+
+        for (Map.Entry<String, ObjectVersion<V>> entry : objectVersions.entrySet()) {
+            String key = entry.getKey();
+            int version = entry.getValue().version;
+            Object<V> object = touchedObjects.get(key);
+            object.commitVersion(version);
+            object.performVersionCleanup(version);
+        }
+    }
+
+    public void abort() {
+        if (vote == Vote.COMMIT) {
+            throw new IllegalStateException("Cannot abort a committed transaction");
+        }
+
+        for (Map.Entry<String, ObjectVersion<V>> entry : objectVersions.entrySet()) {
+            String key = entry.getKey();
+            int version = entry.getValue().version;
+            Object<V> object = touchedObjects.get(key);
+            object.deleteVersion(version);
+        }
     }
 }

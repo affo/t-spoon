@@ -15,7 +15,6 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 import static it.polimi.affetti.tspoon.tgraph.IsolationLevel.PL3;
-import static it.polimi.affetti.tspoon.tgraph.IsolationLevel.PL4;
 
 /**
  * Created by affo on 17/07/17.
@@ -82,10 +81,6 @@ public class TransactionEnvironment {
 
     public void setIsolationLevel(IsolationLevel isolationLevel) {
         this.isolationLevel = isolationLevel;
-
-        if (isolationLevel == PL4) {
-            useDependencyTracking = true;
-        }
     }
 
     public IsolationLevel getIsolationLevel() {
@@ -93,11 +88,6 @@ public class TransactionEnvironment {
     }
 
     public void setUseDependencyTracking(boolean useDependencyTracking) {
-        if (isolationLevel == PL4) {
-            // cannot change dependency tracking policy at level PL4
-            return;
-        }
-
         this.useDependencyTracking = useDependencyTracking;
     }
 
