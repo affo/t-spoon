@@ -40,7 +40,7 @@ public interface TwoPCParticipant<L extends TwoPCParticipant.Listener> {
 
     Address getServerAddress();
 
-    NetUtils.SingletonServerType getServerType();
+    NetUtils.ServerType getServerType();
 
     Supplier<AbstractServer> getServerSupplier();
 

@@ -66,6 +66,10 @@ public class Evaluation {
         final boolean durable = parameters.getBoolean("durable", true);
         final int isolationLevelNumber = parameters.getInt("isolationLevel", 3);
         final long deadlockTimeout = parameters.getLong("deadlockTimeout", 100L);
+        final int openServerPoolSize = parameters.getInt("openPool", 1);
+        final int stateServerPoolSize = parameters.getInt("statePool", 1);
+        final int queryServerPoolSize = parameters.getInt("queryPool", 1);
+
 
         final boolean printPlan = parameters.getBoolean("printPlan", false);
 
@@ -112,6 +116,9 @@ public class Evaluation {
         tEnv.setDurable(durable);
         tEnv.setDeadlockTimeout(deadlockTimeout);
         tEnv.setVerbose(false);
+        tEnv.setOpenServerPoolSize(openServerPoolSize);
+        tEnv.setStateServerPoolSize(stateServerPoolSize);
+        tEnv.setQueryServerPoolSize(queryServerPoolSize);
 
         // >>> Source
         int limit = numRecords + sledLen;

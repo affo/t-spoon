@@ -70,7 +70,7 @@ public abstract class StateOperator<T, V>
 
         collector = new InOrderSideCollector<>(output, updatesTag);
 
-        transactionCloser = tRuntimeContext.getAtStateTransactionCloser();
+        transactionCloser = tRuntimeContext.getAtStateTransactionCloser(taskNumber);
         transactionCloser.open();
 
         if (tRuntimeContext.getSubscriptionMode() == AbstractTwoPCParticipant.SubscriptionMode.GENERIC) {
@@ -78,7 +78,8 @@ public abstract class StateOperator<T, V>
         }
 
         // Querying
-        QueryServer queryServer = NetUtils.openAsSingleton(NetUtils.SingletonServerType.QUERY,
+        // TODO use openInPool
+        QueryServer queryServer = NetUtils.openAsSingleton(NetUtils.ServerType.QUERY,
                 () -> new QueryServer(getRuntimeContext()));
         queryServer.listen(this);
     }
@@ -87,7 +88,7 @@ public abstract class StateOperator<T, V>
     public void close() throws Exception {
         super.close();
         transactionCloser.close();
-        NetUtils.closeAsSingleton(NetUtils.SingletonServerType.QUERY);
+        NetUtils.closeServerPool(NetUtils.ServerType.QUERY);
     }
 
     // --------------------------------------- Transaction Execution and Completion ---------------------------------------

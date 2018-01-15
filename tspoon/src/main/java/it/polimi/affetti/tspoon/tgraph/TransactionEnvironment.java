@@ -32,6 +32,9 @@ public class TransactionEnvironment {
     private boolean useDependencyTracking = true;
     private boolean verbose = false;
     private long deadlockTimeout;
+    // Pool sizes are per TaskManager (e.g. stateServerPoolSize = 4 and 3 TMs => 12 StateServers)
+    // Pool sizes defaults to singletons.
+    private int stateServerPoolSize = 1, openServerPoolSize = 1, queryServerPoolSize = 1;
 
     private TransactionEnvironment(StreamExecutionEnvironment env) {
         this.querySource = new QuerySource();
@@ -115,12 +118,39 @@ public class TransactionEnvironment {
         querySource.setQuerySupplier(querySupplier);
     }
 
+    public int getStateServerPoolSize() {
+        return stateServerPoolSize;
+    }
+
+    public void setStateServerPoolSize(int stateServerPoolSize) {
+        this.stateServerPoolSize = stateServerPoolSize;
+    }
+
+    public int getOpenServerPoolSize() {
+        return openServerPoolSize;
+    }
+
+    public void setOpenServerPoolSize(int openServerPoolSize) {
+        this.openServerPoolSize = openServerPoolSize;
+    }
+
+    public int getQueryServerPoolSize() {
+        return queryServerPoolSize;
+    }
+
+    public void setQueryServerPoolSize(int queryServerPoolSize) {
+        this.queryServerPoolSize = queryServerPoolSize;
+    }
+
     public TRuntimeContext createTransactionalRuntimeContext() {
         TRuntimeContext runtimeContext = new TRuntimeContext();
         runtimeContext.setDurabilityEnabled(isDurabilityEnabled);
         runtimeContext.setIsolationLevel(isolationLevel);
         runtimeContext.setUseDependencyTracking(useDependencyTracking);
         runtimeContext.setStrategy(strategy);
+        runtimeContext.setOpenServerPoolSize(openServerPoolSize);
+        runtimeContext.setStateServerPoolSize(stateServerPoolSize);
+        runtimeContext.setQueryServerPoolSize(queryServerPoolSize);
         return runtimeContext;
     }
 

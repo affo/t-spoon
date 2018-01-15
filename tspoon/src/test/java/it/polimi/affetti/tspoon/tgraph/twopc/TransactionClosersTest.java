@@ -23,8 +23,8 @@ public class TransactionClosersTest {
         tRuntimeContext = TransactionEnvironment
                 .get(StreamExecutionEnvironment.getExecutionEnvironment())
                 .createTransactionalRuntimeContext();
-        coordinator = tRuntimeContext.getSourceTransactionCloser();
-        stateOp = tRuntimeContext.getAtStateTransactionCloser();
+        coordinator = tRuntimeContext.getSourceTransactionCloser(0);
+        stateOp = tRuntimeContext.getAtStateTransactionCloser(0);
     }
 
     @Test
@@ -37,8 +37,8 @@ public class TransactionClosersTest {
 
         for (int i = 0; i < limit; i++) {
             pool.submit(() -> {
-                assertTrue(tRuntimeContext.getSourceTransactionCloser() == coordinator);
-                assertTrue(tRuntimeContext.getAtStateTransactionCloser() == stateOp);
+                assertTrue(tRuntimeContext.getSourceTransactionCloser(0) == coordinator);
+                assertTrue(tRuntimeContext.getAtStateTransactionCloser(0) == stateOp);
                 synchronized (monitor) {
                     count[0]++;
                     monitor.notifyAll();

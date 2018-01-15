@@ -1,7 +1,7 @@
 package it.polimi.affetti.tspoon.tgraph.twopc;
 
 import it.polimi.affetti.tspoon.common.Address;
-import it.polimi.affetti.tspoon.runtime.WithSingletonServer;
+import it.polimi.affetti.tspoon.runtime.WithServer;
 
 import java.util.*;
 import java.util.function.Consumer;
@@ -9,16 +9,15 @@ import java.util.stream.Collectors;
 
 /**
  * Created by affo on 04/12/17.
- * <p>
- * This class is instantiated as a singleton and has to handle multi-threaded access.
+ *
+ * Instances of this type are provided in limited number by the TRuntimeContext and shared across threads.
+ * So they must handle multi-threaded access.
  */
 public abstract class AbstractTwoPCParticipant<L extends TwoPCParticipant.Listener> implements TwoPCParticipant<L> {
     protected final SubscriptionMode subscriptionMode;
     protected Map<Long, List<L>> specificListeners = new HashMap<>();
     protected Set<L> genericListeners = new HashSet<>();
-    // singleton server enforces the existence of only one server
-    // and handles multiple open and closes from different threads
-    private WithSingletonServer server;
+    private WithServer server;
 
     protected AbstractTwoPCParticipant(SubscriptionMode subscriptionMode) {
         this.subscriptionMode = subscriptionMode;
@@ -27,7 +26,7 @@ public abstract class AbstractTwoPCParticipant<L extends TwoPCParticipant.Listen
     @Override
     public synchronized void open() throws Exception {
         if (server == null) {
-            server = new WithSingletonServer(getServerType(), getServerSupplier());
+            server = new WithServer(getServerSupplier().get(), getServerType());
             server.open();
         }
     }

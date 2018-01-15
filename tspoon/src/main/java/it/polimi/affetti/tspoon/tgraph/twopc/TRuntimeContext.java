@@ -2,6 +2,7 @@ package it.polimi.affetti.tspoon.tgraph.twopc;
 
 import it.polimi.affetti.tspoon.tgraph.IsolationLevel;
 import it.polimi.affetti.tspoon.tgraph.Strategy;
+import org.apache.flink.util.Preconditions;
 
 import java.io.Serializable;
 
@@ -18,13 +19,14 @@ import java.io.Serializable;
  * maximum degree of parallelism for closing transactions.
  */
 public class TRuntimeContext implements Serializable {
-    private static AbstractOpenOperatorTransactionCloser openOperatorTransactionCloser;
-    private static AbstractStateOperatorTransactionCloser stateOperatorTransactionCloser;
+    private static AbstractOpenOperatorTransactionCloser[] openOperatorTransactionCloserPool;
+    private static AbstractStateOperatorTransactionCloser[] stateOperatorTransactionCloserPool;
 
     private AbstractTwoPCParticipant.SubscriptionMode subscriptionMode = AbstractTwoPCParticipant.SubscriptionMode.GENERIC;
     public boolean durable, useDependencyTracking;
     public IsolationLevel isolationLevel;
     public Strategy strategy;
+    public int openServerPoolSize = 1, stateServerPoolSize = 1, queryServerPoolSize = 1;
 
     public void setDurabilityEnabled(boolean durable) {
         this.durable = durable;
@@ -74,33 +76,68 @@ public class TRuntimeContext implements Serializable {
         return new StandardTransactionsIndex<>();
     }
 
+    public void setOpenServerPoolSize(int openServerPoolSize) {
+        Preconditions.checkArgument(openServerPoolSize > 0,
+                "Server pool size must be greater than 0");
+        this.openServerPoolSize = openServerPoolSize;
+    }
+
+    public void setStateServerPoolSize(int stateServerPoolSize) {
+        Preconditions.checkArgument(stateServerPoolSize > 0,
+                "Server pool size must be greater than 0");
+        this.stateServerPoolSize = stateServerPoolSize;
+    }
+
+    public void setQueryServerPoolSize(int queryServerPoolSize) {
+        Preconditions.checkArgument(queryServerPoolSize > 0,
+                "Server pool size must be greater than 0");
+        this.queryServerPoolSize = queryServerPoolSize;
+    }
+
     // ---------------------- These methods are called upon deserialization
 
-    public AbstractOpenOperatorTransactionCloser getSourceTransactionCloser() {
+    public AbstractOpenOperatorTransactionCloser getSourceTransactionCloser(int taskNumber) {
+        Preconditions.checkArgument(taskNumber >= 0);
+
+        int index = taskNumber % openServerPoolSize;
+
         synchronized (TRuntimeContext.class) {
-            if (openOperatorTransactionCloser == null) {
+            if (openOperatorTransactionCloserPool == null) {
+                openOperatorTransactionCloserPool = new AbstractOpenOperatorTransactionCloser[openServerPoolSize];
+            }
+
+            if (openOperatorTransactionCloserPool[index] == null) {
                 if (isDurabilityEnabled()) {
-                    openOperatorTransactionCloser = new DurableOpenOperatorTransactionCloser(subscriptionMode);
+                    openOperatorTransactionCloserPool[index] = new DurableOpenOperatorTransactionCloser(subscriptionMode);
                 } else {
-                    openOperatorTransactionCloser = new VolatileOpenOperatorTransactionCloser(subscriptionMode);
+                    openOperatorTransactionCloserPool[index] = new VolatileOpenOperatorTransactionCloser(subscriptionMode);
                 }
             }
 
-            return openOperatorTransactionCloser;
+            return openOperatorTransactionCloserPool[index];
         }
     }
 
-    public AbstractStateOperatorTransactionCloser getAtStateTransactionCloser() {
+
+    public AbstractStateOperatorTransactionCloser getAtStateTransactionCloser(int taskNumber) {
+        Preconditions.checkArgument(taskNumber >= 0);
+
+        int index = taskNumber % stateServerPoolSize;
+
         synchronized (TRuntimeContext.class) {
-            if (stateOperatorTransactionCloser == null) {
+            if (stateOperatorTransactionCloserPool == null) {
+                stateOperatorTransactionCloserPool = new AbstractStateOperatorTransactionCloser[stateServerPoolSize];
+            }
+
+            if (stateOperatorTransactionCloserPool[index] == null) {
                 if (isDurabilityEnabled()) {
-                    stateOperatorTransactionCloser = new DurableStateTransactionCloser(subscriptionMode);
+                    stateOperatorTransactionCloserPool[index] = new DurableStateTransactionCloser(subscriptionMode);
                 } else {
-                    stateOperatorTransactionCloser = new VolatileStateTransactionCloser(subscriptionMode);
+                    stateOperatorTransactionCloserPool[index] = new VolatileStateTransactionCloser(subscriptionMode);
                 }
             }
 
-            return stateOperatorTransactionCloser;
+            return stateOperatorTransactionCloserPool[index];
         }
     }
 

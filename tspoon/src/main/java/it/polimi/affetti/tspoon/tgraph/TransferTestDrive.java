@@ -45,6 +45,7 @@ public class TransferTestDrive {
         final boolean useDependencyTracking = true;
         final boolean noContention = false;
         final boolean durable = false;
+        final boolean queryOn = false;
 
         final boolean printPlan = false;
 
@@ -62,6 +63,9 @@ public class TransferTestDrive {
         tEnv.setUseDependencyTracking(useDependencyTracking);
         tEnv.setDeadlockTimeout(1000000L); // making deadlock detector useless
         tEnv.setDurable(durable);
+
+        // NEW setting pool size
+        tEnv.setStateServerPoolSize(4);
 
         final int numberOfElements = 100000;
         TransferSource transferSource;
@@ -99,7 +103,7 @@ public class TransferTestDrive {
 
         OpenStream<Transfer> open;
         // we can check consistency only at level PL3 or PL4
-        if (isolationLevel == IsolationLevel.PL3 || isolationLevel == IsolationLevel.PL4) {
+        if (queryOn && (isolationLevel == IsolationLevel.PL3 || isolationLevel == IsolationLevel.PL4)) {
             open = tEnv.open(transfers, new ConsistencyCheck(startAmount));
             // select * from balances
             Query query = new PredicateQuery<>("balances", new PredicateQuery.SelectAll<>());

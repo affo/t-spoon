@@ -16,8 +16,8 @@ public abstract class AbstractOpenOperatorTransactionCloser extends
     }
 
     @Override
-    public NetUtils.SingletonServerType getServerType() {
-        return NetUtils.SingletonServerType.OPEN;
+    public NetUtils.ServerType getServerType() {
+        return NetUtils.ServerType.OPEN;
     }
 
     @Override

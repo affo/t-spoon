@@ -79,7 +79,8 @@ public class OpenOperator<T>
         // TODO temporarly avoiding log ordering
         // collector = new InOrderSideCollector<>(output, logTag);
         collector = new SafeCollector<>(output);
-        openOperatorTransactionCloser = tRuntimeContext.getSourceTransactionCloser();
+        // everybody shares the same OpenServer by specifying the same taskNumber
+        openOperatorTransactionCloser = tRuntimeContext.getSourceTransactionCloser(0);
         openOperatorTransactionCloser.open();
 
         if (tRuntimeContext.getSubscriptionMode() == AbstractTwoPCParticipant.SubscriptionMode.GENERIC) {

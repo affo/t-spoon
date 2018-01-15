@@ -32,9 +32,9 @@ public abstract class SimpleTwoPCTest {
         tRuntimeContext = TransactionEnvironment.get(env).createTransactionalRuntimeContext();
         // TODO develop a strategy for implementing tests for different subscription modes
         tRuntimeContext.setSubscriptionMode(AbstractTwoPCParticipant.SubscriptionMode.GENERIC);
-        openOperatorTransactionCloser = tRuntimeContext.getSourceTransactionCloser();
+        openOperatorTransactionCloser = tRuntimeContext.getSourceTransactionCloser(0);
         openOperatorTransactionCloser.open();
-        stateOperatorTransactionCloser = tRuntimeContext.getAtStateTransactionCloser();
+        stateOperatorTransactionCloser = tRuntimeContext.getAtStateTransactionCloser(0);
         stateOperatorTransactionCloser.open();
         sinkTransactionCloser = tRuntimeContext.getSinkTransactionCloser();
         sinkTransactionCloser.open();

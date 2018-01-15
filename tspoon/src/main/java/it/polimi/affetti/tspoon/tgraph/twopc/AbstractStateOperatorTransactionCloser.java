@@ -20,8 +20,8 @@ public abstract class AbstractStateOperatorTransactionCloser
     }
 
     @Override
-    public NetUtils.SingletonServerType getServerType() {
-        return NetUtils.SingletonServerType.STATE;
+    public NetUtils.ServerType getServerType() {
+        return NetUtils.ServerType.STATE;
     }
 
     @Override
