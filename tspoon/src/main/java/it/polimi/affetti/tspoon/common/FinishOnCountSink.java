@@ -61,7 +61,7 @@ public class FinishOnCountSink<T> extends RichSinkFunction<T> {
         }
 
         if (count > threshold) {
-            throw new RuntimeException("Counted too much: " + count);
+            throw new RuntimeException("Counted too much: " + count + ", record: " + t);
         }
 
         if (count == threshold) {
