@@ -25,6 +25,7 @@ public class VolatileSinkTransactionCloser implements CloseSinkTransactionCloser
     @Override
     public void onMetadata(Metadata metadata) throws Exception {
         int dependency;
+
         if (metadata.dependencyTracking.isEmpty()) {
             dependency = -1;
         } else {
@@ -39,11 +40,11 @@ public class VolatileSinkTransactionCloser implements CloseSinkTransactionCloser
                 dependency, ""
         );
 
+        clients.getOrCreateClient(metadata.coordinator).send(message);
+
+
         for (Address cohort : metadata.cohorts) {
             clients.getOrCreateClient(cohort).send(message);
         }
-
-        // notify coordinator after cohorts for proper watermark emission
-        clients.getOrCreateClient(metadata.coordinator).send(message);
     }
 }
