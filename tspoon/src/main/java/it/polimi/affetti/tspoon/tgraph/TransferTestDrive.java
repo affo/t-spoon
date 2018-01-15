@@ -34,7 +34,7 @@ import java.util.stream.IntStream;
 public class TransferTestDrive {
     public static void main(String[] args) throws Exception {
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
-        env.setBufferTimeout(5);
+        env.setBufferTimeout(0);
         ParameterTool parameters = ParameterTool.fromArgs(args);
 
         final int baseParallelism = 4;
@@ -78,6 +78,7 @@ public class TransferTestDrive {
         } else {
             transferSource = new TransferSource(numberOfElements, 100000, startAmount);
         }
+
         DataStream<Transfer> transfers = env.addSource(transferSource).setParallelism(1);
 
         //transfers.print();
