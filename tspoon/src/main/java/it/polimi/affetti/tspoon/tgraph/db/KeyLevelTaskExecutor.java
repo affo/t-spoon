@@ -130,7 +130,6 @@ public class KeyLevelTaskExecutor<T extends KeyLevelTaskExecutor.TaskResult> {
         }
 
         public synchronized T execute() {
-            executed = true;
             return actualTask.get();
         }
 
@@ -161,6 +160,8 @@ public class KeyLevelTaskExecutor<T extends KeyLevelTaskExecutor.TaskResult> {
             for (Task task : queue.values()) {
                 if (!lockedKeys.containsKey(task.key)) {
                     lockedKeys.put(task.key, false); // put as not read-only
+                    // once a task is taken from the queue it is considered as executed
+                    task.executed = true;
                     return task;
                 }
             }
