@@ -13,7 +13,7 @@ import java.util.stream.Collectors;
 public class Transaction<V> {
     public final int tid, timestamp, watermark;
     public Vote vote = Vote.COMMIT;
-    private final Set<Integer> dependencies;
+    private final Set<Integer> dependencies; // should be transaction ids
     private final Map<String, Object<V>> touchedObjects = new HashMap<>();
     private final Map<String, ObjectVersion<V>> objectVersions = new HashMap<>();
     private final Map<String, Operation<V>> ops = new HashMap<>();

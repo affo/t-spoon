@@ -171,8 +171,8 @@ public class OpenOperator<T>
         int tid = localTransactionContext.tid;
         int timestamp = localTransactionContext.timestamp;
         Vote vote = notification.vote;
-        Integer dependency = transactionsIndex.getTransactionId(notification.replayCause);
-        boolean dependencyNotSatisfied = dependency != null; // the transaction has not yet committed/aborted
+        int dependency = notification.replayCause;
+        boolean dependencyNotSatisfied = transactionsIndex.isTransactionRunning(dependency);
 
         int oldWM = transactionsIndex.getCurrentWatermark();
         int newWM = transactionsIndex.updateWatermark(timestamp, vote);
@@ -204,7 +204,7 @@ public class OpenOperator<T>
             case REPLAY:
                 // this transaction depends on a previous one
                 if (dependencyNotSatisfied && tid > dependency) {
-                    addDependency(tid, dependency);
+                    addDependency(dependency, tid);
                 } else {
                     directlyReplayed.add(1);
                     replayElement(tid);
@@ -240,25 +240,24 @@ public class OpenOperator<T>
         }
     }
 
-    // The first depends on the second one (dependsOn > tid)
-    private void addDependency(int dependsOn, int tid) {
+    private void addDependency(int tid, int dependent) {
         Integer alreadyDependent = dependencies.get(tid);
 
         if (alreadyDependent == null) {
-            dependencies.put(tid, dependsOn);
+            dependencies.put(tid, dependent);
             return;
         }
 
-        if (dependsOn <= alreadyDependent) {
+        if (dependent <= alreadyDependent) {
             // insert a step in the dependency chain
-            dependencies.put(tid, dependsOn);
-            dependencies.put(dependsOn, alreadyDependent);
+            dependencies.put(tid, dependent);
+            dependencies.put(dependent, alreadyDependent);
             return;
         }
 
-        // dependsOn can depend on the transaction that already depends on tid:
+        // the dependent can depend on the transaction that already depends on tid:
         // extend the dependency chain
-        addDependency(dependsOn, alreadyDependent);
+        addDependency(alreadyDependent, dependent);
     }
 
     private void satisfyDependency(int tid) {

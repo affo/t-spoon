@@ -46,6 +46,10 @@ public abstract class TransactionsIndex<T> implements Serializable {
         return executions.get(tid);
     }
 
+    public boolean isTransactionRunning(int tid) {
+        return executions.containsKey(tid);
+    }
+
     public LocalTransactionContext getTransactionByTimestamp(int timestamp) {
         Integer tid = getTransactionId(timestamp);
         return getTransaction(tid);

@@ -14,9 +14,9 @@ import java.util.function.Supplier;
 public class PessimisticTransactionExecutor implements
         KeyLevelTaskExecutor.TaskCompletionObserver<PessimisticTransactionExecutor.OperationExecutionResult> {
     private KeyLevelTaskExecutor<OperationExecutionResult> executor;
-    // taskId -> timestamp
-    private Map<Long, Integer> taskTimestampMapping;
-    // timestamp -> tasks
+    // taskId -> tid
+    private Map<Long, Integer> taskTidMapping;
+    // timestamp -> tasks (using timestamps for tracking to use a unique id)
     private Map<Integer, List<Long>> timestampTaskMapping;
     // taskId -> callback
     private Map<Long, Consumer<OperationExecutionResult>> callbacks;
@@ -26,7 +26,7 @@ public class PessimisticTransactionExecutor implements
     }
 
     public PessimisticTransactionExecutor(int numberOfExecutors, long deadlockTimeout) {
-        taskTimestampMapping = new HashMap<>();
+        taskTidMapping = new HashMap<>();
         timestampTaskMapping = new HashMap<>();
         callbacks = new HashMap<>();
 
@@ -37,8 +37,8 @@ public class PessimisticTransactionExecutor implements
         executor.startProcessing();
     }
 
-    private synchronized void registerTask(long taskId, int timestamp, Consumer<OperationExecutionResult> callback) {
-        taskTimestampMapping.put(taskId, timestamp);
+    private synchronized void registerTask(long taskId, int tid, int timestamp, Consumer<OperationExecutionResult> callback) {
+        taskTidMapping.put(taskId, tid);
         timestampTaskMapping.computeIfAbsent(timestamp, ts -> new LinkedList<>()).add(taskId);
         callbacks.put(taskId, callback);
     }
@@ -46,9 +46,9 @@ public class PessimisticTransactionExecutor implements
     private synchronized void unregisterTransaction(int timestamp) {
         List<Long> taskIds = timestampTaskMapping.remove(timestamp);
         taskIds.forEach(
-                id -> {
-                    taskTimestampMapping.remove(id);
-                    callbacks.remove(id);
+                taskId -> {
+                    taskTidMapping.remove(taskId);
+                    callbacks.remove(taskId);
                 }
         );
     }
@@ -115,7 +115,7 @@ public class PessimisticTransactionExecutor implements
         };
 
         long id = executor.add(key, task);
-        registerTask(id, transaction.timestamp, callback);
+        registerTask(id, transaction.tid, transaction.timestamp, callback);
         executor.run(id);
     }
 
@@ -145,7 +145,7 @@ public class PessimisticTransactionExecutor implements
     @Override
     public void onDeadlock(LinkedHashMap<Long, List<Long>> deadlockedWithDependencies) {
         for (Map.Entry<Long, List<Long>> entry : deadlockedWithDependencies.entrySet()) {
-            long id = entry.getKey();
+            long taskId = entry.getKey();
             List<Long> dependencies = entry.getValue();
 
             OperationExecutionResult operationResult;
@@ -153,18 +153,18 @@ public class PessimisticTransactionExecutor implements
             synchronized (this) {
                 operationResult = new OperationExecutionResult(Vote.REPLAY);
                 for (Long dependency : dependencies) {
-                    Integer timestamp = taskTimestampMapping.get(dependency);
-                    if (timestamp == null) {
+                    Integer tid = taskTidMapping.get(dependency);
+                    if (tid == null) {
                         // It could happen that we detect a dependency with a task that run to completion
                         // and its transaction terminated globally.
                         // No matter if we detected a dependency with this transaction,
                         // we can skip tracking the dependency
                         continue;
                     }
-                    operationResult.addDependency(timestamp);
+                    operationResult.addDependency(tid);
                 }
 
-                callback = callbacks.get(id);
+                callback = callbacks.get(taskId);
             }
 
             callback.accept(operationResult);
@@ -179,8 +179,8 @@ public class PessimisticTransactionExecutor implements
             this.vote = vote;
         }
 
-        public void addDependency(int timestamp) {
-            replayCauses.add(timestamp);
+        public void addDependency(int tid) {
+            replayCauses.add(tid);
         }
 
         public HashSet<Integer> getReplayCauses() {

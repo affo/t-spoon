@@ -1,6 +1,7 @@
 package it.polimi.affetti.tspoon.tgraph.state;
 
 import it.polimi.affetti.tspoon.tgraph.db.Object;
+import it.polimi.affetti.tspoon.tgraph.db.ObjectVersion;
 import it.polimi.affetti.tspoon.tgraph.db.Transaction;
 
 /**
@@ -28,9 +29,9 @@ public class PL4DependencyTrackingStrategy implements DependencyTrackingStrategy
     }
 
     @Override
-    public <T> void updateDependencies(Transaction<T> transaction, Object<T> object) {
+    public <T> void updateDependencies(Transaction<T> transaction, Object<T> object, ObjectVersion<T> readVersion) {
         // normal dependencies
-        wrapped.updateDependencies(transaction, object);
+        wrapped.updateDependencies(transaction, object, readVersion);
 
         // forward dependencies
         object.getVersionsAfter(transaction.watermark)

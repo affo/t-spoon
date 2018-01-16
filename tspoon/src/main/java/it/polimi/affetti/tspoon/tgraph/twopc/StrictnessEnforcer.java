@@ -4,7 +4,6 @@ import it.polimi.affetti.tspoon.common.OrderedTimestamps;
 import it.polimi.affetti.tspoon.tgraph.Metadata;
 import it.polimi.affetti.tspoon.tgraph.Vote;
 import org.apache.flink.api.common.functions.RichFlatMapFunction;
-import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.util.Collector;
 
@@ -28,8 +27,8 @@ import java.util.stream.Stream;
 public class StrictnessEnforcer extends RichFlatMapFunction<Metadata, Metadata> {
     private transient Sequencer sequencer;
     private Map<Integer, Metadata> metadataCache;
-    // tid -> (tid, timestamp) of the newest (in terms of tid) forward dependency signaller
-    private Map<Integer, Tuple2<Integer, Integer>> forwardDependencies;
+    // tid -> newest tid of the transaction that signalled the fwd dependency
+    private Map<Integer, Integer> forwardDependencies;
 
     @Override
     public void open(Configuration parameters) throws Exception {
@@ -62,10 +61,10 @@ public class StrictnessEnforcer extends RichFlatMapFunction<Metadata, Metadata> 
 
                             sequencer.signalReplay(forwardDep);
 
-                            Tuple2<Integer, Integer> tidTs = forwardDependencies.get(forwardDep);
-                            if (tidTs == null || tidTs.f0 < tid) {
+                            Integer signallerTid = forwardDependencies.get(forwardDep);
+                            if (signallerTid == null || signallerTid < tid) {
                                 // newer signaller detected
-                                forwardDependencies.put(forwardDep, Tuple2.of(tid, metadata.timestamp));
+                                forwardDependencies.put(forwardDep, tid);
                             }
 
                             return Stream.empty();
@@ -92,12 +91,11 @@ public class StrictnessEnforcer extends RichFlatMapFunction<Metadata, Metadata> 
      * @param collector
      */
     private void collectForwardDependencies(Collector<Metadata> collector) {
-        Iterator<Map.Entry<Integer, Tuple2<Integer, Integer>>> iterator = forwardDependencies.entrySet().iterator();
-
+        Iterator<Map.Entry<Integer, Integer>> iterator = forwardDependencies.entrySet().iterator();
         while (iterator.hasNext()) {
-            Map.Entry<Integer, Tuple2<Integer, Integer>> entry = iterator.next();
+            Map.Entry<Integer, Integer> entry = iterator.next();
             int tid = entry.getKey();
-            int dependencyTimestamp = entry.getValue().f1;
+            int signallerTid = entry.getValue();
             Metadata metadata = metadataCache.remove(tid);
 
             // it could be that the Metadata for forward dependency has not yet come
@@ -105,7 +103,7 @@ public class StrictnessEnforcer extends RichFlatMapFunction<Metadata, Metadata> 
                 metadata.vote = Vote.REPLAY;
                 // add the newest signaller as unique dependency
                 metadata.dependencyTracking = new HashSet<>();
-                metadata.dependencyTracking.add(dependencyTimestamp);
+                metadata.dependencyTracking.add(signallerTid);
 
                 collector.collect(metadata);
                 iterator.remove();

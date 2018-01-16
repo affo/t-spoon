@@ -73,7 +73,7 @@ public class OptimisticTransactionExecutor {
         transaction.mergeVote(vote);
 
         // add dependencies
-        dependencyTrackingStrategy.updateDependencies(transaction, object);
+        dependencyTrackingStrategy.updateDependencies(transaction, object, version);
 
         // avoid wasting memory in case we generated an invalid version
         if (vote != Vote.REPLAY) {
