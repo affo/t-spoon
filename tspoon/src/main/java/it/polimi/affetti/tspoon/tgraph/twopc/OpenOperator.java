@@ -38,9 +38,8 @@ public class OpenOperator<T>
     // TODO temporarly avoiding log ordering
     //protected transient InOrderSideCollector<T, Tuple2<Long, Vote>> collector;
     protected transient SafeCollector<T> collector;
-
-    // tid -> dependent tid (if mapping t1 -> t2 is present, this means that t2 depends on t1)
-    private Map<Integer, Integer> dependencies = new HashMap<>();
+    
+    private DependencyTracker dependencyTracker = new DependencyTracker();
     // tid -> current watermark
     private Map<Integer, Integer> playedWithWatermark = new HashMap<>();
     private Set<Integer> laterReplay = new HashSet<>();
@@ -171,8 +170,8 @@ public class OpenOperator<T>
         int tid = localTransactionContext.tid;
         int timestamp = localTransactionContext.timestamp;
         Vote vote = notification.vote;
-        int dependency = notification.replayCause;
-        boolean dependencyNotSatisfied = transactionsIndex.isTransactionRunning(dependency);
+        int replayCause = notification.replayCause;
+        boolean dependencyNotSatisfied = transactionsIndex.isTransactionRunning(replayCause);
 
         int oldWM = transactionsIndex.getCurrentWatermark();
         int newWM = transactionsIndex.updateWatermark(timestamp, vote);
@@ -196,15 +195,21 @@ public class OpenOperator<T>
                     collector.safeCollect(watermarkTag, lastCommittedWatermark);
                 }
             case ABORT:
+                // committed/aborted transaction satisfies a dependency
+                Integer unleashed = dependencyTracker.satisfyDependency(tid);
+                if (unleashed != null) {
+                    replayElement(unleashed);
+                    replayedUponDependencySatisfaction.add(1);
+                }
+
                 // when committing/aborting you can delete the transaction
                 transactionsIndex.deleteTransaction(tid);
-                satisfyDependency(tid);
                 playedWithWatermark.remove(tid);
                 break;
             case REPLAY:
-                // this transaction depends on a previous one
-                if (dependencyNotSatisfied && tid > dependency) {
-                    addDependency(dependency, tid);
+                // this transaction depends on a previous one (break cycles)
+                if (dependencyNotSatisfied && replayCause < tid) {
+                    dependencyTracker.addDependency(replayCause, tid);
                 } else {
                     directlyReplayed.add(1);
                     replayElement(tid);
@@ -237,35 +242,6 @@ public class OpenOperator<T>
             //   Think of forward dependencies for example, their REPLAY is not caused by a small watermark,
             //   but by being happened too early in time...
             collect(tid);
-        }
-    }
-
-    private void addDependency(int tid, int dependent) {
-        Integer alreadyDependent = dependencies.get(tid);
-
-        if (alreadyDependent == null) {
-            dependencies.put(tid, dependent);
-            return;
-        }
-
-        if (dependent <= alreadyDependent) {
-            // insert a step in the dependency chain
-            dependencies.put(tid, dependent);
-            dependencies.put(dependent, alreadyDependent);
-            return;
-        }
-
-        // the dependent can depend on the transaction that already depends on tid:
-        // extend the dependency chain
-        addDependency(alreadyDependent, dependent);
-    }
-
-    private void satisfyDependency(int tid) {
-        Integer dependent = dependencies.remove(tid);
-
-        if (dependent != null) {
-            replayElement(dependent);
-            replayedUponDependencySatisfaction.add(1);
         }
     }
 }

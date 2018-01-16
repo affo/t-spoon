@@ -29,7 +29,6 @@ public class VolatileSinkTransactionCloser implements CloseSinkTransactionCloser
         if (metadata.dependencyTracking.isEmpty()) {
             dependency = -1;
         } else {
-            // TODO could be min or max...
             dependency = Collections.max(metadata.dependencyTracking);
         }
 

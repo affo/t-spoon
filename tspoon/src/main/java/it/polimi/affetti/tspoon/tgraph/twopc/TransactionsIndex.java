@@ -4,10 +4,7 @@ import it.polimi.affetti.tspoon.common.OrderedTimestamps;
 import it.polimi.affetti.tspoon.tgraph.Vote;
 
 import java.io.Serializable;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 /**
  * Created by affo on 04/08/17.
@@ -48,6 +45,20 @@ public abstract class TransactionsIndex<T> implements Serializable {
 
     public boolean isTransactionRunning(int tid) {
         return executions.containsKey(tid);
+    }
+
+    /**
+     * Use it for debug
+     */
+    public int getNumberOfRunningTransactions() {
+        return executions.size();
+    }
+
+    /**
+     * Use it for debug
+     */
+    public Set<Integer> getRunningTids() {
+        return executions.keySet();
     }
 
     public LocalTransactionContext getTransactionByTimestamp(int timestamp) {
