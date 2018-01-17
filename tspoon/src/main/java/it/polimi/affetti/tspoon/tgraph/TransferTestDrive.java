@@ -35,12 +35,13 @@ public class TransferTestDrive {
     public static void main(String[] args) throws Exception {
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         env.setBufferTimeout(0);
+        env.getConfig().setLatencyTrackingInterval(-1);
         ParameterTool parameters = ParameterTool.fromArgs(args);
 
         final int baseParallelism = 4;
         final int partitioning = 4;
         final double startAmount = 100d;
-        final Strategy strategy = Strategy.OPTIMISTIC;
+        final Strategy strategy = Strategy.PESSIMISTIC;
         final IsolationLevel isolationLevel = IsolationLevel.PL3;
         final boolean useDependencyTracking = true;
         final boolean noContention = false;

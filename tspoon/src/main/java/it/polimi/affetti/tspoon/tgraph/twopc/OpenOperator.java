@@ -1,13 +1,11 @@
 package it.polimi.affetti.tspoon.tgraph.twopc;
 
 import it.polimi.affetti.tspoon.common.SafeCollector;
-import it.polimi.affetti.tspoon.metrics.MetricCurveAccumulator;
-import it.polimi.affetti.tspoon.metrics.Report;
-import it.polimi.affetti.tspoon.metrics.SingleValueAccumulator;
-import it.polimi.affetti.tspoon.metrics.TimeDelta;
+import it.polimi.affetti.tspoon.metrics.*;
 import it.polimi.affetti.tspoon.runtime.JobControlClient;
 import it.polimi.affetti.tspoon.runtime.JobControlListener;
 import it.polimi.affetti.tspoon.tgraph.*;
+import org.apache.flink.api.common.accumulators.Accumulator;
 import org.apache.flink.api.common.accumulators.IntCounter;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.api.java.utils.ParameterTool;
@@ -29,12 +27,16 @@ public class OpenOperator<T>
         extends AbstractStreamOperator<Enriched<T>>
         implements OneInputStreamOperator<T, Enriched<T>>,
         OpenOperatorTransactionCloseListener, JobControlListener {
+    private static final String COMMIT_COUNT = "commit-count";
+    private static final String ABORT_COUNT = "abort-count";
+    private static final String REPLAY_COUNT = "replay-count";
     private static final String NUMBER_OF_CLOSED_TRANSACTIONS = "total-closed-transactions";
     private static final String DEPENDENCY_REPLAYED_COUNTER_NAME = "replayed-upon-dependency-satisfaction";
     private static final String DIRECTLY_REPLAYED_COUNTER_NAME = "directly-replayed";
     private static final String REPLAYED_PERCENTAGE = "replayed-percentage";
     private static final String REPLAYED_UPON_WATERMARK_UPDATE_COUNTER_NAME = "replayed-upon-watermark-update";
-    private static final String LATENCY_CURVE_ACC = "open2open-latency-curve";
+    private static final String PROTOCOL_LATENCY = "open2open-latency";
+    private static final String WATERMARK_REFRESH_RATE = "watermark-refresh-rate";
 
     public final OutputTag<Integer> watermarkTag = new OutputTag<Integer>("watermark") {
     };
@@ -59,30 +61,43 @@ public class OpenOperator<T>
     private int batchNumber = 0;
 
     // stats
-    private Map<Vote, IntCounter> stats = new HashMap<>();
+    private IntCounter commits = new IntCounter();
+    private IntCounter aborts = new IntCounter();
+    private IntCounter replays = new IntCounter();
     private IntCounter numberOfClosedTransactions = new IntCounter();
     private IntCounter replayedUponWatermarkUpdate = new IntCounter();
     private IntCounter replayedUponDependencySatisfaction = new IntCounter();
     private IntCounter directlyReplayed = new IntCounter();
     private SingleValueAccumulator<Double> replayedPercentage = new SingleValueAccumulator<>(0.0);
-    private MetricCurveAccumulator latencyCurve = new MetricCurveAccumulator();
     private TimeDelta currentLatency = new TimeDelta();
+
+    private Map<String, Accumulator<?, ?>> accumulators = new HashMap<>();
+    private Map<String, MetricCurveAccumulator> curves = new HashMap<>();
 
     public OpenOperator(TRuntimeContext tRuntimeContext) {
         this.tRuntimeContext = tRuntimeContext;
         this.transactionsIndex = tRuntimeContext.getTransactionsIndex();
 
-        for (Vote vote : Vote.values()) {
-            stats.put(vote, new IntCounter());
-            Report.registerAccumulator(vote.toString().toLowerCase() + "-counter");
-        }
-
+        Report.registerAccumulator(COMMIT_COUNT);
+        Report.registerAccumulator(ABORT_COUNT);
+        Report.registerAccumulator(REPLAY_COUNT);
         Report.registerAccumulator(NUMBER_OF_CLOSED_TRANSACTIONS);
         Report.registerAccumulator(DEPENDENCY_REPLAYED_COUNTER_NAME);
         Report.registerAccumulator(REPLAYED_UPON_WATERMARK_UPDATE_COUNTER_NAME);
         Report.registerAccumulator(DIRECTLY_REPLAYED_COUNTER_NAME);
         Report.registerAccumulator(REPLAYED_PERCENTAGE);
-        Report.registerAccumulator(LATENCY_CURVE_ACC);
+        Report.registerAccumulator(PROTOCOL_LATENCY);
+        Report.registerAccumulator(WATERMARK_REFRESH_RATE);
+    }
+
+    private void registerAccumulator(String name, Accumulator<?, ?> accumulator) {
+        MetricCurveAccumulator curve = new MetricCurveAccumulator();
+        accumulators.put(name, accumulator);
+        curves.put(name, curve);
+
+        String curveName = name + "-curve";
+        getRuntimeContext().addAccumulator(name, accumulator);
+        getRuntimeContext().addAccumulator(curveName, curve);
     }
 
     @Override
@@ -105,17 +120,15 @@ public class OpenOperator<T>
         jobControlClient.observe(this);
 
         // register accumulators
-        for (Map.Entry<Vote, IntCounter> s : stats.entrySet()) {
-            Vote vote = s.getKey();
-            getRuntimeContext().addAccumulator(vote.toString().toLowerCase() + "-counter", s.getValue());
-        }
-
-        getRuntimeContext().addAccumulator(NUMBER_OF_CLOSED_TRANSACTIONS, numberOfClosedTransactions);
-        getRuntimeContext().addAccumulator(DEPENDENCY_REPLAYED_COUNTER_NAME, replayedUponDependencySatisfaction);
-        getRuntimeContext().addAccumulator(REPLAYED_UPON_WATERMARK_UPDATE_COUNTER_NAME, replayedUponWatermarkUpdate);
-        getRuntimeContext().addAccumulator(DIRECTLY_REPLAYED_COUNTER_NAME, directlyReplayed);
-        getRuntimeContext().addAccumulator(REPLAYED_PERCENTAGE, replayedPercentage);
-        getRuntimeContext().addAccumulator(LATENCY_CURVE_ACC, latencyCurve);
+        registerAccumulator(COMMIT_COUNT, commits);
+        registerAccumulator(ABORT_COUNT, aborts);
+        registerAccumulator(REPLAY_COUNT, replays);
+        registerAccumulator(NUMBER_OF_CLOSED_TRANSACTIONS, numberOfClosedTransactions);
+        registerAccumulator(DEPENDENCY_REPLAYED_COUNTER_NAME, replayedUponDependencySatisfaction);
+        registerAccumulator(REPLAYED_UPON_WATERMARK_UPDATE_COUNTER_NAME, replayedUponWatermarkUpdate);
+        registerAccumulator(DIRECTLY_REPLAYED_COUNTER_NAME, directlyReplayed);
+        registerAccumulator(REPLAYED_PERCENTAGE, replayedPercentage);
+        registerAccumulator(PROTOCOL_LATENCY, new MetricAccumulator(currentLatency.getMetric()));
     }
 
     @Override
@@ -171,7 +184,17 @@ public class OpenOperator<T>
     }
 
     private void updateStats(int timestamp, Vote vote) {
-        stats.get(vote).add(1);
+        switch (vote) {
+            case COMMIT:
+                commits.add(1);
+                break;
+            case ABORT:
+                aborts.add(1);
+                break;
+            case REPLAY:
+                replays.add(1);
+                break;
+        }
         currentLatency.end(String.valueOf(timestamp));
 
         if (vote != Vote.REPLAY) {
@@ -179,7 +202,7 @@ public class OpenOperator<T>
         }
 
         double totalTransactions = numberOfClosedTransactions.getLocalValue();
-        double replayed = stats.get(Vote.REPLAY).getLocalValue();
+        double replayed = replays.getLocalValue();
         replayedPercentage.update((replayed / totalTransactions) * 100.0);
     }
 
@@ -269,22 +292,50 @@ public class OpenOperator<T>
     }
 
     @Override
-    public void onBatchEnd() {
-        latencyCurve.add(Point.of(batchNumber, currentLatency.getMeanValue()));
-        currentLatency = new TimeDelta();
+    public synchronized void onBatchEnd() {
+        addPointToCurveAndReset(COMMIT_COUNT);
+        addPointToCurveAndReset(ABORT_COUNT);
+        addPointToCurveAndReset(REPLAY_COUNT);
+        addPointToCurveAndReset(NUMBER_OF_CLOSED_TRANSACTIONS);
+        addPointToCurveAndReset(DEPENDENCY_REPLAYED_COUNTER_NAME);
+        addPointToCurveAndReset(DIRECTLY_REPLAYED_COUNTER_NAME);
+        addPointToCurveAndReset(REPLAYED_PERCENTAGE);
+        addPointToCurveAndReset(REPLAYED_UPON_WATERMARK_UPDATE_COUNTER_NAME);
+        addPointToCurveAndReset(PROTOCOL_LATENCY);
+        currentLatency.reset();
+        addPointToCurveAndReset(WATERMARK_REFRESH_RATE);
+
         batchNumber++;
+    }
+
+    private void addPointToCurveAndReset(String accumulatorName) {
+        Accumulator<?, ?> accumulator = accumulators.get(accumulatorName);
+        Object value;
+        if (accumulator instanceof MetricAccumulator) {
+            value = ((MetricAccumulator) accumulator).getLocalValue().metric.getMean();
+        } else {
+            value = accumulator.getLocalValue();
+        }
+        addPointToCurveAndReset(accumulatorName, value);
+    }
+
+    private void addPointToCurveAndReset(String accumulatorName, Object value) {
+        Accumulator<?, ?> accumulator = accumulators.get(accumulatorName);
+        MetricCurveAccumulator curve = curves.get(accumulatorName);
+        curve.add(Point.of(batchNumber, value));
+        accumulator.resetLocal();
     }
 
     private static class Point extends MetricCurveAccumulator.Point {
         public final int batchNumber;
-        public final double value;
+        public final Object value;
 
-        public Point(int batchNumber, double value) {
+        public Point(int batchNumber, Object value) {
             this.batchNumber = batchNumber;
             this.value = value;
         }
 
-        public static Point of(int batchNumber, double value) {
+        public static Point of(int batchNumber, Object value) {
             return new Point(batchNumber, value);
         }
 

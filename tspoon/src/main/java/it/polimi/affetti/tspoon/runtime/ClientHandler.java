@@ -32,9 +32,10 @@ public abstract class ClientHandler implements Runnable {
     public void run() {
         try {
             lifeCycle();
-        } catch (Exception e) {
-            LOG.error(e.getMessage());
-            //e.printStackTrace();
+        } catch (IOException ioe) {
+            LOG.error(ioe.getMessage());
+        } catch (Exception ex) {
+            ex.printStackTrace();
         }
     }
 

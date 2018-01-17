@@ -40,4 +40,8 @@ public class Metric implements Serializable {
     public Metric clone() {
         return new Metric();
     }
+
+    public void reset() {
+        metric.clear();
+    }
 }

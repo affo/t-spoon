@@ -11,9 +11,11 @@ import java.io.Serializable;
  * Should be used by a single-threaded operator, because the value is overridden on merge.
  */
 public class SingleValueAccumulator<T extends Serializable> implements SimpleAccumulator<T> {
+    private final T startValue;
     private T value;
 
     public SingleValueAccumulator(T value) {
+        this.startValue = value;
         this.value = value;
     }
 
@@ -34,7 +36,7 @@ public class SingleValueAccumulator<T extends Serializable> implements SimpleAcc
 
     @Override
     public void resetLocal() {
-        value = null;
+        value = startValue;
     }
 
     @Override

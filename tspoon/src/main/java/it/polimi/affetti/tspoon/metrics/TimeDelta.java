@@ -76,4 +76,10 @@ public class TimeDelta implements Serializable {
     public MetricAccumulator getNewAccumulator() {
         return new MetricAccumulator(getMetric());
     }
+
+    public void reset() {
+        beginTimestamps.clear();
+        endTimestamps.clear();
+        deltaStat.reset();
+    }
 }

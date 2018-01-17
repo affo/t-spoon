@@ -28,7 +28,7 @@ public class MetricAccumulator implements Accumulator<Double, Metric> {
 
     @Override
     public void resetLocal() {
-        metric.metric.clear();
+        metric.reset();
     }
 
     @Override
