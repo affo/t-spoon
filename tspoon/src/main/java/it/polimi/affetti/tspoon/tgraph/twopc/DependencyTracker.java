@@ -33,9 +33,9 @@ public class DependencyTracker implements Serializable {
         // merge dependencies
         List<Integer> previousDependencies = dependencyTracking.remove(dependsOn);
         if (previousDependencies != null) {
-            for (int tidDependency : previousDependencies) {
-                dependencies.add(tidDependency);
-                dependentMapping.put(tidDependency, dependenciesLocation);
+            for (int previousDependency : previousDependencies) {
+                dependencies.add(previousDependency);
+                dependentMapping.put(previousDependency, dependenciesLocation);
             }
         }
 
@@ -57,6 +57,11 @@ public class DependencyTracker implements Serializable {
 
             if (!dependencies.isEmpty()) {
                 dependencyTracking.put(unlocked, dependencies);
+
+                // update locations
+                for (int dependency : dependencies) {
+                    dependentMapping.put(dependency, unlocked);
+                }
             }
         }
 
