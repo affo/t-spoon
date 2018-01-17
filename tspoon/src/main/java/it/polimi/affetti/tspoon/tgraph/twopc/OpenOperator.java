@@ -1,15 +1,21 @@
 package it.polimi.affetti.tspoon.tgraph.twopc;
 
 import it.polimi.affetti.tspoon.common.SafeCollector;
+import it.polimi.affetti.tspoon.metrics.MetricCurveAccumulator;
 import it.polimi.affetti.tspoon.metrics.Report;
 import it.polimi.affetti.tspoon.metrics.SingleValueAccumulator;
+import it.polimi.affetti.tspoon.metrics.TimeDelta;
+import it.polimi.affetti.tspoon.runtime.JobControlClient;
+import it.polimi.affetti.tspoon.runtime.JobControlListener;
 import it.polimi.affetti.tspoon.tgraph.*;
 import org.apache.flink.api.common.accumulators.IntCounter;
 import org.apache.flink.api.java.tuple.Tuple2;
+import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.streaming.api.operators.AbstractStreamOperator;
 import org.apache.flink.streaming.api.operators.OneInputStreamOperator;
 import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
 import org.apache.flink.util.OutputTag;
+import org.apache.sling.commons.json.JSONObject;
 
 import java.util.HashMap;
 import java.util.HashSet;
@@ -22,12 +28,13 @@ import java.util.Set;
 public class OpenOperator<T>
         extends AbstractStreamOperator<Enriched<T>>
         implements OneInputStreamOperator<T, Enriched<T>>,
-        OpenOperatorTransactionCloseListener {
+        OpenOperatorTransactionCloseListener, JobControlListener {
     private static final String NUMBER_OF_CLOSED_TRANSACTIONS = "total-closed-transactions";
     private static final String DEPENDENCY_REPLAYED_COUNTER_NAME = "replayed-upon-dependency-satisfaction";
     private static final String DIRECTLY_REPLAYED_COUNTER_NAME = "directly-replayed";
     private static final String REPLAYED_PERCENTAGE = "replayed-percentage";
     private static final String REPLAYED_UPON_WATERMARK_UPDATE_COUNTER_NAME = "replayed-upon-watermark-update";
+    private static final String LATENCY_CURVE_ACC = "open2open-latency-curve";
 
     public final OutputTag<Integer> watermarkTag = new OutputTag<Integer>("watermark") {
     };
@@ -38,7 +45,7 @@ public class OpenOperator<T>
     // TODO temporarly avoiding log ordering
     //protected transient InOrderSideCollector<T, Tuple2<Long, Vote>> collector;
     protected transient SafeCollector<T> collector;
-    
+
     private DependencyTracker dependencyTracker = new DependencyTracker();
     // tid -> current watermark
     private Map<Integer, Integer> playedWithWatermark = new HashMap<>();
@@ -48,13 +55,18 @@ public class OpenOperator<T>
     protected final TransactionsIndex<T> transactionsIndex;
     private transient AbstractOpenOperatorTransactionCloser openOperatorTransactionCloser;
 
+    private transient JobControlClient jobControlClient;
+    private int batchNumber = 0;
+
     // stats
+    private Map<Vote, IntCounter> stats = new HashMap<>();
     private IntCounter numberOfClosedTransactions = new IntCounter();
     private IntCounter replayedUponWatermarkUpdate = new IntCounter();
     private IntCounter replayedUponDependencySatisfaction = new IntCounter();
     private IntCounter directlyReplayed = new IntCounter();
     private SingleValueAccumulator<Double> replayedPercentage = new SingleValueAccumulator<>(0.0);
-    private Map<Vote, IntCounter> stats = new HashMap<>();
+    private MetricCurveAccumulator latencyCurve = new MetricCurveAccumulator();
+    private TimeDelta currentLatency = new TimeDelta();
 
     public OpenOperator(TRuntimeContext tRuntimeContext) {
         this.tRuntimeContext = tRuntimeContext;
@@ -70,6 +82,7 @@ public class OpenOperator<T>
         Report.registerAccumulator(REPLAYED_UPON_WATERMARK_UPDATE_COUNTER_NAME);
         Report.registerAccumulator(DIRECTLY_REPLAYED_COUNTER_NAME);
         Report.registerAccumulator(REPLAYED_PERCENTAGE);
+        Report.registerAccumulator(LATENCY_CURVE_ACC);
     }
 
     @Override
@@ -86,6 +99,11 @@ public class OpenOperator<T>
             openOperatorTransactionCloser.subscribe(this);
         }
 
+        ParameterTool parameterTool = (ParameterTool)
+                getRuntimeContext().getExecutionConfig().getGlobalJobParameters();
+        jobControlClient = JobControlClient.get(parameterTool);
+        jobControlClient.observe(this);
+
         // register accumulators
         for (Map.Entry<Vote, IntCounter> s : stats.entrySet()) {
             Vote vote = s.getKey();
@@ -97,12 +115,14 @@ public class OpenOperator<T>
         getRuntimeContext().addAccumulator(REPLAYED_UPON_WATERMARK_UPDATE_COUNTER_NAME, replayedUponWatermarkUpdate);
         getRuntimeContext().addAccumulator(DIRECTLY_REPLAYED_COUNTER_NAME, directlyReplayed);
         getRuntimeContext().addAccumulator(REPLAYED_PERCENTAGE, replayedPercentage);
+        getRuntimeContext().addAccumulator(LATENCY_CURVE_ACC, latencyCurve);
     }
 
     @Override
     public void close() throws Exception {
         super.close();
         openOperatorTransactionCloser.close();
+        jobControlClient.close();
     }
 
     @Override
@@ -125,6 +145,8 @@ public class OpenOperator<T>
 
         playedWithWatermark.put(metadata.tid, metadata.watermark);
         collector.safeCollect(Enriched.of(metadata, transactionContext.element));
+
+        currentLatency.start(String.valueOf(metadata.timestamp));
     }
 
     private void collect(int tid) {
@@ -148,8 +170,9 @@ public class OpenOperator<T>
                 .getTransactionByTimestamp((int) timestamp) != null;
     }
 
-    private void updateStats(Vote vote) {
+    private void updateStats(int timestamp, Vote vote) {
         stats.get(vote).add(1);
+        currentLatency.end(String.valueOf(timestamp));
 
         if (vote != Vote.REPLAY) {
             numberOfClosedTransactions.add(1);
@@ -165,7 +188,7 @@ public class OpenOperator<T>
         TransactionsIndex<T>.LocalTransactionContext localTransactionContext = transactionsIndex
                 .getTransactionByTimestamp(notification.timestamp);
 
-        updateStats(notification.vote);
+        updateStats(notification.timestamp, notification.vote);
 
         int tid = localTransactionContext.tid;
         int timestamp = localTransactionContext.timestamp;
@@ -242,6 +265,35 @@ public class OpenOperator<T>
             //   Think of forward dependencies for example, their REPLAY is not caused by a small watermark,
             //   but by being happened too early in time...
             collect(tid);
+        }
+    }
+
+    @Override
+    public void onBatchEnd() {
+        latencyCurve.add(Point.of(batchNumber, currentLatency.getMeanValue()));
+        currentLatency = new TimeDelta();
+        batchNumber++;
+    }
+
+    private static class Point extends MetricCurveAccumulator.Point {
+        public final int batchNumber;
+        public final double value;
+
+        public Point(int batchNumber, double value) {
+            this.batchNumber = batchNumber;
+            this.value = value;
+        }
+
+        public static Point of(int batchNumber, double value) {
+            return new Point(batchNumber, value);
+        }
+
+        @Override
+        public JSONObject toJSON() {
+            Map<String, Object> map = new HashMap<>();
+            map.put("batchNumber", batchNumber);
+            map.put("value", value);
+            return new JSONObject(map);
         }
     }
 }
