@@ -12,11 +12,11 @@ import java.util.function.Consumer;
 /**
  * Created by affo on 10/11/17.
  */
-public class DurableStateTransactionCloser extends AbstractStateOperatorTransactionCloser {
+public class SynchronousStateTransactionCloser extends AbstractStateOperatorTransactionCloser {
     private transient StringClientsCache clientsCache;
     private transient ExecutorService pool;
 
-    protected DurableStateTransactionCloser(SubscriptionMode subscriptionMode) {
+    protected SynchronousStateTransactionCloser(SubscriptionMode subscriptionMode) {
         super(subscriptionMode);
     }
 

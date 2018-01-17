@@ -23,13 +23,11 @@ public abstract class SimpleTwoPCTest {
     @Before
     public void setUp() throws Exception {
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
-        if (isDurable()) {
-            TransactionEnvironment.get(env).setDurable(true);
-        } else {
-            TransactionEnvironment.get(env).setDurable(false);
-        }
 
+        configureTransactionalEnvironment(TransactionEnvironment.get(env));
+        
         tRuntimeContext = TransactionEnvironment.get(env).createTransactionalRuntimeContext();
+        tRuntimeContext.resetTransactionClosers();
         // TODO develop a strategy for implementing tests for different subscription modes
         tRuntimeContext.setSubscriptionMode(AbstractTwoPCParticipant.SubscriptionMode.GENERIC);
         openOperatorTransactionCloser = tRuntimeContext.getSourceTransactionCloser(0);
@@ -40,7 +38,7 @@ public abstract class SimpleTwoPCTest {
         sinkTransactionCloser.open();
     }
 
-    protected abstract boolean isDurable();
+    protected abstract void configureTransactionalEnvironment(TransactionEnvironment tEnv);
 
     @After
     public void tearDown() throws Exception {

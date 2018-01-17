@@ -27,6 +27,7 @@ public class TRuntimeContext implements Serializable {
     public IsolationLevel isolationLevel;
     public Strategy strategy;
     public int openServerPoolSize = 1, stateServerPoolSize = 1, queryServerPoolSize = 1;
+    private boolean synchronous;
 
     public void setDurabilityEnabled(boolean durable) {
         this.durable = durable;
@@ -94,6 +95,14 @@ public class TRuntimeContext implements Serializable {
         this.queryServerPoolSize = queryServerPoolSize;
     }
 
+    public void setSynchronous(boolean synchronous) {
+        this.synchronous = synchronous;
+    }
+
+    public boolean isSynchronous() {
+        return synchronous;
+    }
+
     // ---------------------- These methods are called upon deserialization
 
     public AbstractOpenOperatorTransactionCloser getSourceTransactionCloser(int taskNumber) {
@@ -107,10 +116,14 @@ public class TRuntimeContext implements Serializable {
             }
 
             if (openOperatorTransactionCloserPool[index] == null) {
-                if (isDurabilityEnabled()) {
-                    openOperatorTransactionCloserPool[index] = new DurableOpenOperatorTransactionCloser(subscriptionMode);
+                if (isSynchronous()) {
+                    openOperatorTransactionCloserPool[index] = new SynchronousOpenOperatorTransactionCloser(subscriptionMode);
                 } else {
-                    openOperatorTransactionCloserPool[index] = new VolatileOpenOperatorTransactionCloser(subscriptionMode);
+                    openOperatorTransactionCloserPool[index] = new AsynchronousOpenOperatorTransactionCloser(subscriptionMode);
+                }
+
+                if (isDurabilityEnabled()) {
+                    openOperatorTransactionCloserPool[index].enableDurability();
                 }
             }
 
@@ -130,10 +143,10 @@ public class TRuntimeContext implements Serializable {
             }
 
             if (stateOperatorTransactionCloserPool[index] == null) {
-                if (isDurabilityEnabled()) {
-                    stateOperatorTransactionCloserPool[index] = new DurableStateTransactionCloser(subscriptionMode);
+                if (isSynchronous()) {
+                    stateOperatorTransactionCloserPool[index] = new SynchronousStateTransactionCloser(subscriptionMode);
                 } else {
-                    stateOperatorTransactionCloserPool[index] = new VolatileStateTransactionCloser(subscriptionMode);
+                    stateOperatorTransactionCloserPool[index] = new AsynchronousStateTransactionCloser(subscriptionMode);
                 }
             }
 
@@ -141,12 +154,20 @@ public class TRuntimeContext implements Serializable {
         }
     }
 
+    /**
+     * NOTE: Use it for testing only
+     */
+    void resetTransactionClosers() {
+        stateOperatorTransactionCloserPool = null;
+        openOperatorTransactionCloserPool = null;
+    }
+
     // no singleton
     public CloseSinkTransactionCloser getSinkTransactionCloser() {
-        if (isDurabilityEnabled()) {
-            return new DurableSinkTransactionCloser();
+        if (isSynchronous()) {
+            return new SynchronousSinkTransactionCloser();
         }
 
-        return new VolatileSinkTransactionCloser();
+        return new AsynchronousSinkTransactionCloser();
     }
 }

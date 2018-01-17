@@ -9,7 +9,7 @@ import java.util.Collections;
 /**
  * Created by affo on 10/11/17.
  */
-public class DurableSinkTransactionCloser implements CloseSinkTransactionCloser {
+public class SynchronousSinkTransactionCloser implements CloseSinkTransactionCloser {
     private StringClientsCache clients;
 
     @Override

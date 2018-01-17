@@ -4,30 +4,18 @@ import it.polimi.affetti.tspoon.runtime.AbstractServer;
 import it.polimi.affetti.tspoon.runtime.BroadcastByKeyServer;
 import it.polimi.affetti.tspoon.tgraph.Vote;
 
-import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 
 /**
  * Created by affo on 09/11/17.
  */
-public class DurableOpenOperatorTransactionCloser extends AbstractOpenOperatorTransactionCloser {
+public class SynchronousOpenOperatorTransactionCloser extends AbstractOpenOperatorTransactionCloser {
     private final Map<Integer, Integer> counters = new HashMap<>();
     private final Map<Integer, String> updates = new HashMap<>();
 
-    private transient WAL wal;
-
-    protected DurableOpenOperatorTransactionCloser(SubscriptionMode subscriptionMode) {
+    protected SynchronousOpenOperatorTransactionCloser(SubscriptionMode subscriptionMode) {
         super(subscriptionMode);
-    }
-
-    @Override
-    public void open() throws Exception {
-        super.open();
-        // TODO send to kafka
-        // up to now, we only introduce overhead by writing to disk
-        wal = new DummyWAL("wal.log");
-        wal.open();
     }
 
     @Override
@@ -52,32 +40,14 @@ public class DurableOpenOperatorTransactionCloser extends AbstractOpenOperatorTr
 
         if (count == 0) {
             counters.remove(timestamp);
-
-            try {
-                writeToWAL(timestamp, vote, this.updates.remove(timestamp));
-            } catch (IOException e) {
-                // make it crash, we cannot avoid persisting the WAL
-                throw new RuntimeException("Cannot persist to WAL");
-            }
-
+            this.updates.remove(timestamp);
+            writeToWAL(timestamp, vote, updates);
             return true;
         }
 
         return false;
     }
 
-    protected void writeToWAL(int timestamp, Vote vote, String updates) throws IOException {
-        switch (vote) {
-            case REPLAY:
-                wal.replay(timestamp);
-                break;
-            case ABORT:
-                wal.abort(timestamp);
-                break;
-            default:
-                wal.commit(timestamp, updates);
-        }
-    }
 
     private class OpenServer extends BroadcastByKeyServer {
         @Override

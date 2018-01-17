@@ -23,7 +23,7 @@ import static it.polimi.affetti.tspoon.tgraph.IsolationLevel.PL3;
  */
 public class TransactionEnvironment {
     private static TransactionEnvironment instance;
-    private boolean isDurabilityEnabled = true;
+    private boolean isDurabilityEnabled;
     private QuerySource querySource;
     private DataStream<MultiStateQuery> queryStream;
     private TwoPCFactory factory;
@@ -35,6 +35,7 @@ public class TransactionEnvironment {
     // Pool sizes are per TaskManager (e.g. stateServerPoolSize = 4 and 3 TMs => 12 StateServers)
     // Pool sizes defaults to singletons.
     private int stateServerPoolSize = 1, openServerPoolSize = 1, queryServerPoolSize = 1;
+    private boolean synchronous;
 
     private TransactionEnvironment(StreamExecutionEnvironment env) {
         this.querySource = new QuerySource();
@@ -102,6 +103,14 @@ public class TransactionEnvironment {
         isDurabilityEnabled = durable;
     }
 
+    public void setSynchronous(boolean synchronous) {
+        this.synchronous = synchronous;
+    }
+
+    public boolean isSynchronous() {
+        return synchronous;
+    }
+
     public boolean isDurabilityEnabled() {
         return isDurabilityEnabled;
     }
@@ -144,6 +153,7 @@ public class TransactionEnvironment {
 
     public TRuntimeContext createTransactionalRuntimeContext() {
         TRuntimeContext runtimeContext = new TRuntimeContext();
+        runtimeContext.setSynchronous(synchronous);
         runtimeContext.setDurabilityEnabled(isDurabilityEnabled);
         runtimeContext.setIsolationLevel(isolationLevel);
         runtimeContext.setUseDependencyTracking(useDependencyTracking);
