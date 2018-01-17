@@ -36,7 +36,6 @@ public class OpenOperator<T>
     private static final String REPLAYED_PERCENTAGE = "replayed-percentage";
     private static final String REPLAYED_UPON_WATERMARK_UPDATE_COUNTER_NAME = "replayed-upon-watermark-update";
     private static final String PROTOCOL_LATENCY = "open2open-latency";
-    private static final String WATERMARK_REFRESH_RATE = "watermark-refresh-rate";
 
     public final OutputTag<Integer> watermarkTag = new OutputTag<Integer>("watermark") {
     };
@@ -87,7 +86,6 @@ public class OpenOperator<T>
         Report.registerAccumulator(DIRECTLY_REPLAYED_COUNTER_NAME);
         Report.registerAccumulator(REPLAYED_PERCENTAGE);
         Report.registerAccumulator(PROTOCOL_LATENCY);
-        Report.registerAccumulator(WATERMARK_REFRESH_RATE);
     }
 
     private void registerAccumulator(String name, Accumulator<?, ?> accumulator) {
@@ -303,7 +301,6 @@ public class OpenOperator<T>
         addPointToCurveAndReset(REPLAYED_UPON_WATERMARK_UPDATE_COUNTER_NAME);
         addPointToCurveAndReset(PROTOCOL_LATENCY);
         currentLatency.reset();
-        addPointToCurveAndReset(WATERMARK_REFRESH_RATE);
 
         batchNumber++;
     }
