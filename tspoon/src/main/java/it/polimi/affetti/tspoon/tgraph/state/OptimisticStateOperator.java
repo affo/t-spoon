@@ -1,5 +1,6 @@
 package it.polimi.affetti.tspoon.tgraph.state;
 
+import it.polimi.affetti.tspoon.metrics.MetricAccumulator;
 import it.polimi.affetti.tspoon.tgraph.Enriched;
 import it.polimi.affetti.tspoon.tgraph.Vote;
 import it.polimi.affetti.tspoon.tgraph.db.OptimisticTransactionExecutor;
@@ -8,7 +9,9 @@ import it.polimi.affetti.tspoon.tgraph.twopc.TRuntimeContext;
 import org.apache.flink.api.common.accumulators.IntCounter;
 import org.apache.flink.util.OutputTag;
 
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Map;
 
 /**
  * Created by affo on 25/07/17.
@@ -18,6 +21,10 @@ public class OptimisticStateOperator<T, V> extends StateOperator<T, V> {
 
     // stats
     private IntCounter replays = new IntCounter();
+    private Map<String, Long> hitTimestamps = new HashMap<>();
+    private MetricAccumulator hitRate = new MetricAccumulator();
+    private MetricAccumulator inputRate = new MetricAccumulator();
+    private Long lastTS;
 
     public OptimisticStateOperator(
             String nameSpace,
@@ -36,6 +43,8 @@ public class OptimisticStateOperator<T, V> extends StateOperator<T, V> {
         );
 
         getRuntimeContext().addAccumulator("replays-at-state", replays);
+        getRuntimeContext().addAccumulator("hit-rate", hitRate);
+        getRuntimeContext().addAccumulator("input-rate", inputRate);
     }
 
     @Override
@@ -49,6 +58,20 @@ public class OptimisticStateOperator<T, V> extends StateOperator<T, V> {
         if (transaction.vote == Vote.REPLAY) {
             replays.add(1);
         }
+
+        if (lastTS == null) {
+            lastTS = System.nanoTime();
+        }
+
+        long now = System.nanoTime();
+        inputRate.add(Math.pow(10, 9) / (double) (now - lastTS));
+        lastTS = now;
+
+        Long lastTimestampForThisKey = hitTimestamps.get(key);
+        if (lastTimestampForThisKey != null) {
+            hitRate.add(Math.pow(10, 9) / (double) (now - lastTimestampForThisKey));
+        }
+        hitTimestamps.put(key, now);
     }
 
     @Override

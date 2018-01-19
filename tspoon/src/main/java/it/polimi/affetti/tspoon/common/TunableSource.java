@@ -6,13 +6,14 @@ import it.polimi.affetti.tspoon.runtime.JobControlListener;
 import it.polimi.affetti.tspoon.runtime.StringClient;
 import it.polimi.affetti.tspoon.tgraph.backed.Transfer;
 import it.polimi.affetti.tspoon.tgraph.backed.TransferID;
-import org.apache.flink.api.common.functions.MapFunction;
+import org.apache.flink.api.common.functions.RichMapFunction;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.functions.source.RichParallelSourceFunction;
 import org.apache.log4j.Logger;
 
 import java.util.Optional;
+import java.util.Random;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.Semaphore;
@@ -172,7 +173,8 @@ public abstract class TunableSource<T> extends RichParallelSourceFunction<T> imp
         }
     }
 
-    public static class ToTransfers implements MapFunction<TransferID, Transfer> {
+    public static class ToTransfers extends RichMapFunction<TransferID, Transfer> {
+        private transient Random random;
         private final int noAccounts;
         private final double startAmount;
 
@@ -182,8 +184,14 @@ public abstract class TunableSource<T> extends RichParallelSourceFunction<T> imp
         }
 
         @Override
+        public void open(Configuration parameters) throws Exception {
+            super.open(parameters);
+            random = new Random(getRuntimeContext().getIndexOfThisSubtask());
+        }
+
+        @Override
         public Transfer map(TransferID tid) throws Exception {
-            return Transfer.generateTransfer(tid, noAccounts, startAmount);
+            return Transfer.generateTransfer(tid, noAccounts, startAmount, random);
         }
     }
 }

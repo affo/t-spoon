@@ -27,6 +27,10 @@ public class Transfer extends Tuple4<TransferID, String, String, Double> {
     }
 
     public static Transfer generateTransfer(TransferID id, int noAccounts, double startAmount) {
+        return Transfer.generateTransfer(id, noAccounts, startAmount, random);
+    }
+
+    public static Transfer generateTransfer(TransferID id, int noAccounts, double startAmount, Random random) {
         String from = "a" + random.nextInt(noAccounts);
         String to;
         do {
