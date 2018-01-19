@@ -28,6 +28,7 @@ public class TRuntimeContext implements Serializable {
     public Strategy strategy;
     public int openServerPoolSize = 1, stateServerPoolSize = 1, queryServerPoolSize = 1;
     private boolean synchronous;
+    private boolean baselineMode;
 
     public void setDurabilityEnabled(boolean durable) {
         this.durable = durable;
@@ -101,6 +102,14 @@ public class TRuntimeContext implements Serializable {
 
     public boolean isSynchronous() {
         return synchronous;
+    }
+
+    public void setBaselineMode(boolean baselineMode) {
+        this.baselineMode = baselineMode;
+    }
+
+    public boolean isBaselineMode() {
+        return baselineMode;
     }
 
     // ---------------------- These methods are called upon deserialization

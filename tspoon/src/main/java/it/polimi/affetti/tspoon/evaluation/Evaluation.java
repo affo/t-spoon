@@ -71,8 +71,8 @@ public class Evaluation {
         final int stateServerPoolSize = parameters.getInt("statePool", 1);
         final int queryServerPoolSize = parameters.getInt("queryPool", 1);
 
-
         final boolean printPlan = parameters.getBoolean("printPlan", false);
+        final boolean baselineMode = parameters.getBoolean("baseline", false);
 
         // parameters specific for tunable evaluation
         final boolean tunableExperiment = parameters.getBoolean("tunable", false);
@@ -121,6 +121,7 @@ public class Evaluation {
         tEnv.setOpenServerPoolSize(openServerPoolSize);
         tEnv.setStateServerPoolSize(stateServerPoolSize);
         tEnv.setQueryServerPoolSize(queryServerPoolSize);
+        tEnv.setBaselineMode(baselineMode);
 
         // >>> Source
         int limit = numRecords + sledLen;
