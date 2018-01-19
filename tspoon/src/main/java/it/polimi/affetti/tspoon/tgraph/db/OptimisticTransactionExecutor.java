@@ -64,10 +64,8 @@ public class OptimisticTransactionExecutor {
         transaction.getOperation(key).accept(handler);
         Vote vote = handler.applyInvariant() ? Vote.COMMIT : Vote.ABORT;
 
-        if (handler.write) {
-            if (!versioningStrategy.canWrite(tid, timestamp, watermark, object)) {
-                vote = Vote.REPLAY;
-            }
+        if (handler.write && !versioningStrategy.canWrite(tid, timestamp, watermark, object)) {
+            vote = Vote.REPLAY;
         }
 
         transaction.mergeVote(vote);
