@@ -22,15 +22,14 @@ import java.util.Map;
 public class FinishOnBackPressure extends RichSinkFunction<TransferID> {
     public static final String REQUEST_TRACKER_SERVER_NAME = "request-tracker";
 
-    //public static final int SUB_BATCH_SIZE = 50000;
     public static final String THROUGHPUT_CURVE_ACC = "throughput-curve";
     public static final String LATENCY_CURVE_ACC = "latency-curve";
     public static final String MAX_TP_AND_LATENCY_ACC = "max-throughput-and-latency";
     private transient Logger LOG;
 
     private transient JobControlClient jobControlClient;
-    private int countStart, countEnd;
-    private final int batchSize, resolution;
+    private int countStart, countEnd, batchNumber;
+    private final int batchSize, resolution, maxNumberOfBatches;
     public int expectedInputRate;
     private final double errorPercentage;
     private final MetricCurveAccumulator throughputCurve, latencyCurve;
@@ -44,7 +43,8 @@ public class FinishOnBackPressure extends RichSinkFunction<TransferID> {
      */
     private transient WithServer requestTracker;
 
-    public FinishOnBackPressure(double errorPercentage, int batchSize, int startInputRate, int resolution) {
+    public FinishOnBackPressure(double errorPercentage, int batchSize, int startInputRate,
+                                int resolution, int maxNumberOfBatches) {
         if (errorPercentage < 0 || errorPercentage >= 1) {
             throw new IllegalArgumentException("Error Percentage must be a percentage: " + errorPercentage);
         }
@@ -52,6 +52,7 @@ public class FinishOnBackPressure extends RichSinkFunction<TransferID> {
         this.resolution = resolution;
         this.errorPercentage = errorPercentage;
         this.batchSize = batchSize;
+        this.maxNumberOfBatches = maxNumberOfBatches >= 1 ? maxNumberOfBatches : Integer.MAX_VALUE;
         this.throughputCurve = new MetricCurveAccumulator();
         this.latencyCurve = new MetricCurveAccumulator();
         resetMetrics();
@@ -137,6 +138,8 @@ public class FinishOnBackPressure extends RichSinkFunction<TransferID> {
     }
 
     private void closeBatch() {
+        batchNumber++;
+
         countStart = 0;
         countEnd = 0;
 
@@ -151,10 +154,20 @@ public class FinishOnBackPressure extends RichSinkFunction<TransferID> {
         LOG.info("Batch of " + batchSize + " records @ " + averageInputRate + "[records/sec] closed: " +
                 "avgThroughput: " + currentAverageThroughput + ", avgLatency: " + currentLatency.getMeanValue());
 
+        boolean finish = false;
+        if (batchNumber == maxNumberOfBatches) {
+            LOG.info("Maximum number of batches reached: " + batchNumber);
+            finish = true;
+        }
+
         if (averageInputRate - currentAverageThroughput > averageInputRate * errorPercentage) {
             LOG.info("Actual input rate is far from throughput: ([actual] " + averageInputRate +
                     ", [throughput] " + currentAverageThroughput +
                     ", [tolerance]" + errorPercentage + "), finishing job.");
+            finish = true;
+        }
+
+        if (finish) {
             jobControlClient.publishFinishMessage();
             return;
         }

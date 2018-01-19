@@ -1,9 +1,11 @@
 package it.polimi.affetti.tspoon.tgraph.state;
 
 import it.polimi.affetti.tspoon.tgraph.Enriched;
+import it.polimi.affetti.tspoon.tgraph.Vote;
 import it.polimi.affetti.tspoon.tgraph.db.OptimisticTransactionExecutor;
 import it.polimi.affetti.tspoon.tgraph.db.Transaction;
 import it.polimi.affetti.tspoon.tgraph.twopc.TRuntimeContext;
+import org.apache.flink.api.common.accumulators.IntCounter;
 import org.apache.flink.util.OutputTag;
 
 import java.util.HashSet;
@@ -13,6 +15,9 @@ import java.util.HashSet;
  */
 public class OptimisticStateOperator<T, V> extends StateOperator<T, V> {
     private transient OptimisticTransactionExecutor transactionExecutor;
+
+    // stats
+    private IntCounter replays = new IntCounter();
 
     public OptimisticStateOperator(
             String nameSpace,
@@ -29,6 +34,8 @@ public class OptimisticStateOperator<T, V> extends StateOperator<T, V> {
                 tRuntimeContext.getIsolationLevel(),
                 tRuntimeContext.isDependencyTrackingEnabled()
         );
+
+        getRuntimeContext().addAccumulator("replays-at-state", replays);
     }
 
     @Override
@@ -38,6 +45,10 @@ public class OptimisticStateOperator<T, V> extends StateOperator<T, V> {
         record.metadata.dependencyTracking = new HashSet<>(transaction.getDependencies());
         record.metadata.vote = transaction.vote;
         collector.safeCollect(record);
+
+        if (transaction.vote == Vote.REPLAY) {
+            replays.add(1);
+        }
     }
 
     @Override

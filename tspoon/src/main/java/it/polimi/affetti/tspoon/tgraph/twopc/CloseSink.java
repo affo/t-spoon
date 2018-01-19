@@ -1,6 +1,8 @@
 package it.polimi.affetti.tspoon.tgraph.twopc;
 
 import it.polimi.affetti.tspoon.tgraph.Metadata;
+import it.polimi.affetti.tspoon.tgraph.Vote;
+import org.apache.flink.api.common.accumulators.IntCounter;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.functions.sink.RichSinkFunction;
 
@@ -11,6 +13,9 @@ public class CloseSink extends RichSinkFunction<Metadata> {
     private TRuntimeContext tRuntimeContext;
     private transient CloseSinkTransactionCloser transactionCloser;
 
+    // stats
+    private IntCounter replays = new IntCounter();
+
     public CloseSink(TRuntimeContext tRuntimeContext) {
         this.tRuntimeContext = tRuntimeContext;
     }
@@ -20,6 +25,8 @@ public class CloseSink extends RichSinkFunction<Metadata> {
         super.open(parameters);
         transactionCloser = tRuntimeContext.getSinkTransactionCloser();
         transactionCloser.open();
+
+        getRuntimeContext().addAccumulator("replays-at-sink", replays);
     }
 
     @Override
@@ -30,6 +37,10 @@ public class CloseSink extends RichSinkFunction<Metadata> {
 
     @Override
     public void invoke(Metadata metadata) throws Exception {
+        if (metadata.vote == Vote.REPLAY) {
+            replays.add(1);
+        }
+
         transactionCloser.onMetadata(metadata);
     }
 }

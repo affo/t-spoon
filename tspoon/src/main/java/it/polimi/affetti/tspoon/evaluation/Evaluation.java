@@ -79,6 +79,7 @@ public class Evaluation {
         final int batchSize = parameters.getInt("batchSize", 50000);
         final int resolution = parameters.getInt("resolution", 200);
         final int startInputRate = parameters.getInt("startInputRate", 1000);
+        final int maxNumberOfBatches = parameters.getInt("numberOfBatches", -1);
 
         assert noStates > 0;
         assert noTGraphs > 0;
@@ -272,7 +273,8 @@ public class Evaluation {
         if (tunableExperiment) {
             // >>> Add FinishOnBackPressure
             endTracking // attach only to end tracking. We will use a server for begin requests.
-                    .addSink(new FinishOnBackPressure(0.25, batchSize, startInputRate, resolution))
+                    .addSink(new FinishOnBackPressure(
+                            0.25, batchSize, startInputRate, resolution, maxNumberOfBatches))
                     .setParallelism(1).name("FinishOnBackPressure");
         } else {
             // >>> Add latency calculator
