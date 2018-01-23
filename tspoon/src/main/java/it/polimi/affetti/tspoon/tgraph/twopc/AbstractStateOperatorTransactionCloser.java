@@ -30,7 +30,8 @@ public abstract class AbstractStateOperatorTransactionCloser
     }
 
     protected abstract void onClose(Address coordinatorAddress, String request,
-                                    Consumer<Void> success, Consumer<Throwable> error);
+                                    Consumer<Void> onSinkACK, Consumer<Void> onCoordinatorACK,
+                                    Consumer<Throwable> error);
 
     private class StateServer extends ProcessRequestServer {
 
@@ -63,7 +64,12 @@ public abstract class AbstractStateOperatorTransactionCloser
                             listener.onTransactionClosedSuccess(notification);
                         }
                     },
-                    (error) -> {
+                    aVoid -> {
+                        for (StateOperatorTransactionCloseListener listener : listeners) {
+                            listener.pushTransactionUpdates(notification.timestamp);
+                        }
+                    },
+                    error -> {
                         for (StateOperatorTransactionCloseListener listener : listeners) {
                             listener.onTransactionClosedError(notification, error);
                         }

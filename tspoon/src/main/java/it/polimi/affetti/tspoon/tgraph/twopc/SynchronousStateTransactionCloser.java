@@ -39,7 +39,10 @@ public class SynchronousStateTransactionCloser extends AbstractStateOperatorTran
     // called once per TM
     @Override
     protected void onClose(Address coordinatorAddress, String request,
-                           Consumer<Void> success, Consumer<Throwable> error) {
+                           Consumer<Void> onSinkACK, Consumer<Void> onCoordinatorACK,
+                           Consumer<Throwable> error) {
+        onSinkACK.accept(null);
+
         StringClient coordinator;
         try {
             coordinator = clientsCache.getOrCreateClient(coordinatorAddress);
@@ -48,12 +51,11 @@ public class SynchronousStateTransactionCloser extends AbstractStateOperatorTran
         }
 
         coordinator.send(request);
-
         pool.submit(() -> {
             try {
                 // wait for the ACK
                 coordinator.receive();
-                success.accept(null);
+                onCoordinatorACK.accept(null);
             } catch (IOException e) {
                 error.accept(e);
             }

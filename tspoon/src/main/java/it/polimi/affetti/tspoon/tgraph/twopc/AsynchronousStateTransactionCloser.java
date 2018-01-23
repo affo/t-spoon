@@ -14,7 +14,9 @@ public class AsynchronousStateTransactionCloser extends AbstractStateOperatorTra
 
     @Override
     protected void onClose(Address coordinatorAddress, String request,
-                           Consumer<Void> success, Consumer<Throwable> error) {
-        success.accept(null);
+                           Consumer<Void> onSinkACK, Consumer<Void> onCoordinatorACK,
+                           Consumer<Throwable> error) {
+        onSinkACK.accept(null);
+        onCoordinatorACK.accept(null);
     }
 }

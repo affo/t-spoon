@@ -134,13 +134,9 @@ public abstract class StateOperator<T, V>
 
     @Override
     public void onTransactionClosedSuccess(CloseTransactionNotification notification) {
-        Transaction<V> transaction = shard.removeTransaction(notification.timestamp);
+        Transaction<V> transaction = shard.getTransaction(notification.timestamp);
         transaction.mergeVote(notification.vote);
-        Iterable<Update<V>> updates = transaction.applyChanges();
-
-        long localId = localIds.remove(transaction.timestamp);
-        collector.collectInOrder(updates, localId);
-        collector.flushOrdered(localId);
+        transaction.applyChanges();
 
         onGlobalTermination(transaction);
     }
@@ -148,9 +144,12 @@ public abstract class StateOperator<T, V>
     @Override
     public void onTransactionClosedError(
             CloseTransactionNotification notification, Throwable error) {
-        Transaction<V> transaction = shard.removeTransaction(notification.timestamp);
-        LOG.error("StateOperator - transaction [" + transaction.tid +
-                "] - error on transaction close: " + error.getMessage());
+        Transaction<V> transaction = shard.getTransaction(notification.timestamp);
+        String errorMessage = "StateOperator - transaction [" + transaction.tid +
+                "] - error on transaction close: " + error.getMessage();
+        LOG.error(errorMessage);
+        // errors on closing transactions happen must not happen
+        throw new RuntimeException(new Exception(errorMessage, error));
     }
 
     @Override
@@ -161,6 +160,14 @@ public abstract class StateOperator<T, V>
     @Override
     public Address getCoordinatorAddressForTransaction(int timestamp) {
         return shard.getTransaction(timestamp).getCoordinator();
+    }
+
+    @Override
+    public void pushTransactionUpdates(int timestamp) {
+        Transaction<V> transaction = shard.removeTransaction(timestamp);
+        long localId = localIds.remove(transaction.timestamp);
+        collector.collectInOrder(transaction.getUpdates(), localId);
+        collector.flushOrdered(localId);
     }
 
     // --------------------------------------- Querying ---------------------------------------
