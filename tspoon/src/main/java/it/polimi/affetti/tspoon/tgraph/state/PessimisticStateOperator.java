@@ -52,6 +52,7 @@ public class PessimisticStateOperator<T, V> extends StateOperator<T, V> {
                 result -> {
                     record.metadata.vote = record.metadata.vote.merge(result.vote);
                     record.metadata.dependencyTracking = result.getReplayCauses();
+                    decorateRecordWithUpdates(key, record, transaction);
                     collector.safeCollect(record);
                 });
     }

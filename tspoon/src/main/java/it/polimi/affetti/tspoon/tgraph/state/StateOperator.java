@@ -6,6 +6,7 @@ import it.polimi.affetti.tspoon.runtime.NetUtils;
 import it.polimi.affetti.tspoon.tgraph.Enriched;
 import it.polimi.affetti.tspoon.tgraph.IsolationLevel;
 import it.polimi.affetti.tspoon.tgraph.Metadata;
+import it.polimi.affetti.tspoon.tgraph.Vote;
 import it.polimi.affetti.tspoon.tgraph.db.Object;
 import it.polimi.affetti.tspoon.tgraph.db.*;
 import it.polimi.affetti.tspoon.tgraph.query.Query;
@@ -155,7 +156,7 @@ public abstract class StateOperator<T, V>
         String errorMessage = "StateOperator - transaction [" + transaction.tid +
                 "] - error on transaction close: " + error.getMessage();
         LOG.error(errorMessage);
-        // errors on closing transactions happen must not happen
+        // errors on closing transactions must not happen
         throw new RuntimeException(new Exception(errorMessage, error));
     }
 
@@ -175,6 +176,29 @@ public abstract class StateOperator<T, V>
         long localId = localIds.remove(transaction.timestamp);
         collector.collectInOrder(transaction.getUpdates(), localId);
         collector.flushOrdered(localId);
+    }
+
+    /**
+     * This method is an helper for subclasses for enriching a record with the updates of some transaction for
+     * some key.
+     *
+     * It expects a record that is ready for collection (dependency tracking done and merged vote) and a transaction
+     * that has already registered updates (versions) for key `key`.
+     *
+     * It produces some side-effect only in the case that the record is committing, durability is enabled and we
+     * are using the ASYNCH protocol (SYNCH protocol gathers updates onSinkACK).
+     * @param key
+     * @param record
+     * @param transaction
+     */
+    protected void decorateRecordWithUpdates(String key, Enriched<T> record, Transaction<V> transaction) {
+        if (record.metadata.vote == Vote.COMMIT &&
+                tRuntimeContext.isDurabilityEnabled() && !tRuntimeContext.isSynchronous()) {
+            V version = transaction.getVersion(key);
+            String uniqueKey = nameSpace + "." + key;
+            Update<V> update = Update.of(transaction.tid, uniqueKey, version);
+            record.metadata.addUpdate(uniqueKey, update);
+        }
     }
 
     // --------------------------------------- Querying ---------------------------------------

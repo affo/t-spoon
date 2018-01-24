@@ -11,6 +11,11 @@ import java.util.Collections;
  */
 public class AsynchronousSinkTransactionCloser implements CloseSinkTransactionCloser {
     private StringClientsCache clients;
+    private final boolean isDurabilityEnabled;
+
+    public AsynchronousSinkTransactionCloser(boolean isDurabilityEnabled) {
+        this.isDurabilityEnabled = isDurabilityEnabled;
+    }
 
     @Override
     public void open() throws Exception {
@@ -32,18 +37,27 @@ public class AsynchronousSinkTransactionCloser implements CloseSinkTransactionCl
             dependency = Collections.max(metadata.dependencyTracking);
         }
 
-        String message = CloseTransactionNotification.serialize(
+        String sUpdates = isDurabilityEnabled ? metadata.updates.values().toString() : "";
+
+        String messageForCoordinator = CloseTransactionNotification.serialize(
+                metadata.timestamp,
+                metadata.vote,
+                metadata.cohorts.size(),
+                dependency, sUpdates
+        );
+
+        String messageForCohorts = CloseTransactionNotification.serialize(
                 metadata.timestamp,
                 metadata.vote,
                 metadata.cohorts.size(),
                 dependency, ""
         );
 
-        clients.getOrCreateClient(metadata.coordinator).send(message);
+        clients.getOrCreateClient(metadata.coordinator).send(messageForCoordinator);
 
 
         for (Address cohort : metadata.cohorts) {
-            clients.getOrCreateClient(cohort).send(message);
+            clients.getOrCreateClient(cohort).send(messageForCohorts);
         }
     }
 }

@@ -67,10 +67,13 @@ public class OptimisticStateOperator<T, V> extends StateOperator<T, V>
 
     @Override
     protected void execute(String key, Enriched<T> record, Transaction<V> transaction) {
-        Consumer<Void> callback = aVoid -> {
+        Consumer<Void> andThen = aVoid -> {
             record.metadata.dependencyTracking = new HashSet<>(transaction.getDependencies());
             record.metadata.vote = transaction.vote;
+            decorateRecordWithUpdates(key, record, transaction);
             collector.safeCollect(record);
+
+            // ------------ updates stats
 
             if (transaction.vote == Vote.REPLAY) {
                 replays.add(1);
@@ -97,7 +100,7 @@ public class OptimisticStateOperator<T, V> extends StateOperator<T, V>
             listeningTo.add(key);
         }
 
-        transactionExecutor.executeOperation(key, transaction, callback);
+        transactionExecutor.executeOperation(key, transaction, andThen);
     }
 
     @Override

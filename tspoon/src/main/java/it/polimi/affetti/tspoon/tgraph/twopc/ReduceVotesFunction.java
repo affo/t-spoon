@@ -3,6 +3,7 @@ package it.polimi.affetti.tspoon.tgraph.twopc;
 import it.polimi.affetti.tspoon.tgraph.BatchCompletionChecker;
 import it.polimi.affetti.tspoon.tgraph.BatchID;
 import it.polimi.affetti.tspoon.tgraph.Metadata;
+import it.polimi.affetti.tspoon.tgraph.Vote;
 import org.apache.flink.api.common.functions.RichFlatMapFunction;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.util.Collector;
@@ -35,6 +36,12 @@ public class ReduceVotesFunction extends RichFlatMapFunction<Metadata, Metadata>
             accumulated.vote = accumulated.vote.merge(metadata.vote);
             accumulated.cohorts.addAll(metadata.cohorts);
             accumulated.dependencyTracking.addAll(metadata.dependencyTracking);
+
+            if (accumulated.vote == Vote.COMMIT) {
+                accumulated.mergeUpdates(metadata.updates);
+            } else {
+                accumulated.updates.clear();
+            }
         }
         votes.put(timestamp, accumulated);
 

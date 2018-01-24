@@ -181,6 +181,6 @@ public class TRuntimeContext implements Serializable {
             return new SynchronousSinkTransactionCloser();
         }
 
-        return new AsynchronousSinkTransactionCloser();
+        return new AsynchronousSinkTransactionCloser(isDurabilityEnabled());
     }
 }

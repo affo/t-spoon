@@ -1,9 +1,11 @@
 package it.polimi.affetti.tspoon.tgraph;
 
 import it.polimi.affetti.tspoon.common.Address;
+import it.polimi.affetti.tspoon.tgraph.state.Update;
 import org.apache.flink.api.java.tuple.Tuple2;
 
 import java.io.Serializable;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -20,6 +22,7 @@ public class Metadata implements Serializable {
     public Vote vote = Vote.COMMIT;
     public int watermark = 0;
     public HashSet<Integer> dependencyTracking = new HashSet<>();
+    public HashMap<String, Update<?>> updates = new HashMap<>();
 
     public Metadata() {
     }
@@ -46,11 +49,20 @@ public class Metadata implements Serializable {
         cloned.vote = vote;
         cloned.watermark = watermark;
         cloned.dependencyTracking = new HashSet<>(dependencyTracking);
+        cloned.updates = new HashMap<>(updates);
         return cloned;
     }
 
     public void addCohort(Address cohortAddress) {
         cohorts.add(cohortAddress);
+    }
+
+    public void addUpdate(String key, Update<?> update) {
+        this.updates.put(key, update);
+    }
+
+    public void mergeUpdates(HashMap<String, Update<?>> updates) {
+        this.updates.putAll(updates);
     }
 
     public Iterator<Address> cohorts() {

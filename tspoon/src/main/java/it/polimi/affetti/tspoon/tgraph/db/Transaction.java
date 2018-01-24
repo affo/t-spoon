@@ -53,6 +53,10 @@ public class Transaction<V> {
         return touchedObjects.get(key);
     }
 
+    public V getVersion(String key) {
+        return objectVersions.get(key).object;
+    }
+
     public Iterable<String> getKeys() {
         return touchedObjects.keySet();
     }
