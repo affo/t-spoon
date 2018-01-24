@@ -4,6 +4,7 @@ import it.polimi.affetti.tspoon.common.Address;
 import it.polimi.affetti.tspoon.common.InOrderSideCollector;
 import it.polimi.affetti.tspoon.runtime.NetUtils;
 import it.polimi.affetti.tspoon.tgraph.Enriched;
+import it.polimi.affetti.tspoon.tgraph.IsolationLevel;
 import it.polimi.affetti.tspoon.tgraph.Metadata;
 import it.polimi.affetti.tspoon.tgraph.db.Object;
 import it.polimi.affetti.tspoon.tgraph.db.*;
@@ -65,8 +66,14 @@ public abstract class StateOperator<T, V>
         Object.maxNumberOfVersions = maxNumberOfVersions;
 
         int taskNumber = getRuntimeContext().getIndexOfThisSubtask();
-        shard = new Shard<>(nameSpace, taskNumber,
-                maxNumberOfVersions, ObjectFunction.fromStateFunction(stateFunction));
+        shard = new Shard<>(
+                nameSpace, taskNumber, maxNumberOfVersions,
+                tRuntimeContext.getIsolationLevel().gte(IsolationLevel.PL2),
+                ObjectFunction.fromStateFunction(stateFunction));
+
+        if (tRuntimeContext.needWaitOnRead()) {
+            shard.forceSerializableRead();
+        }
 
         collector = new InOrderSideCollector<>(output, updatesTag);
 

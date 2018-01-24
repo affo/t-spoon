@@ -112,6 +112,10 @@ public class TRuntimeContext implements Serializable {
         return baselineMode;
     }
 
+    public boolean needWaitOnRead() {
+        return !isSynchronous() && getIsolationLevel().gte(IsolationLevel.PL3);
+    }
+
     // ---------------------- These methods are called upon deserialization
 
     public AbstractOpenOperatorTransactionCloser getSourceTransactionCloser(int taskNumber) {

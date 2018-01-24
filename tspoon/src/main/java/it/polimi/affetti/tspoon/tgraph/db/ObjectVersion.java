@@ -8,6 +8,7 @@ import java.io.Serializable;
 public class ObjectVersion<T> implements Serializable {
     public final int version;
     public final int createdBy;
+    private Status status = Status.UNKNOWN;
     public final T object;
     private final ObjectFunction<T> objectFunction;
 
@@ -34,6 +35,14 @@ public class ObjectVersion<T> implements Serializable {
         return new ObjectHandler<>(objectFunction.copyValue(object), objectFunction::invariant);
     }
 
+    public void commit() {
+        this.status = Status.COMMITTED;
+    }
+
+    public boolean isCommitted() {
+        return status == Status.COMMITTED;
+    }
+
     @Override
     public String toString() {
         return "ObjectVersion{" +
@@ -41,5 +50,9 @@ public class ObjectVersion<T> implements Serializable {
                 ", createdBy=" + createdBy +
                 ", object=" + object +
                 '}';
+    }
+
+    public enum Status {
+        COMMITTED, UNKNOWN
     }
 }

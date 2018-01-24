@@ -49,15 +49,15 @@ public class Transaction<V> {
         objectVersions.put(key, objectVersion);
     }
 
-    Object<V> getObject(String key) {
+    public Object<V> getObject(String key) {
         return touchedObjects.get(key);
     }
 
-    Iterable<String> getKeys() {
+    public Iterable<String> getKeys() {
         return touchedObjects.keySet();
     }
 
-    Operation<V> getOperation(String key) {
+    public Operation<V> getOperation(String key) {
         return ops.get(key);
     }
 

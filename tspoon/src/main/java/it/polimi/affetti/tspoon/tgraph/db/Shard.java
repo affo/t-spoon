@@ -22,6 +22,7 @@ public class Shard<V> implements
     // I suppose that the type for keys is String. This assumption is coherent,
     // for instance, with Redis implementation: https://redis.io/topics/data-types-intro
     protected final Map<String, Object<V>> state;
+    private final boolean externalReadCommitted;
     private final ObjectFunction<V> objectFunction;
     // transaction contexts: timestamp -> context
     private final Map<Integer, Transaction<V>> transactions;
@@ -30,14 +31,20 @@ public class Shard<V> implements
             String nameSpace,
             int shardNumber,
             int maxNumberOfVersions,
+            boolean externalReadCommitted,
             ObjectFunction<V> objectFunction) {
         this.nameSpace = nameSpace;
+        this.externalReadCommitted = externalReadCommitted;
         this.objectFunction = objectFunction;
         Object.maxNumberOfVersions = maxNumberOfVersions;
 
         this.LOG = Logger.getLogger("Shard[" + shardNumber + "] - " + nameSpace);
         this.state = new ConcurrentHashMap<>();
         this.transactions = new ConcurrentHashMap<>();
+    }
+
+    public void forceSerializableRead() {
+        Object.forceSerializableRead();
     }
 
     // --------------------------------------- Transaction Execution and Completion ---------------------------------------
@@ -88,7 +95,13 @@ public class Shard<V> implements
     private QueryResult queryState(Query query) {
         QueryResult queryResult = new QueryResult();
         for (String key : query.keys) {
-            V object = getObject(key).getLastVersionBefore(query.watermark).object;
+            V object;
+            if (externalReadCommitted) {
+                object = getObject(key).readCommittedBefore(query.watermark).object;
+            } else {
+                object = getObject(key).getLastAvailableVersion().object;
+            }
+
             if (object != null) {
                 queryResult.add(key, object);
             }

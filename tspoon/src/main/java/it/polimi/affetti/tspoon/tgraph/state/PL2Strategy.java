@@ -10,6 +10,6 @@ public class PL2Strategy extends PL1Strategy {
 
     @Override
     public <V> ObjectVersion<V> readVersion(int tid, int timestamp, int watermark, Object<V> versions) {
-        return versions.getLastVersionBefore(watermark);
+        return versions.readCommittedBefore(watermark);
     }
 }
