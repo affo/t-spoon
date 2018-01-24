@@ -63,7 +63,7 @@ public class Evaluation {
         final boolean transfersOn = parameters.getBoolean("transfersOn", true);
         final boolean optimisticOrPessimistic = parameters.getBoolean("optOrNot", true);
         final boolean useDependencyTracking = parameters.getBoolean("dependencyTracking", true);
-        final boolean synchronous = parameters.getBoolean("synchronous", true);
+        final boolean synchronous = parameters.getBoolean("synchronous", false);
         final boolean durable = parameters.getBoolean("durable", true);
         final int isolationLevelNumber = parameters.getInt("isolationLevel", 3);
         final long deadlockTimeout = parameters.getLong("deadlockTimeout", 100L);
