@@ -126,6 +126,10 @@ function launch_query {
         --queryRate $query_frequency "${@:3}"
 }
 
+function launch_consistency_check {
+    launch consistency_check $CONSISTENCY_CHECK_CLASS "${@:1}"
+    sleep 1
+}
 
 ### Builtin suites
 function launch_suite_series_1tg {

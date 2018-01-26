@@ -1,11 +1,14 @@
-package it.polimi.affetti.tspoon.common;
+package it.polimi.affetti.tspoon.evaluation;
 
-import it.polimi.affetti.tspoon.evaluation.FinishOnBackPressure;
+import it.polimi.affetti.tspoon.common.Address;
 import it.polimi.affetti.tspoon.runtime.JobControlClient;
 import it.polimi.affetti.tspoon.runtime.JobControlListener;
 import it.polimi.affetti.tspoon.runtime.StringClient;
 import it.polimi.affetti.tspoon.tgraph.backed.Transfer;
 import it.polimi.affetti.tspoon.tgraph.backed.TransferID;
+import it.polimi.affetti.tspoon.tgraph.query.Query;
+import it.polimi.affetti.tspoon.tgraph.query.QueryID;
+import it.polimi.affetti.tspoon.tgraph.query.QuerySupplier;
 import org.apache.flink.api.common.functions.RichMapFunction;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.configuration.Configuration;
@@ -30,6 +33,7 @@ public abstract class TunableSource<T> extends RichParallelSourceFunction<T> imp
     protected final int baseRate, resolution, batchSize;
     protected int count, numberOfRecordsPerTask;
     protected double resolutionPerTask, currentRate;
+    private final String trackingServerNameForDiscovery;
 
     protected int taskNumber;
     protected volatile boolean stop;
@@ -42,7 +46,8 @@ public abstract class TunableSource<T> extends RichParallelSourceFunction<T> imp
     private transient StringClient requestTrackerClient;
     private transient Thread trackerThread;
 
-    public TunableSource(int baseRate, int resolution, int batchSize) {
+    public TunableSource(int baseRate, int resolution, int batchSize, String trackingServerNameForDiscovery) {
+        this.trackingServerNameForDiscovery = trackingServerNameForDiscovery;
         this.count = 0;
         this.batchSize = batchSize;
         this.baseRate = baseRate;
@@ -77,7 +82,7 @@ public abstract class TunableSource<T> extends RichParallelSourceFunction<T> imp
         jobControlClient = JobControlClient.get(parameterTool);
         jobControlClient.observe(this);
 
-        Address address = jobControlClient.discoverServer(FinishOnBackPressure.REQUEST_TRACKER_SERVER_NAME);
+        Address address = jobControlClient.discoverServer(trackingServerNameForDiscovery);
         requestTrackerClient = new StringClient(address.ip, address.port);
         requestTrackerClient.init();
 
@@ -163,8 +168,8 @@ public abstract class TunableSource<T> extends RichParallelSourceFunction<T> imp
 
     public static class TunableTransferSource extends TunableSource<TransferID> {
 
-        public TunableTransferSource(int baseRate, int resolution, int batchSize) {
-            super(baseRate, resolution, batchSize);
+        public TunableTransferSource(int baseRate, int resolution, int batchSize, String trackingServerNameForDiscovery) {
+            super(baseRate, resolution, batchSize, trackingServerNameForDiscovery);
         }
 
         @Override
@@ -172,6 +177,23 @@ public abstract class TunableSource<T> extends RichParallelSourceFunction<T> imp
             return new TransferID(taskNumber, (long) count);
         }
     }
+
+    public static class TunableQuerySource extends TunableSource<Query> {
+        private final QuerySupplier supplier;
+
+        public TunableQuerySource(
+                int baseRate, int resolution, int batchSize, String trackingServerName,
+                QuerySupplier querySupplier) {
+            super(baseRate, resolution, batchSize, trackingServerName);
+            this.supplier = querySupplier;
+        }
+
+        @Override
+        protected Query getNext(int count) {
+            return supplier.getQuery(new QueryID(taskNumber, (long) count));
+        }
+    }
+
 
     public static class ToTransfers extends RichMapFunction<TransferID, Transfer> {
         private transient Random random;

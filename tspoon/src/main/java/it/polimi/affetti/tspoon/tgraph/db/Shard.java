@@ -92,8 +92,8 @@ public class Shard<V> implements
 
     // --------------------------------------- Querying ---------------------------------------
 
-    private QueryResult queryState(Query query) {
-        QueryResult queryResult = new QueryResult();
+    private void queryState(Query query) {
+        QueryResult queryResult = query.getResult();
         for (String key : query.keys) {
             V object;
             if (externalReadCommitted) {
@@ -106,24 +106,22 @@ public class Shard<V> implements
                 queryResult.add(key, object);
             }
         }
-
-        return queryResult;
     }
 
     // randomizer to build queries
     private Random random = RandomProvider.get();
 
     @Override
-    public QueryResult visit(Query query) {
-        return queryState(query);
+    public void visit(Query query) {
+        queryState(query);
     }
 
     @Override
-    public QueryResult visit(RandomQuery query) {
+    public void visit(RandomQuery query) {
         Integer noKeys = state.size();
 
         if (state.isEmpty()) {
-            return new QueryResult();
+            return;
         }
 
         Set<Integer> indexes;
@@ -142,12 +140,12 @@ public class Shard<V> implements
             i++;
         }
 
-        return queryState(query);
+        queryState(query);
     }
 
     @Override
-    public <T> QueryResult visit(PredicateQuery<T> query) {
-        QueryResult result = new QueryResult();
+    public <T> void visit(PredicateQuery<T> query) {
+        QueryResult result = query.getResult();
 
         for (String key : state.keySet()) {
             V value = state.get(key).getLastVersionBefore(query.watermark).object;
@@ -158,10 +156,8 @@ public class Shard<V> implements
                 }
             } catch (ClassCastException e) {
                 LOG.error("Problem with provided predicate: " + e.getMessage());
-                return new QueryResult();
+                return;
             }
         }
-
-        return result;
     }
 }

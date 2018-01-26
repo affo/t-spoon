@@ -134,12 +134,12 @@ public class OptimisticTransactionExecutor {
 
         @Override
         public void run() {
-            while (true) {
-                try {
+            try {
+                while (true) {
                     tasks.take().accept(null);
-                } catch (InterruptedException e) {
-                    LOG.error("Interrupted while running tasks");
                 }
+            } catch (InterruptedException e) {
+                LOG.error("Interrupted while running tasks");
             }
         }
     }

@@ -6,14 +6,14 @@ package it.polimi.affetti.tspoon.tgraph.query;
 public class RandomQuery extends Query {
     public final int size;
 
-    public RandomQuery(String nameSpace, int size) {
-        super(nameSpace);
+    public RandomQuery(String nameSpace, QueryID queryID, int size) {
+        super(nameSpace, queryID);
         this.size = size;
     }
 
     @Override
     public void accept(QueryVisitor visitor) {
-        this.result = visitor.visit(this);
+        visitor.visit(this);
     }
 
     @Override

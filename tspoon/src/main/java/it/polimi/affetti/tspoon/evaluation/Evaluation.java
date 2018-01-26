@@ -1,7 +1,6 @@
 package it.polimi.affetti.tspoon.evaluation;
 
 import it.polimi.affetti.tspoon.common.FinishOnCountSink;
-import it.polimi.affetti.tspoon.common.TunableSource;
 import it.polimi.affetti.tspoon.metrics.Report;
 import it.polimi.affetti.tspoon.runtime.NetUtils;
 import it.polimi.affetti.tspoon.tgraph.IsolationLevel;
@@ -11,7 +10,6 @@ import it.polimi.affetti.tspoon.tgraph.Vote;
 import it.polimi.affetti.tspoon.tgraph.backed.Transfer;
 import it.polimi.affetti.tspoon.tgraph.backed.TransferID;
 import it.polimi.affetti.tspoon.tgraph.backed.TransferSource;
-import it.polimi.affetti.tspoon.tgraph.query.*;
 import org.apache.flink.api.common.JobExecutionResult;
 import org.apache.flink.api.common.typeinfo.TypeHint;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
@@ -30,8 +28,9 @@ import java.util.List;
 
 public class Evaluation {
     public static final double startAmount = 100d;
+    public static final String RECORD_TRACKING_SERVER_NAME = "request-tracker";
 
-    private static long getWaitPeriodInMicroseconds(double frequency) {
+    public static long getWaitPeriodInMicroseconds(double frequency) {
         return (long) (Math.pow(10, 6) / frequency);
     }
 
@@ -57,10 +56,6 @@ public class Evaluation {
         final int noTGraphs = parameters.getInt("noTG");
         final int noStates = parameters.getInt("noStates");
         final boolean seriesOrParallel = parameters.getBoolean("series");
-        final boolean queryOn = parameters.getBoolean("queryOn", false);
-        final double queryPerc = parameters.getDouble("queryPerc", 0.0);
-        final double queryRate = parameters.getDouble("queryRate", 0.0);
-        final boolean transfersOn = parameters.getBoolean("transfersOn", true);
         final boolean optimisticOrPessimistic = parameters.getBoolean("optOrNot", true);
         final boolean useDependencyTracking = parameters.getBoolean("dependencyTracking", true);
         final boolean synchronous = parameters.getBoolean("synchronous", false);
@@ -86,12 +81,6 @@ public class Evaluation {
         //assert 0 < throughputPerc && throughputPerc <= 1;
         // if more than 1 tGraph, then we have only 1 state per tgraph
         assert !(noTGraphs > 1) || noStates == 1;
-        assert queryOn || transfersOn;
-        // if queryRate > 0 then queryOn
-        assert queryRate == 0.0 || queryOn;
-        // if transfer is off input rate cannot be greater than zero
-        // !trasferOn ==> inputFrequency <= 0
-        assert transfersOn || inputFrequency <= 0;
         assert isolationLevelNumber >= 0 && isolationLevelNumber <= 4;
 
         final Strategy strategy = optimisticOrPessimistic ? Strategy.OPTIMISTIC : Strategy.PESSIMISTIC;
@@ -125,52 +114,23 @@ public class Evaluation {
         tEnv.setBaselineMode(baselineMode);
 
         // >>> Source
-        int limit = numRecords + sledLen;
-        if (!transfersOn) {
-            limit = 0;
-        }
+        int numberOfElements = numRecords + sledLen;
 
         DataStream<Transfer> transfers;
         if (tunableExperiment) {
             TunableSource.TunableTransferSource tunableSource =
-                    new TunableSource.TunableTransferSource(startInputRate, resolution, batchSize);
+                    new TunableSource.TunableTransferSource(
+                            startInputRate, resolution, batchSize, RECORD_TRACKING_SERVER_NAME);
             transfers = env.addSource(tunableSource)
                     .name("TunableParallelSource")
                     .map(new TunableSource.ToTransfers(keySpaceSize, startAmount))
                     .name("ToTransfers");
         } else {
-            TransferSource transferSource = new TransferSource(limit, keySpaceSize, startAmount);
+            TransferSource transferSource = new TransferSource(numberOfElements, keySpaceSize, startAmount);
             if (waitPeriodMicro > 0) {
                 transferSource.setMicroSleep(waitPeriodMicro);
             }
             transfers = env.addSource(transferSource).setParallelism(1);
-        }
-
-        // >>> Querying
-        // NOTE: this part is only relevant in the case of the simplest topology (1 TG, 1 state).
-        // - if query is on and transfer is off, then we have only queries and no transfers =>
-        //      we use nRec as the number of queries to perform;
-        // - otherwise (query on and transfer on), we have a mixed load of queries and updates and
-        //      the purpose is to run queries at a certain rate while updating the state =>
-        //      we user nRec for transfers and queryRate for the rate of querying.
-        // NOTE: the query issued is a GET on a percentage (queryPerc) of the keyspace managed by the unique state.
-        if (queryOn) {
-            assert 0 < queryPerc && queryPerc <= 1;
-            assert noStates == 1 && noTGraphs == 1; // the topology should be the simplest one
-            int noKeys = (int) (keySpaceSize * queryPerc);
-
-            QuerySupplier querySupplier = new PredefinedQuerySupplier(
-                    new RandomQuery(EvaluationGraphComposer.STATE_BASE_NAME + "0", noKeys));
-
-            if (!transfersOn) {
-                querySupplier = new LimitQuerySupplier(querySupplier, numRecords);
-            }
-
-            if (queryRate > 0) {
-                querySupplier = new FrequencyQuerySupplier(querySupplier, queryRate);
-            }
-
-            tEnv.setQuerySupplier(querySupplier);
         }
 
         DataStream<Transfer> afterSource = transfers;
@@ -201,7 +161,6 @@ public class Evaluation {
         // >>> Composing
         EvaluationGraphComposer.startAmount = startAmount;
         EvaluationGraphComposer.setTransactionEnvironment(tEnv);
-        int numberOfElements = numRecords + sledLen;
 
         List<EvaluationGraphComposer.TGraph> tGraphs = new ArrayList<>(noTGraphs);
         int i = 0;
@@ -273,8 +232,9 @@ public class Evaluation {
         if (tunableExperiment) {
             // >>> Add FinishOnBackPressure
             endTracking // attach only to end tracking. We will use a server for begin requests.
-                    .addSink(new FinishOnBackPressure(
-                            0.25, batchSize, startInputRate, resolution, maxNumberOfBatches))
+                    .addSink(
+                            new FinishOnBackPressure<>(0.25, batchSize, startInputRate, resolution,
+                                    maxNumberOfBatches, RECORD_TRACKING_SERVER_NAME))
                     .setParallelism(1).name("FinishOnBackPressure");
         } else {
             // >>> Add latency calculator

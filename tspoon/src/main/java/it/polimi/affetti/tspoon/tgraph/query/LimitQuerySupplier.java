@@ -13,10 +13,10 @@ public class LimitQuerySupplier implements QuerySupplier {
     }
 
     @Override
-    public Query getQuery() {
+    public Query getQuery(QueryID queryID) {
         Query q = null;
         if (count < limit) {
-            q = qs.getQuery();
+            q = qs.getQuery(queryID);
             count++;
         }
         return q;

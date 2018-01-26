@@ -2,11 +2,13 @@ package it.polimi.affetti.tspoon.tgraph.query;
 
 /**
  * Created by affo on 02/08/17.
+ *
+ * NOTE: visits must populate the QueryResult of the passed Query.
  */
 public interface QueryVisitor {
-    QueryResult visit(Query query);
+    void visit(Query query);
 
-    QueryResult visit(RandomQuery query);
+    void visit(RandomQuery query);
 
-    <T> QueryResult visit(PredicateQuery<T> query);
+    <T> void visit(PredicateQuery<T> query);
 }

@@ -81,12 +81,10 @@ public class QueryServer extends AbstractServer {
                     @Override
                     protected void lifeCycle() throws Exception {
                         Query query = (Query) receive();
-                        QueryResult result = new QueryResult();
                         for (QueryListener listener : listeners) {
-                            QueryResult partialResult = listener.onQuery(query);
-                            result.merge(partialResult);
+                            listener.onQuery(query); // side-effect on query's result
                         }
-                        send(result);
+                        send(query.getResult());
                     }
                 });
     }

@@ -8,7 +8,7 @@ package it.polimi.affetti.tspoon.tgraph.query;
 // TODO implement
 public class SocketQuerySupplier implements QuerySupplier {
     @Override
-    public Query getQuery() {
+    public Query getQuery(QueryID queryID) {
         return null;
     }
 }

@@ -6,5 +6,5 @@ import java.io.Serializable;
  * Created by affo on 29/05/17.
  */
 public interface QuerySupplier extends Serializable {
-    Query getQuery();
+    Query getQuery(QueryID queryID);
 }

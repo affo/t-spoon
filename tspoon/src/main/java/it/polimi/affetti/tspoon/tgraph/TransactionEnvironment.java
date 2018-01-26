@@ -8,6 +8,7 @@ import org.apache.flink.api.java.functions.KeySelector;
 import org.apache.flink.api.java.typeutils.runtime.kryo.JavaSerializer;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.apache.flink.util.Preconditions;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -23,8 +24,9 @@ import static it.polimi.affetti.tspoon.tgraph.IsolationLevel.PL3;
  */
 public class TransactionEnvironment {
     private static TransactionEnvironment instance;
+
+    private final StreamExecutionEnvironment streamExecutionEnvironment;
     private boolean isDurabilityEnabled;
-    private QuerySource querySource;
     private DataStream<MultiStateQuery> queryStream;
     private TwoPCFactory factory;
     private IsolationLevel isolationLevel = PL3; // max level by default
@@ -39,30 +41,43 @@ public class TransactionEnvironment {
     private boolean baselineMode;
 
     private TransactionEnvironment(StreamExecutionEnvironment env) {
-        this.querySource = new QuerySource();
-        this.queryStream = env.addSource(querySource).name("QuerySource");
+        this.streamExecutionEnvironment = env;
     }
 
     public synchronized static TransactionEnvironment get(StreamExecutionEnvironment env) {
         if (instance == null) {
             instance = new TransactionEnvironment(env);
-            instance.registerCustomSerializers(env);
+            instance.registerCustomSerializers();
         }
         return instance;
     }
 
-    private void registerCustomSerializers(StreamExecutionEnvironment env) {
-        env.getConfig().enableForceKryo();
+    private void registerCustomSerializers() {
+        streamExecutionEnvironment.getConfig().enableForceKryo();
         // known bug: https://issues.apache.org/jira/browse/FLINK-6025
-        env.getConfig().registerTypeWithKryoSerializer(Address.class, JavaSerializer.class);
-        env.getConfig().registerTypeWithKryoSerializer(BatchID.class, JavaSerializer.class);
-        env.getConfig().registerTypeWithKryoSerializer(Metadata.class, JavaSerializer.class);
-        env.getConfig().registerTypeWithKryoSerializer(Enriched.class, JavaSerializer.class);
+        streamExecutionEnvironment.getConfig().registerTypeWithKryoSerializer(Address.class, JavaSerializer.class);
+        streamExecutionEnvironment.getConfig().registerTypeWithKryoSerializer(BatchID.class, JavaSerializer.class);
+        streamExecutionEnvironment.getConfig().registerTypeWithKryoSerializer(Metadata.class, JavaSerializer.class);
+        streamExecutionEnvironment.getConfig().registerTypeWithKryoSerializer(Enriched.class, JavaSerializer.class);
     }
 
     // only to run 2 jobs
     public synchronized static void clear() {
         instance = null;
+    }
+
+    public void enableStandardQuerying(QuerySupplier querySupplier) {
+        Preconditions.checkState(this.queryStream == null, "Cannot enable querying more than once");
+
+        QuerySource querySource = new QuerySource();
+        querySource.setQuerySupplier(querySupplier);
+        this.queryStream = streamExecutionEnvironment.addSource(querySource).name("QuerySource");
+    }
+
+    public void enableCustomQuerying(DataStream<MultiStateQuery> queryStream) {
+        Preconditions.checkState(this.queryStream == null, "Cannot enable querying more than once");
+
+        this.queryStream = queryStream;
     }
 
     public void setVerbose(boolean verbose) {
@@ -124,10 +139,6 @@ public class TransactionEnvironment {
         return deadlockTimeout;
     }
 
-    public void setQuerySupplier(QuerySupplier querySupplier) {
-        querySource.setQuerySupplier(querySupplier);
-    }
-
     public int getStateServerPoolSize() {
         return stateServerPoolSize;
     }
@@ -181,6 +192,10 @@ public class TransactionEnvironment {
     public <T> OpenStream<T> open(DataStream<T> ds, QuerySender.OnQueryResult onQueryResult) {
         AbstractTStream.setTransactionEnvironment(this);
 
+        if (queryStream == null) {
+            enableStandardQuerying(new NullQuerySupplier());
+        }
+
         // TODO every tGraph should receive queries only for the states it is responsible for!
         // In this implementation every tGraph receives every query...
         // NOTE: for the Evaluation it is ok, because we only query on a single tGraph (on a single state)
@@ -200,7 +215,8 @@ public class TransactionEnvironment {
         DataStream<Query> queries = openStream.watermarks.connect(queryStream)
                 .flatMap(new QueryProcessor())
                 .name("QueryProcessor");
-        queries.addSink(querySender).name("QuerySender");
+        DataStream<QueryResult> results = queries.flatMap(querySender).name("QuerySender");
+        openStream.addQueryResults(results);
 
         return openStream;
     }

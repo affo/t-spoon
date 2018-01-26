@@ -4,8 +4,10 @@ export TARGET_JAR=../tspoon/target/tspoon-research-artifact.jar
 export PACKAGE_BASE=it.polimi.affetti.tspoon
 
 # Class for the evaluation.
-# Used in launch_all.sh, appended to PACKAGE_BASE.
+# Used in launch_evaluation.sh, appended to PACKAGE_BASE.
 export EVAL_CLASS=evaluation.Evaluation
+export QUERY_EVAL_CLASS=evaluation.QueryEvaluation
+export CONSISTENCY_CHECK_CLASS=evaluation.ConsistencyCheck
 
 # Base Directory for results
 export RESULTS_DIR=./results

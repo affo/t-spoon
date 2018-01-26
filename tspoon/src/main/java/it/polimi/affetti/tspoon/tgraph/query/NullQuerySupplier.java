@@ -5,7 +5,7 @@ package it.polimi.affetti.tspoon.tgraph.query;
  */
 public class NullQuerySupplier implements QuerySupplier {
     @Override
-    public Query getQuery() {
+    public Query getQuery(QueryID queryID) {
         return null;
     }
 }

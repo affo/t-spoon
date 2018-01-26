@@ -48,6 +48,7 @@ public abstract class ControlledSource<T> extends RichSourceFunction<T> implemen
     @Override
     public void onJobFinish() {
         JobControlListener.super.onJobFinish();
+        stop = true;
         jobFinish.release();
     }
 

@@ -10,6 +10,7 @@ import it.polimi.affetti.tspoon.common.ControlledSource;
 // up to now, we provide only single-query MultiStateQueries
 public class QuerySource extends ControlledSource<MultiStateQuery> {
     private QuerySupplier querySupplier = new NullQuerySupplier();
+    private long count = 0;
 
     public void setQuerySupplier(QuerySupplier querySupplier) {
         this.querySupplier = querySupplier;
@@ -20,11 +21,13 @@ public class QuerySource extends ControlledSource<MultiStateQuery> {
         MultiStateQuery multiStateQuery = new MultiStateQuery();
         Query query;
         do {
-            query = querySupplier.getQuery();
+            query = querySupplier.getQuery(new QueryID(0, count));
             if (query != null) {
                 multiStateQuery.addQuery(query);
                 sourceContext.collect(multiStateQuery);
+                count++;
             }
+            multiStateQuery.queries.clear();
         } while (!stop && query != null);
     }
 

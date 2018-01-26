@@ -9,12 +9,12 @@ import java.util.function.Predicate;
 public class PredicateQuery<T> extends Query {
     public final QueryPredicate<T> predicate;
 
-    public PredicateQuery() {
-        this.predicate = new SelectNone<>();
+    public PredicateQuery(String nameSpace, QueryID queryID) {
+        this(nameSpace, queryID, new SelectNone<>());
     }
 
-    public PredicateQuery(String nameSpace, QueryPredicate<T> predicate) {
-        super(nameSpace);
+    public PredicateQuery(String nameSpace, QueryID queryID, QueryPredicate<T> predicate) {
+        super(nameSpace, queryID);
         this.predicate = predicate;
     }
 
@@ -24,13 +24,13 @@ public class PredicateQuery<T> extends Query {
 
     @Override
     public void accept(QueryVisitor visitor) {
-        this.result = visitor.visit(this);
+        visitor.visit(this);
     }
 
     public interface QueryPredicate<T> extends Predicate<T>, Serializable {
     }
 
-    public static class SelectAll<T extends Object> implements QueryPredicate<T> {
+    public static class SelectAll<T> implements QueryPredicate<T> {
 
         @Override
         public boolean test(T anObject) {
@@ -38,7 +38,7 @@ public class PredicateQuery<T> extends Query {
         }
     }
 
-    public static class SelectNone<T extends Object> implements QueryPredicate<T> {
+    public static class SelectNone<T> implements QueryPredicate<T> {
 
         @Override
         public boolean test(T anObject) {

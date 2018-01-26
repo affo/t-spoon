@@ -1,11 +1,9 @@
 package it.polimi.affetti.tspoon.evaluation;
 
-import it.polimi.affetti.tspoon.common.TunableSource;
 import it.polimi.affetti.tspoon.metrics.*;
 import it.polimi.affetti.tspoon.runtime.JobControlClient;
 import it.polimi.affetti.tspoon.runtime.ProcessRequestServer;
 import it.polimi.affetti.tspoon.runtime.WithServer;
-import it.polimi.affetti.tspoon.tgraph.backed.TransferID;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.functions.sink.RichSinkFunction;
@@ -19,15 +17,14 @@ import java.util.Map;
 /**
  * Created by affo on 07/12/17.
  */
-public class FinishOnBackPressure extends RichSinkFunction<TransferID> {
-    public static final String REQUEST_TRACKER_SERVER_NAME = "request-tracker";
-
+public class FinishOnBackPressure<T extends UniquelyRepresentableForTracking> extends RichSinkFunction<T> {
     public static final String THROUGHPUT_CURVE_ACC = "throughput-curve";
     public static final String LATENCY_CURVE_ACC = "latency-curve";
     public static final String MAX_TP_AND_LATENCY_ACC = "max-throughput-and-latency";
     private transient Logger LOG;
 
     private transient JobControlClient jobControlClient;
+    private final String trackingServerName;
     private int countStart, countEnd, batchNumber;
     private final int batchSize, resolution, maxNumberOfBatches;
     public int expectedInputRate;
@@ -44,11 +41,12 @@ public class FinishOnBackPressure extends RichSinkFunction<TransferID> {
     private transient WithServer requestTracker;
 
     public FinishOnBackPressure(double errorPercentage, int batchSize, int startInputRate,
-                                int resolution, int maxNumberOfBatches) {
+                                int resolution, int maxNumberOfBatches, String trackingServerName) {
         if (errorPercentage < 0 || errorPercentage >= 1) {
             throw new IllegalArgumentException("Error Percentage must be a percentage: " + errorPercentage);
         }
 
+        this.trackingServerName = trackingServerName;
         this.resolution = resolution;
         this.errorPercentage = errorPercentage;
         this.batchSize = batchSize;
@@ -88,7 +86,7 @@ public class FinishOnBackPressure extends RichSinkFunction<TransferID> {
 
         requestTracker = new WithServer(new TrackingServer());
         requestTracker.open();
-        jobControlClient.registerServer(REQUEST_TRACKER_SERVER_NAME, requestTracker.getMyAddress());
+        jobControlClient.registerServer(trackingServerName, requestTracker.getMyAddress());
     }
 
     @Override
@@ -98,8 +96,12 @@ public class FinishOnBackPressure extends RichSinkFunction<TransferID> {
         requestTracker.close();
     }
 
+    public String getTrackingServerName() {
+        return trackingServerName;
+    }
+
     @Override
-    public void invoke(TransferID tid) throws Exception {
+    public void invoke(T tid) throws Exception {
         end(tid);
     }
 
@@ -122,8 +124,8 @@ public class FinishOnBackPressure extends RichSinkFunction<TransferID> {
         }
     }
 
-    private synchronized void end(TransferID id) {
-        currentLatency.end(id.toString());
+    private synchronized void end(T id) {
+        currentLatency.end(id.getUniqueRepresentation());
 
         if (countStart == 0) {
             currentThroughput.open();
@@ -226,6 +228,10 @@ public class FinishOnBackPressure extends RichSinkFunction<TransferID> {
     }
 
     private class TrackingServer extends ProcessRequestServer {
+        /**
+         * The input string must be a UniqueRepresentation
+         * @param transferId
+         */
         @Override
         protected void parseRequest(String transferId) {
             start(transferId);

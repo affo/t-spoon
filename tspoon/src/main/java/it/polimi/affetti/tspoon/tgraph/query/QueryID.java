@@ -1,4 +1,4 @@
-package it.polimi.affetti.tspoon.tgraph.backed;
+package it.polimi.affetti.tspoon.tgraph.query;
 
 import it.polimi.affetti.tspoon.evaluation.UniquelyRepresentableForTracking;
 import org.apache.flink.api.java.tuple.Tuple2;
@@ -6,11 +6,11 @@ import org.apache.flink.api.java.tuple.Tuple2;
 /**
  * Created by affo on 09/01/18.
  */
-public class TransferID extends Tuple2<Integer, Long> implements UniquelyRepresentableForTracking {
-    public TransferID() {
+public class QueryID extends Tuple2<Integer, Long> implements UniquelyRepresentableForTracking {
+    public QueryID() {
     }
 
-    public TransferID(Integer taskID, Long incrementalID) {
+    public QueryID(Integer taskID, Long incrementalID) {
         super(taskID, incrementalID);
     }
 

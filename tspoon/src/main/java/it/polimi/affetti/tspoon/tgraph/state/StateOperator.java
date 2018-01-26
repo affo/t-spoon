@@ -86,7 +86,10 @@ public abstract class StateOperator<T, V>
         }
 
         // Querying
-        // TODO use openInPool
+        // NOTE: we could use `NetUtils.openInPool(...)`, but every task of the StateOperator
+        // would register its nameSpace at the ip:port of its particular queryServer. At this point,
+        // the QueryServer would need to perform a query for the nameSpace at every queryServer...
+        // Would it be better to have multiple servers if they are broadcast at every request?!
         QueryServer queryServer = NetUtils.openAsSingleton(NetUtils.ServerType.QUERY,
                 () -> new QueryServer(getRuntimeContext()));
         queryServer.listen(this);

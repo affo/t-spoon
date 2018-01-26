@@ -17,7 +17,7 @@ public class FrequencyQuerySupplier implements QuerySupplier {
     }
 
     @Override
-    public Query getQuery() {
+    public Query getQuery(QueryID queryID) {
         if (waitingIntervalMicro > 0) {
             try {
                 TimeUnit.MICROSECONDS.sleep(waitingIntervalMicro);
@@ -26,6 +26,6 @@ public class FrequencyQuerySupplier implements QuerySupplier {
             }
         }
 
-        return wrapped.getQuery();
+        return wrapped.getQuery(queryID);
     }
 }

@@ -1,5 +1,7 @@
 package it.polimi.affetti.tspoon.tgraph.query;
 
+import it.polimi.affetti.tspoon.evaluation.UniquelyRepresentableForTracking;
+
 import java.io.Serializable;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -8,10 +10,12 @@ import java.util.Map;
 /**
  * Created by affo on 18/12/17.
  */
-public class QueryResult implements Serializable {
+public class QueryResult implements Serializable, UniquelyRepresentableForTracking {
     public final Map<String, Object> result;
+    public final QueryID queryID;
 
-    public QueryResult() {
+    public QueryResult(QueryID queryID) {
+        this.queryID = queryID;
         this.result = new HashMap<>();
     }
 
@@ -30,5 +34,10 @@ public class QueryResult implements Serializable {
     @Override
     public String toString() {
         return result.toString();
+    }
+
+    @Override
+    public String getUniqueRepresentation() {
+        return queryID.getUniqueRepresentation();
     }
 }
