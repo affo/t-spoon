@@ -2,10 +2,11 @@ package it.polimi.affetti.tspoon.tgraph.twopc;
 
 import it.polimi.affetti.tspoon.common.Address;
 import it.polimi.affetti.tspoon.runtime.WithServer;
+import org.apache.flink.api.java.tuple.Tuple2;
 
 import java.util.*;
 import java.util.function.Consumer;
-import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Created by affo on 04/12/17.
@@ -15,7 +16,7 @@ import java.util.stream.Collectors;
  */
 public abstract class AbstractTwoPCParticipant<L extends TwoPCParticipant.Listener> implements TwoPCParticipant<L> {
     protected final SubscriptionMode subscriptionMode;
-    protected Map<Long, List<L>> specificListeners = new HashMap<>();
+    protected Map<Tuple2<Integer, Long>, List<L>> specificListeners = new HashMap<>();
     protected Set<L> genericListeners = new HashSet<>();
     private WithServer server;
 
@@ -51,7 +52,7 @@ public abstract class AbstractTwoPCParticipant<L extends TwoPCParticipant.Listen
                     + subscriptionMode);
         }
 
-        specificListeners.computeIfAbsent(timestamp, ts -> new LinkedList<>()).add(listener);
+        specificListeners.computeIfAbsent(Tuple2.of(listener.getTGraphID(), timestamp), k -> new LinkedList<>()).add(listener);
     }
 
     /**
@@ -71,37 +72,13 @@ public abstract class AbstractTwoPCParticipant<L extends TwoPCParticipant.Listen
         genericListeners.add(listener);
     }
 
-    protected synchronized List<L> removeListeners(long timestamp) {
-        return specificListeners.remove(timestamp);
-    }
-
-    protected void notifySpecificListeners(CloseTransactionNotification notification,
-                                           Consumer<L> notificationLogic) throws NullPointerException {
-        List<L> listeners = removeListeners(notification.timestamp);
-        // no need to synchronize notification
-        listeners.forEach(notificationLogic);
-    }
-
-    protected void notifyGenericListeners(CloseTransactionNotification notification,
-                                          Consumer<L> notificationLogic) {
-        for (L listener : genericListeners) {
-            // synchronization from the outside to guarantee atomic operation
-            synchronized (listener.getMonitorForUpdateLogic()) {
-                if (listener.isInterestedIn(notification.timestamp)) {
-                    notificationLogic.accept(listener);
-                }
-            }
-        }
+    protected synchronized List<L> removeListeners(int tGraphID, long timestamp) {
+        return specificListeners.remove(Tuple2.of(tGraphID, timestamp));
     }
 
     protected void notifyListeners(CloseTransactionNotification notification,
                                    Consumer<L> notificationLogic) {
-
-        if (subscriptionMode == SubscriptionMode.SPECIFIC) {
-            notifySpecificListeners(notification, notificationLogic);
-        } else {
-            notifyGenericListeners(notification, notificationLogic);
-        }
+        getListeners(notification).forEach(notificationLogic);
     }
 
     /**
@@ -110,14 +87,16 @@ public abstract class AbstractTwoPCParticipant<L extends TwoPCParticipant.Listen
      * @param notification
      * @return
      */
-    protected Iterable<L> getListeners(CloseTransactionNotification notification) {
+    protected Stream<L> getListeners(CloseTransactionNotification notification) {
+        Stream<L> listeners;
         if (subscriptionMode == SubscriptionMode.SPECIFIC) {
-            return removeListeners(notification.timestamp);
+            listeners = removeListeners(notification.tGraphID, notification.timestamp).stream();
+        } else {
+            listeners = genericListeners.stream();
         }
 
-        return genericListeners.stream()
-                .filter(l -> l.isInterestedIn(notification.timestamp))
-                .collect(Collectors.toSet());
+        return listeners
+                .filter(l -> l.getTGraphID() == notification.tGraphID);
     }
 
     public enum SubscriptionMode {

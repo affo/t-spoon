@@ -40,6 +40,7 @@ public class AsynchronousSinkTransactionCloser implements CloseSinkTransactionCl
         String sUpdates = isDurabilityEnabled ? metadata.updates.values().toString() : "";
 
         String messageForCoordinator = CloseTransactionNotification.serialize(
+                metadata.tGraphID,
                 metadata.timestamp,
                 metadata.vote,
                 metadata.cohorts.size(),
@@ -47,6 +48,7 @@ public class AsynchronousSinkTransactionCloser implements CloseSinkTransactionCl
         );
 
         String messageForCohorts = CloseTransactionNotification.serialize(
+                metadata.tGraphID,
                 metadata.timestamp,
                 metadata.vote,
                 metadata.cohorts.size(),

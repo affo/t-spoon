@@ -24,11 +24,12 @@ public class PessimisticStateOperator<T, V> extends StateOperator<T, V> {
     private long deadlockTimeout;
 
     public PessimisticStateOperator(
+            int tGraphID,
             String nameSpace,
             StateFunction<T, V> stateFunction,
             OutputTag<Update<V>> updatesTag,
             TRuntimeContext tRuntimeContext) {
-        super(nameSpace, stateFunction, updatesTag, tRuntimeContext);
+        super(tGraphID, nameSpace, stateFunction, updatesTag, tRuntimeContext);
     }
 
     public void enableDeadlockDetection(long deadlockTimeout) {

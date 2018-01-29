@@ -43,6 +43,7 @@ public class OpenOperator<T>
     public final OutputTag<Tuple2<Long, Vote>> logTag = new OutputTag<Tuple2<Long, Vote>>("tLog") {
     };
 
+    private final int tGraphID;
     private int lastCommittedWatermark = 0;
     // TODO temporarly avoiding log ordering
     //protected transient InOrderSideCollector<T, Tuple2<Long, Vote>> collector;
@@ -78,7 +79,8 @@ public class OpenOperator<T>
 
     private RealTimeAccumulatorsWithPerBatchCurve accumulators = new RealTimeAccumulatorsWithPerBatchCurve();
 
-    public OpenOperator(TRuntimeContext tRuntimeContext) {
+    public OpenOperator(TRuntimeContext tRuntimeContext, int tGraphID) {
+        this.tGraphID = tGraphID;
         this.tRuntimeContext = tRuntimeContext;
         this.transactionsIndex = tRuntimeContext.getTransactionsIndex();
 
@@ -107,10 +109,16 @@ public class OpenOperator<T>
             openOperatorTransactionCloser.subscribe(this);
         }
 
-        ParameterTool parameterTool = (ParameterTool)
-                getRuntimeContext().getExecutionConfig().getGlobalJobParameters();
-        jobControlClient = JobControlClient.get(parameterTool);
-        jobControlClient.observe(this);
+        try {
+            ParameterTool parameterTool = (ParameterTool)
+                    getRuntimeContext().getExecutionConfig().getGlobalJobParameters();
+            jobControlClient = JobControlClient.get(parameterTool);
+            jobControlClient.observe(this);
+        } catch (IllegalArgumentException iae) {
+            LOG.warn("Starting without listening to JobControl events" +
+                    "because cannot connect to JobControl: " + iae.getMessage());
+            jobControlClient = null;
+        }
 
         // register accumulators
         accumulators.register(getRuntimeContext(), COMMIT_COUNT, commits);
@@ -132,7 +140,9 @@ public class OpenOperator<T>
     public void close() throws Exception {
         super.close();
         openOperatorTransactionCloser.close();
-        jobControlClient.close();
+        if (jobControlClient != null) {
+            jobControlClient.close();
+        }
     }
 
     @Override
@@ -144,7 +154,7 @@ public class OpenOperator<T>
 
     private void collect(TransactionsIndex<T>.LocalTransactionContext transactionContext) {
         int tid = transactionContext.tid;
-        Metadata metadata = new Metadata(tid);
+        Metadata metadata = new Metadata(tGraphID, tid);
         metadata.timestamp = transactionContext.timestamp;
         metadata.coordinator = openOperatorTransactionCloser.getServerAddress();
         metadata.watermark = transactionsIndex.getCurrentWatermark();
@@ -168,16 +178,8 @@ public class OpenOperator<T>
     // ----------------------------- Transaction close notification logic
 
     @Override
-    public Object getMonitorForUpdateLogic() {
-        // synchronize with this when applying update logic
-        return this;
-    }
-
-    // no need to synchronize because they are invoked atomically on notification
-    @Override
-    public boolean isInterestedIn(long timestamp) {
-        return transactionsIndex
-                .getTransactionByTimestamp((int) timestamp) != null;
+    public int getTGraphID() {
+        return tGraphID;
     }
 
     private void updateStats(int timestamp, Vote vote) {
@@ -204,9 +206,22 @@ public class OpenOperator<T>
     }
 
     @Override
-    public void onCloseTransaction(CloseTransactionNotification notification) {
+    public synchronized void onCloseTransaction(CloseTransactionNotification notification) {
         TransactionsIndex<T>.LocalTransactionContext localTransactionContext = transactionsIndex
                 .getTransactionByTimestamp(notification.timestamp);
+
+        if (localTransactionContext == null &&
+                tRuntimeContext.getSubscriptionMode() == AbstractTwoPCParticipant.SubscriptionMode.SPECIFIC) {
+            // this means that this notification is not for me!
+            throw new IllegalStateException("I subscribed to a SPECIFIC transaction" +
+                    "that I didn't register in transactionIndex: " + notification.timestamp);
+        }
+
+        if (localTransactionContext == null &&
+                tRuntimeContext.getSubscriptionMode() == AbstractTwoPCParticipant.SubscriptionMode.GENERIC) {
+            // this means that this notification is not for me!
+            return;
+        }
 
         updateStats(notification.timestamp, notification.vote);
 

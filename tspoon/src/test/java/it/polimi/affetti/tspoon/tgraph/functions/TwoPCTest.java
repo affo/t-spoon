@@ -98,7 +98,7 @@ public class TwoPCTest {
                 env.setParallelism(1);
 
                 DataStream<Integer> ds = env.addSource(new CollectionSource<>(elements)).returns(Integer.class);
-                TStream<Integer> ts = OTStream.fromStream(ds).opened;
+                TStream<Integer> ts = OTStream.fromStream(ds, 0).opened;
                 DataStream<Enriched<Integer>> enriched = ts.flatMap(
                         e -> IntStream.range(0, e).boxed().collect(Collectors.toList())
                 ).getEnclosingStream();

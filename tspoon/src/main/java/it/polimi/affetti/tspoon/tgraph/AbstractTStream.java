@@ -23,12 +23,14 @@ import java.util.List;
  * Created by affo on 13/07/17.
  */
 public abstract class AbstractTStream<T> implements TStream<T> {
+    protected final int tGraphID;
     protected static TransactionEnvironment transactionEnvironment;
 
     protected DataStream<Enriched<T>> dataStream;
 
-    public AbstractTStream(DataStream<Enriched<T>> enriched) {
+    public AbstractTStream(DataStream<Enriched<T>> enriched, int tGraphID) {
         this.dataStream = enriched;
+        this.tGraphID = tGraphID;
     }
 
     public static void setTransactionEnvironment(TransactionEnvironment transactionEnvironment) {
@@ -44,10 +46,10 @@ public abstract class AbstractTStream<T> implements TStream<T> {
     protected abstract <V> StateOperator<T, V> getStateOperator(
             String nameSpace, OutputTag<Update<V>> updatesTag, StateFunction<T, V> stateFunction);
 
-    protected static <T> OpenOutputs<T> open(DataStream<T> dataStream) {
+    protected static <T> OpenOutputs<T> open(DataStream<T> dataStream, int tGraphId) {
         TypeInformation<Enriched<T>> type = Enriched.getTypeInfo(dataStream.getType());
         OpenOperator<T> openOperator = new OpenOperator<>(
-                transactionEnvironment.createTransactionalRuntimeContext());
+                transactionEnvironment.createTransactionalRuntimeContext(), tGraphId);
         SingleOutputStreamOperator<Enriched<T>> enriched = dataStream
                 .transform("open", type, openOperator)
                 .name("OpenTransaction")

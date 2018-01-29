@@ -8,6 +8,7 @@ import it.polimi.affetti.tspoon.tgraph.Vote;
 
 import java.util.function.Consumer;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 /**
  * Created by affo on 01/12/17.
@@ -41,7 +42,9 @@ public abstract class AbstractStateOperatorTransactionCloser
             CloseTransactionNotification notification = CloseTransactionNotification.deserialize(request);
             long timestamp = notification.timestamp;
 
-            Iterable<StateOperatorTransactionCloseListener> listeners = getListeners(notification);
+            Iterable<StateOperatorTransactionCloseListener> listeners = getListeners(notification)
+                    .filter(l -> l.isInterestedIn(timestamp)).collect(Collectors.toList());
+
 
             Address coordinatorAddress = null;
             StringBuilder updatesRepresentation = new StringBuilder();

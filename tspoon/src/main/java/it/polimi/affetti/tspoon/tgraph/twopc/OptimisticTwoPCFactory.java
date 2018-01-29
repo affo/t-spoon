@@ -11,8 +11,8 @@ import org.apache.flink.streaming.api.datastream.DataStream;
  */
 public class OptimisticTwoPCFactory implements TwoPCFactory {
     @Override
-    public <T> OpenStream<T> open(DataStream<T> ds) {
-        return OTStream.fromStream(ds);
+    public <T> OpenStream<T> open(DataStream<T> ds, int tGraphID) {
+        return OTStream.fromStream(ds, tGraphID);
     }
 
     @Override

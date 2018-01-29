@@ -54,12 +54,12 @@ public class AtStateListener extends AbstractListener<StateOperatorTransactionCl
     }
 
     @Override
-    public Object getMonitorForUpdateLogic() {
-        return this;
+    public boolean isInterestedIn(long timestamp) {
+        return subscriber.isInterestedIn(timestamp);
     }
 
     @Override
-    public boolean isInterestedIn(long timestamp) {
-        return subscriber.isInterestedIn(timestamp);
+    public int getTGraphID() {
+        return 0;
     }
 }

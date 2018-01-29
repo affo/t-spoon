@@ -19,7 +19,7 @@ public interface TwoPCParticipant<L extends TwoPCParticipant.Listener> {
      * interested in every notification published to him
      * <p>
      * This method is called once every time that an observer is interested in a transaction
-     * (a lot of time).
+     * (a lot of times).
      *
      * @param timestamp
      * @param listener
@@ -50,30 +50,6 @@ public interface TwoPCParticipant<L extends TwoPCParticipant.Listener> {
     void close() throws Exception;
 
     interface Listener extends Serializable {
-        boolean isInterestedIn(long timestamp);
-
-        /**
-         * The TwoPCParticipant can request a monitor object to the listener in order to provide
-         * atomic operations on applying the notification logic.
-         * <p>
-         * For example it could use it like:
-         * </p>
-         * <pre>
-         * {@code
-         * Listener l = ...;
-         *
-         * synchronized(l.getMonitorForUpdateLogic()) {
-         *      if (l.isInterestedIn(42L)) {
-         *          l.onFoo();
-         *      } else {
-         *          l.onBar();
-         *      }
-         * }
-         * }
-         * </pre>
-         *
-         * @return
-         */
-        Object getMonitorForUpdateLogic();
+        int getTGraphID();
     }
 }

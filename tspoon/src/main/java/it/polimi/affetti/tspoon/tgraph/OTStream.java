@@ -12,27 +12,27 @@ import org.apache.flink.util.OutputTag;
  * Created by affo on 13/07/17.
  */
 public class OTStream<T> extends AbstractTStream<T> {
-    public OTStream(DataStream<Enriched<T>> enriched) {
-        super(enriched);
+    public OTStream(DataStream<Enriched<T>> enriched, int tGraphID) {
+        super(enriched, tGraphID);
     }
 
-    public static <T> OpenStream<T> fromStream(DataStream<T> ds) {
-        OpenOutputs<T> outputs = AbstractTStream.open(ds);
+    public static <T> OpenStream<T> fromStream(DataStream<T> ds, int tGraphId) {
+        OpenOutputs<T> outputs = AbstractTStream.open(ds, tGraphId);
         return new OpenStream<>(
-                new OTStream<>(outputs.enrichedDataStream),
+                new OTStream<>(outputs.enrichedDataStream, tGraphId),
                 outputs.watermarks, outputs.tLog);
     }
 
     @Override
     protected <U> OTStream<U> replace(DataStream<Enriched<U>> newStream) {
-        return new OTStream<>(newStream);
+        return new OTStream<>(newStream, tGraphID);
     }
 
     @Override
     protected <V> StateOperator<T, V> getStateOperator(
             String nameSpace, OutputTag<Update<V>> updatesTag, StateFunction<T, V> stateFunction) {
         return new OptimisticStateOperator<>(
-                nameSpace, stateFunction, updatesTag,
+                tGraphID, nameSpace, stateFunction, updatesTag,
                 getTransactionEnvironment().createTransactionalRuntimeContext()
         );
     }

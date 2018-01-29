@@ -33,6 +33,7 @@ public abstract class StateOperator<T, V>
         extends AbstractStreamOperator<Enriched<T>>
         implements OneInputStreamOperator<Enriched<T>, Enriched<T>>,
         StateOperatorTransactionCloseListener, QueryListener {
+    protected final int tGraphID;
     private long counter = 0;
     protected final String nameSpace;
     public final OutputTag<Update<V>> updatesTag;
@@ -46,10 +47,12 @@ public abstract class StateOperator<T, V>
     private transient AbstractStateOperatorTransactionCloser transactionCloser;
 
     public StateOperator(
+            int tGraphID,
             String nameSpace,
             StateFunction<T, V> stateFunction,
             OutputTag<Update<V>> updatesTag,
             TRuntimeContext tRuntimeContext) {
+        this.tGraphID = tGraphID;
         this.nameSpace = nameSpace;
         this.stateFunction = stateFunction;
         this.updatesTag = updatesTag;
@@ -139,8 +142,8 @@ public abstract class StateOperator<T, V>
     }
 
     @Override
-    public java.lang.Object getMonitorForUpdateLogic() {
-        return null;
+    public int getTGraphID() {
+        return tGraphID;
     }
 
     @Override

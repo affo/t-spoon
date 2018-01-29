@@ -63,6 +63,9 @@ public abstract class TransactionsIndex<T> implements Serializable {
 
     public LocalTransactionContext getTransactionByTimestamp(int timestamp) {
         Integer tid = getTransactionId(timestamp);
+        if (tid == null) {
+            return null;
+        }
         return getTransaction(tid);
     }
 

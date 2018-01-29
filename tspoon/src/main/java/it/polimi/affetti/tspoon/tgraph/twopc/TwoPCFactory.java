@@ -10,7 +10,7 @@ import java.io.Serializable;
  * Created by affo on 17/07/17.
  */
 public interface TwoPCFactory extends Serializable {
-    <T> OpenStream<T> open(DataStream<T> ds);
+    <T> OpenStream<T> open(DataStream<T> ds, int tGraphId);
 
     DataStream<Metadata> onClosingSink(DataStream<Metadata> votesMerged, TransactionEnvironment transactionEnvironment);
 }

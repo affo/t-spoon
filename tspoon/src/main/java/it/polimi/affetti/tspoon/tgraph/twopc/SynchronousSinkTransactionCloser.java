@@ -33,6 +33,7 @@ public class SynchronousSinkTransactionCloser implements CloseSinkTransactionClo
         }
 
         String message = CloseTransactionNotification.serialize(
+                metadata.tGraphID,
                 metadata.timestamp,
                 metadata.vote,
                 metadata.cohorts.size(),

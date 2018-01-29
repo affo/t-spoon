@@ -29,12 +29,7 @@ public class AtOpenListener extends AbstractListener<OpenOperatorTransactionClos
     }
 
     @Override
-    public Object getMonitorForUpdateLogic() {
-        return this;
-    }
-
-    @Override
-    public boolean isInterestedIn(long timestamp) {
-        return subscriber.isInterestedIn(timestamp);
+    public int getTGraphID() {
+        return 0;
     }
 }

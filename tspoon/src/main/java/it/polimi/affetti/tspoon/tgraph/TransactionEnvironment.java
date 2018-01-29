@@ -40,6 +40,8 @@ public class TransactionEnvironment {
     private boolean synchronous;
     private boolean baselineMode;
 
+    private int tGraphId = 0;
+
     private TransactionEnvironment(StreamExecutionEnvironment env) {
         this.streamExecutionEnvironment = env;
     }
@@ -206,7 +208,7 @@ public class TransactionEnvironment {
             querySender = new QuerySender(onQueryResult);
         }
 
-        OpenStream<T> openStream = factory.open(ds);
+        OpenStream<T> openStream = factory.open(ds, tGraphId++);
 
         // It should be (for queries on multiple TGs and outside of this function, in TransactionEnvironment.get()):
         //      processed = queryStream.flatMap(new QueryProcessor()).select(... byStateName ...)

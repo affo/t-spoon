@@ -17,8 +17,8 @@ public class JobControlClient extends StringClient {
         super(address, port);
     }
 
-    public static JobControlClient get(ParameterTool parameters) throws IOException {
-        if (parameters.has("jobControlServerIP")) {
+    public static JobControlClient get(ParameterTool parameters) throws IOException, IllegalArgumentException {
+        if (parameters != null && parameters.has("jobControlServerIP")) {
             String ip = parameters.get("jobControlServerIP");
             int port = parameters.getInt("jobControlServerPort");
             boolean tunable = parameters.getBoolean("tunable", false);

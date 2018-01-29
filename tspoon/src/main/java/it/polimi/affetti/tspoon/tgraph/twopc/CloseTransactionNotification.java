@@ -11,6 +11,7 @@ import java.util.Arrays;
  * The message that CloseSink sends to Coordinator
  */
 public class CloseTransactionNotification implements Serializable {
+    public final int tGraphID;
     public final int timestamp;
     public final Vote vote;
     public final int batchSize;
@@ -20,6 +21,12 @@ public class CloseTransactionNotification implements Serializable {
 
     private CloseTransactionNotification(
             int timestamp, Vote vote, int batchSize, int replayCause, String updates) {
+        this(0, timestamp, vote, batchSize, replayCause, updates);
+    }
+
+    private CloseTransactionNotification(
+            int tGraphID, int timestamp, Vote vote, int batchSize, int replayCause, String updates) {
+        this.tGraphID = tGraphID;
         this.timestamp = timestamp;
         this.vote = vote;
         this.batchSize = batchSize;
@@ -29,25 +36,27 @@ public class CloseTransactionNotification implements Serializable {
 
     public static CloseTransactionNotification deserialize(String request) {
         String[] tokens = request.split(",");
-        int timestamp = Integer.parseInt(tokens[0]);
-        Vote vote = Vote.values()[Integer.parseInt(tokens[1])];
-        int batchSize = Integer.parseInt(tokens[2]);
-        int replayCause = Integer.parseInt(tokens[3]);
+        int tGraphID = Integer.parseInt(tokens[0]);
+        int timestamp = Integer.parseInt(tokens[1]);
+        Vote vote = Vote.values()[Integer.parseInt(tokens[2])];
+        int batchSize = Integer.parseInt(tokens[3]);
+        int replayCause = Integer.parseInt(tokens[4]);
 
         String updates = "";
-        if (tokens.length >= 4) {
-            updates = String.join(",", Arrays.copyOfRange(tokens, 4, tokens.length));
+        if (tokens.length >= 5) {
+            updates = String.join(",", Arrays.copyOfRange(tokens, 5, tokens.length));
         }
 
-        return new CloseTransactionNotification(timestamp, vote, batchSize, replayCause, updates);
+        return new CloseTransactionNotification(tGraphID, timestamp, vote, batchSize, replayCause, updates);
     }
 
     public String serialize() {
-        return CloseTransactionNotification.serialize(timestamp, vote, batchSize, replayCause, updates);
+        return CloseTransactionNotification.serialize(tGraphID, timestamp, vote, batchSize, replayCause, updates);
     }
 
-    public static String serialize(int timestamp, Vote vote, int batchSize, int replayCause, String updates) {
-        String serialized = timestamp + "," + vote.ordinal() + ","
+    public static String serialize(
+            int tGraphID, int timestamp, Vote vote, int batchSize, int replayCause, String updates) {
+        String serialized = tGraphID + "," + timestamp + "," + vote.ordinal() + ","
                 + batchSize + "," + replayCause;
 
         if (!updates.isEmpty()) {
@@ -60,7 +69,8 @@ public class CloseTransactionNotification implements Serializable {
     @Override
     public String toString() {
         return "CloseTransactionNotification{" +
-                "timestamp=" + timestamp +
+                "tGraphID=" + tGraphID +
+                ", timestamp=" + timestamp +
                 ", vote=" + vote +
                 ", batchSize=" + batchSize +
                 ", replayCause=" + replayCause +

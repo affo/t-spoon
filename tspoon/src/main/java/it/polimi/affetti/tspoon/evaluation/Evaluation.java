@@ -70,7 +70,7 @@ public class Evaluation {
         final boolean baselineMode = parameters.getBoolean("baseline", false);
 
         // parameters specific for tunable evaluation
-        final boolean tunableExperiment = parameters.getBoolean("tunable", false);
+        final boolean tunableExperiment = parameters.getBoolean("tunable", true);
         final int batchSize = parameters.getInt("batchSize", 50000);
         final int resolution = parameters.getInt("resolution", 200);
         final int startInputRate = parameters.getInt("startInputRate", 1000);

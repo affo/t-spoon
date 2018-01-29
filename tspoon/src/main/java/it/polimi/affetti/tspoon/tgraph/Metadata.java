@@ -15,6 +15,7 @@ import java.util.stream.Collectors;
  * Created by affo on 13/07/17.
  */
 public class Metadata implements Serializable {
+    public int tGraphID;
     public BatchID batchID;
     public int tid, timestamp;
     public HashSet<Address> cohorts = new HashSet<>();
@@ -28,6 +29,11 @@ public class Metadata implements Serializable {
     }
 
     public Metadata(int tid) {
+        this(0, tid);
+    }
+
+    public Metadata(int tGraphID, int tid) {
+        this.tGraphID = tGraphID;
         this.batchID = new BatchID(tid);
         this.tid = tid;
         this.timestamp = tid;
@@ -41,6 +47,7 @@ public class Metadata implements Serializable {
 
     public Metadata deepClone(BatchID bid) {
         Metadata cloned = new Metadata();
+        cloned.tGraphID = tGraphID;
         cloned.batchID = bid;
         cloned.tid = tid;
         cloned.timestamp = timestamp;

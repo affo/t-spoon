@@ -34,11 +34,12 @@ public class OptimisticStateOperator<T, V> extends StateOperator<T, V>
     private Set<String> listeningTo = new HashSet<>();
 
     public OptimisticStateOperator(
+            int tGraphID,
             String nameSpace,
             StateFunction<T, V> stateFunction,
             OutputTag<Update<V>> updatesTag,
             TRuntimeContext tRuntimeContext) {
-        super(nameSpace, stateFunction, updatesTag, tRuntimeContext);
+        super(tGraphID, nameSpace, stateFunction, updatesTag, tRuntimeContext);
     }
 
     @Override

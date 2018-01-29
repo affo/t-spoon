@@ -11,20 +11,20 @@ import org.apache.flink.util.OutputTag;
  * Created by affo on 13/07/17.
  */
 public class PTStream<T> extends AbstractTStream<T> {
-    public PTStream(DataStream<Enriched<T>> enriched) {
-        super(enriched);
+    public PTStream(DataStream<Enriched<T>> enriched, int tGraphID) {
+        super(enriched, tGraphID);
     }
 
-    public static <T> OpenStream<T> fromStream(DataStream<T> ds) {
-        OpenOutputs<T> outputs = AbstractTStream.open(ds);
+    public static <T> OpenStream<T> fromStream(DataStream<T> ds, int tGraphID) {
+        OpenOutputs<T> outputs = AbstractTStream.open(ds, tGraphID);
         return new OpenStream<>(
-                new PTStream<>(outputs.enrichedDataStream),
+                new PTStream<>(outputs.enrichedDataStream, tGraphID),
                 outputs.watermarks, outputs.tLog);
     }
 
     @Override
     protected <U> PTStream<U> replace(DataStream<Enriched<U>> newStream) {
-        return new PTStream<>(newStream);
+        return new PTStream<>(newStream, tGraphID);
     }
 
     @Override
@@ -32,7 +32,7 @@ public class PTStream<T> extends AbstractTStream<T> {
             String nameSpace, OutputTag<Update<V>> updatesTag,
             StateFunction<T, V> stateFunction) {
         PessimisticStateOperator<T, V> stateOperator = new PessimisticStateOperator<>(
-                nameSpace, stateFunction, updatesTag,
+                tGraphID, nameSpace, stateFunction, updatesTag,
                 getTransactionEnvironment().createTransactionalRuntimeContext());
 
         if (getTransactionEnvironment().getIsolationLevel() != IsolationLevel.PL4) {
