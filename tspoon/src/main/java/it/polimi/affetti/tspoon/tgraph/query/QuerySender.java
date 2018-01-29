@@ -1,7 +1,7 @@
 package it.polimi.affetti.tspoon.tgraph.query;
 
-import io.netty.util.concurrent.DefaultThreadFactory;
 import it.polimi.affetti.tspoon.common.Address;
+import it.polimi.affetti.tspoon.common.TaskExecutor;
 import it.polimi.affetti.tspoon.metrics.MetricAccumulator;
 import it.polimi.affetti.tspoon.metrics.Report;
 import it.polimi.affetti.tspoon.runtime.ClientsCache;
@@ -18,21 +18,20 @@ import java.io.Serializable;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.function.Consumer;
 
 /**
  * Created by affo on 02/08/17.
  */
-public class QuerySender extends RichFlatMapFunction<Query, QueryResult> {
+public class QuerySender extends RichFlatMapFunction<Query, QueryResult>
+        implements TaskExecutor.TaskErrorListener {
     private static transient Logger LOG;
     private transient JobControlClient jobControlClient;
     private transient ClientsCache<ObjectClient> queryServers;
     private Map<String, Set<Address>> addressesCache = new HashMap<>();
     private final OnQueryResult onQueryResult;
-    private transient ExecutorService deferredExecutor;
+    private transient TaskExecutor deferredExecutor;
+    private volatile Throwable error;
 
     private static boolean verbose = false;
 
@@ -67,8 +66,9 @@ public class QuerySender extends RichFlatMapFunction<Query, QueryResult> {
                 getRuntimeContext().getExecutionConfig().getGlobalJobParameters();
         jobControlClient = JobControlClient.get(parameterTool);
         queryServers = new ClientsCache<>(address -> new ObjectClient(address.ip, address.port));
-        deferredExecutor = Executors.newSingleThreadExecutor(
-                new DefaultThreadFactory("QueryExecutor @ " + getRuntimeContext().getTaskNameWithSubtasks()));
+        deferredExecutor = new TaskExecutor();
+        deferredExecutor.setName("QueryExecutor @ " + getRuntimeContext().getTaskNameWithSubtasks());
+        deferredExecutor.start();
 
         getRuntimeContext().addAccumulator(QUERY_LATENCY_METRIC_NAME, queryLatency);
     }
@@ -81,11 +81,16 @@ public class QuerySender extends RichFlatMapFunction<Query, QueryResult> {
         }
 
         queryServers.clear();
-        deferredExecutor.shutdown();
+        deferredExecutor.interrupt();
     }
 
     @Override
     public void flatMap(Query query, Collector<QueryResult> collector) throws Exception {
+        if (error != null) {
+            // TODO find a better way
+            throw new RuntimeException(error);
+        }
+
         String nameSpace = query.getNameSpace();
         Set<Address> addresses = addressesCache.get(query.getNameSpace());
         try {
@@ -99,7 +104,7 @@ public class QuerySender extends RichFlatMapFunction<Query, QueryResult> {
         }
 
         Set<Address> finalAddresses = addresses;
-        Callable<Void> deferredExecution = () -> {
+        Runnable deferredExecution = () -> {
             try {
                 long start = System.nanoTime();
                 QueryResult queryResult = new QueryResult(query.getQueryID());
@@ -129,12 +134,18 @@ public class QuerySender extends RichFlatMapFunction<Query, QueryResult> {
             } catch (IOException e) {
                 LOG.info("Query discarded because of IOException. Query: " + query
                         + ", Exception message: " + e.getMessage() + ".");
+            } catch (ClassNotFoundException e) {
+                LOG.info("Cannot cast message to QueryResult. Query: " + query
+                        + ", Exception message: " + e.getMessage() + ".");
             }
-
-            return null;
         };
 
-        deferredExecutor.submit(deferredExecution);
+        deferredExecutor.addTask(deferredExecution, this);
+    }
+
+    @Override
+    public void onTaskError(Throwable t) {
+        error = t;
     }
 
     public interface OnQueryResult extends Consumer<QueryResult>, Serializable {

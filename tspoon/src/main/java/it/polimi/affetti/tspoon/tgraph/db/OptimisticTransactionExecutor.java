@@ -1,12 +1,11 @@
 package it.polimi.affetti.tspoon.tgraph.db;
 
+import it.polimi.affetti.tspoon.common.TaskExecutor;
 import it.polimi.affetti.tspoon.tgraph.IsolationLevel;
 import it.polimi.affetti.tspoon.tgraph.Vote;
 import it.polimi.affetti.tspoon.tgraph.state.*;
 import org.apache.log4j.Logger;
 
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.LinkedBlockingQueue;
 import java.util.function.Consumer;
 
 /**
@@ -18,7 +17,6 @@ public class OptimisticTransactionExecutor {
     private DependencyTrackingStrategy dependencyTrackingStrategy;
     private boolean needWaitOnRead;
     private TaskExecutor taskExecutor;
-    private Thread executorThread;
 
     public OptimisticTransactionExecutor(
             IsolationLevel isolationLevel,
@@ -59,8 +57,7 @@ public class OptimisticTransactionExecutor {
 
         if (needWaitOnRead) {
             this.taskExecutor = new TaskExecutor();
-            this.executorThread = new Thread(taskExecutor);
-            this.executorThread.start();
+            this.taskExecutor.start();
         }
     }
 
@@ -111,36 +108,13 @@ public class OptimisticTransactionExecutor {
             theTask.accept(null);
         } else {
             // deferred execution
-            taskExecutor.addTask(theTask);
+            taskExecutor.addTask(() -> theTask.accept(null));
         }
     }
 
     public void close() {
-        if (executorThread != null) {
-            executorThread.interrupt();
-        }
-    }
-
-    private class TaskExecutor implements Runnable {
-        private final BlockingQueue<Consumer<Void>> tasks;
-
-        public TaskExecutor() {
-            tasks = new LinkedBlockingQueue<>();
-        }
-
-        public void addTask(Consumer<Void> task) {
-            tasks.add(task);
-        }
-
-        @Override
-        public void run() {
-            try {
-                while (true) {
-                    tasks.take().accept(null);
-                }
-            } catch (InterruptedException e) {
-                LOG.error("Interrupted while running tasks");
-            }
+        if (taskExecutor != null) {
+            taskExecutor.interrupt();
         }
     }
 }
