@@ -13,6 +13,8 @@ if __name__ == "__main__":
     # For now, we don't allow to send jobs from outside.
     # The client must be co-located with the JobManager
     base_url = "http://localhost:8081"
+    polling_interval = 5
+    experiment_deadline = 2 * 60 * 60 # 2 hours
 
     resp = requests.post(
             base_url + "/jars/upload",
@@ -34,7 +36,7 @@ if __name__ == "__main__":
 
     time.sleep(2)
 
-    def execute_job(arguments, polling_interval=5):
+    def execute_job(arguments):
         run_url = base_url + "/jars/" + fname + "/run?" + \
                 "entry-class=" + main_class + "&" + \
                 "program-args=" + arguments
@@ -48,14 +50,25 @@ if __name__ == "__main__":
         print job_id
 
         # start polling until the end of the job...
+        number_of_polls = experiment_deadline / polling_interval
+        iteration = 0
         status = "RUNNING"
         url = base_url + "/jobs/" + job_id
-        while status == "RUNNING":
+        while status == "RUNNING" and iteration < number_of_polls:
             resp = requests.get(url)
             resp = json.loads(resp.content)
             status = resp["state"]
-            print "Polling job status every {} seconds: {}".format(polling_interval, status)
+            iteration += 1
+            print "{} - Polling job status every {} seconds: {}".format(iteration, polling_interval, status)
             time.sleep(polling_interval)
+
+        additional_notes = {}
+        if status == "RUNNING":
+            # the job is still running after the deadline: kill the job
+            print "Canceling the job because deadline exceeded..."
+            requests.delete(url + "/cancel")
+            print "Job canceled"
+            additional_notes["job_canceled"] = "Deadline exceeded: {}s".format(experiment_deadline)
 
         # gathering results now
         execution_results = {}
@@ -70,6 +83,13 @@ if __name__ == "__main__":
         resp = requests.get(url + "/accumulators")
         accumulators = json.loads(resp.content)["user-task-accumulators"]
 
+        if status != "FINISHED":
+            # save the exceptions, if any
+            resp = requests.get(url + "/exceptions")
+            execution_results["exceptions"] = json.loads(resp.content)
+
+        execution_results["additional-notes"] = additional_notes
+
         def parse_acc_value(value):
             try:
                 return json.loads(value)
@@ -81,35 +101,37 @@ if __name__ == "__main__":
         return execution_results
 
     results = execute_job(args)
-    results["additional-notes"] = {}
 
     user_config = results["config"]["execution-config"]["user-config"]
 
     is_tunable = user_config.get("tunable", False)
     is_query = user_config.get("queryOn", False)
 
-    if not is_tunable and not is_query:
-        throughput = float(results["accumulators"]["throughput"]["mean"])
-        percentage = 0.8
-        input_rate = int(math.floor(throughput * percentage))
+    try:
+        if not is_tunable and not is_query:
+            throughput = float(results["accumulators"]["throughput"]["mean"])
+            percentage = 0.8
+            input_rate = int(math.floor(throughput * percentage))
 
-        latency_n_rec = 20000
-        latency_sled = 0
-        latency_experiment_message = "Executing latency experiment with input rate {} * {} = {}" \
-            .format(throughput, percentage, input_rate)
-        results["additional-notes"]["inputRate"] = latency_experiment_message
-        results["additional-notes"]["nRec"] = "Using nRec {} and sled {}" \
-                .format(latency_n_rec, latency_sled)
-        print latency_experiment_message
+            latency_n_rec = 20000
+            latency_sled = 0
+            latency_experiment_message = "Executing latency experiment with input rate {} * {} = {}" \
+                .format(throughput, percentage, input_rate)
+            results["additional-notes"]["inputRate"] = latency_experiment_message
+            results["additional-notes"]["nRec"] = "Using nRec {} and sled {}" \
+                    .format(latency_n_rec, latency_sled)
+            print latency_experiment_message
 
-        time.sleep(5)
+            time.sleep(5)
 
-        latency_results = execute_job(
-                "{} --inputRate {} --nRec {} --sled {}" \
-                        .format(args, input_rate, latency_n_rec, latency_sled))
-        results["accumulators"]["latency"] = \
-                latency_results["accumulators"]["latency"]
-        results["config"]["execution-config"]["user-config"]["inputRate"] = input_rate
+            latency_results = execute_job(
+                    "{} --inputRate {} --nRec {} --sled {}" \
+                            .format(args, input_rate, latency_n_rec, latency_sled))
+            results["accumulators"]["latency"] = \
+                    latency_results["accumulators"]["latency"]
+            results["config"]["execution-config"]["user-config"]["inputRate"] = input_rate
+    except KeyError as ke:
+        print "Got some key error: {}, persisting output to file anyways...".format(ke)
 
     print json.dumps(results, indent=4, sort_keys=True)
     with open(output_file, "w") as f:
