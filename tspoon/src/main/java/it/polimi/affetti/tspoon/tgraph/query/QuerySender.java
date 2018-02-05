@@ -35,9 +35,11 @@ public class QuerySender extends RichFlatMapFunction<Query, QueryResult>
 
     private static boolean verbose = false;
 
-    public static final String QUERY_LATENCY_METRIC_NAME = "query-latency";
+    public static final String QUERY_LATENCY_METRIC_NAME = "query-latency-at-query-sender";
+    public static final String QUERY_RESULT_SIZE_METRIC_NAME = "query-result-size";
 
     private MetricAccumulator queryLatency = new MetricAccumulator();
+    private MetricAccumulator queryResultSize = new MetricAccumulator();
 
     public QuerySender() {
         this(null);
@@ -71,6 +73,7 @@ public class QuerySender extends RichFlatMapFunction<Query, QueryResult>
         deferredExecutor.start();
 
         getRuntimeContext().addAccumulator(QUERY_LATENCY_METRIC_NAME, queryLatency);
+        getRuntimeContext().addAccumulator(QUERY_RESULT_SIZE_METRIC_NAME, queryResultSize);
     }
 
     @Override
@@ -120,6 +123,7 @@ public class QuerySender extends RichFlatMapFunction<Query, QueryResult>
                 long end = System.nanoTime();
                 long latency = (long) ((end - start) / Math.pow(10, 6));
                 queryLatency.add((double) latency);
+                queryResultSize.add((double) queryResult.getSize());
 
                 collector.collect(queryResult);
 

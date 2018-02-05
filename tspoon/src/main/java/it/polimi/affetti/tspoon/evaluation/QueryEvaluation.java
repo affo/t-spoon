@@ -72,7 +72,7 @@ public class QueryEvaluation {
 
         int noKeys = (int) (keySpaceSize * queryPerc);
         QuerySupplier querySupplier = queryID ->
-                new RandomQuery(nameSpace, queryID, noKeys / partitioning);
+                new RandomQuery(nameSpace, queryID, noKeys);
 
         TunableSource.TunableQuerySource tunableQuerySource = new TunableSource.TunableQuerySource(
                 startInputRate, resolution, batchSize, QUERY_TRACKING_SERVER_NAME, querySupplier);
@@ -130,6 +130,6 @@ public class QueryEvaluation {
 
         tEnv.close(balances.leftUnchanged);
 
-        env.execute("Consistency check at " + strategy + " - " + isolationLevel);
+        env.execute("Query evaluation at " + strategy + " - " + isolationLevel);
     }
 }

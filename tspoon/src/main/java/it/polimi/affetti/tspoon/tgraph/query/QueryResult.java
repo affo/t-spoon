@@ -31,6 +31,10 @@ public class QueryResult implements Serializable, UniquelyRepresentableForTracki
         return result.entrySet().iterator();
     }
 
+    public int getSize() {
+        return result.size();
+    }
+
     @Override
     public String toString() {
         return result.toString();

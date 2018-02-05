@@ -31,19 +31,6 @@ function _launch_suite_keyspace {
     done
 }
 
-function _launch_suite_query {
-    if [[ "$#" -lt 1 ]]; then
-        echo "launch_suite_query <qf1,qf2,...> <params...>"
-        return 1
-    fi
-
-    local query_freqs=(`echo $1 | tr ',' '\n'`)
-
-    for qf in ${query_freqs[@]}; do
-        launch_query $qf 4500 "${@:2}"
-        sleep 1
-    done
-}
 
 ### Builtin evaluation functions
 function _launch_tgs {
@@ -111,19 +98,15 @@ function launch_parallel_ntg {
 }
 
 function launch_query {
-    if [[ "$#" -lt 2 ]]; then
-        echo "Input: <query_frequency> <update_frequency> <params...>"
+    if [[ "$#" -lt 1 ]]; then
+        echo "Input: <update_frequency> <params...>"
         return 1
     fi
 
-    local query_frequency=$1
-    local update_frequency=$2
-    local n_records=$(($update_frequency * 120)) # make it last 2 minutes
+    local update_frequency=$1
 
-    launch 'query_'$query_frequency $EVAL_CLASS --queryOn true --queryPerc 0.1 \
-        --noTG 1 --noStates 1 --series true \
-        --ks 50 --inputRate $update_frequency --nRec $n_records --sled 0 \
-        --queryRate $query_frequency "${@:3}"
+    launch 'query_'$update_frequency $QUERY_EVAL_CLASS \
+        --inputRate $update_frequency "${@:2}"
 }
 
 function launch_consistency_check {
@@ -163,6 +146,8 @@ function launch_suite_query {
 
     #sleep 2
 
-    _launch_suite_query 10,100,1000,3000,5000
+    launch_query 1000
+    launch_query 3000
+    launch_query 5000
 }
 

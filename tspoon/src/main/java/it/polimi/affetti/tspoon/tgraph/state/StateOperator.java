@@ -70,8 +70,9 @@ public abstract class StateOperator<T, V>
         Object.maxNumberOfVersions = maxNumberOfVersions;
 
         int taskNumber = getRuntimeContext().getIndexOfThisSubtask();
+        int numberOfTasks = getRuntimeContext().getNumberOfParallelSubtasks();
         shard = new Shard<>(
-                nameSpace, taskNumber, maxNumberOfVersions,
+                nameSpace, taskNumber, numberOfTasks, maxNumberOfVersions,
                 tRuntimeContext.getIsolationLevel().gte(IsolationLevel.PL2),
                 ObjectFunction.fromStateFunction(stateFunction));
 

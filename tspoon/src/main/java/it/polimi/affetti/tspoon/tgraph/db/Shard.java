@@ -22,6 +22,7 @@ public class Shard<V> implements
     // I suppose that the type for keys is String. This assumption is coherent,
     // for instance, with Redis implementation: https://redis.io/topics/data-types-intro
     protected final Map<String, Object<V>> state;
+    private final int shardNumber, numberOfShards;
     private final boolean externalReadCommitted;
     private final ObjectFunction<V> objectFunction;
     // transaction contexts: timestamp -> context
@@ -30,10 +31,13 @@ public class Shard<V> implements
     public Shard(
             String nameSpace,
             int shardNumber,
+            int numberOfShards,
             int maxNumberOfVersions,
             boolean externalReadCommitted,
             ObjectFunction<V> objectFunction) {
         this.nameSpace = nameSpace;
+        this.shardNumber = shardNumber;
+        this.numberOfShards = numberOfShards;
         this.externalReadCommitted = externalReadCommitted;
         this.objectFunction = objectFunction;
         Object.maxNumberOfVersions = maxNumberOfVersions;
@@ -118,18 +122,25 @@ public class Shard<V> implements
 
     @Override
     public void visit(RandomQuery query) {
-        Integer noKeys = state.size();
+        int noKeys = state.size();
+        int noKeysToQuery = query.size / numberOfShards;
+
+        if (shardNumber == 0) {
+            // if you are the first shard, get the remaining keys
+            noKeysToQuery += state.size() % numberOfShards;
+        }
 
         if (state.isEmpty()) {
             return;
         }
 
         Set<Integer> indexes;
-        if (noKeys > query.size) {
-            indexes = random.ints(0, noKeys).distinct().limit(query.size)
+        if (noKeys > noKeysToQuery) {
+            indexes = random.ints(0, noKeys).distinct().limit(noKeysToQuery)
                     .boxed().collect(Collectors.toSet());
         } else {
-            indexes = IntStream.range(0, noKeys).boxed().collect(Collectors.toSet());
+            // select *
+            indexes = IntStream.range(0, noKeysToQuery).boxed().collect(Collectors.toSet());
         }
 
         int i = 0;
