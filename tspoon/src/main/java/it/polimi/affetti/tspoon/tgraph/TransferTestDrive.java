@@ -10,7 +10,10 @@ import it.polimi.affetti.tspoon.tgraph.backed.Transfer;
 import it.polimi.affetti.tspoon.tgraph.backed.TransferID;
 import it.polimi.affetti.tspoon.tgraph.backed.TransferSource;
 import it.polimi.affetti.tspoon.tgraph.db.ObjectHandler;
-import it.polimi.affetti.tspoon.tgraph.query.*;
+import it.polimi.affetti.tspoon.tgraph.query.FrequencyQuerySupplier;
+import it.polimi.affetti.tspoon.tgraph.query.PredicateQuery;
+import it.polimi.affetti.tspoon.tgraph.query.QueryResult;
+import it.polimi.affetti.tspoon.tgraph.query.QuerySender;
 import it.polimi.affetti.tspoon.tgraph.state.StateFunction;
 import it.polimi.affetti.tspoon.tgraph.state.StateStream;
 import it.polimi.affetti.tspoon.tgraph.state.Update;
@@ -41,11 +44,12 @@ public class TransferTestDrive {
         final int baseParallelism = 4;
         final int partitioning = 4;
         final double startAmount = 100d;
-        final Strategy strategy = Strategy.PESSIMISTIC;
+        final Strategy strategy = Strategy.OPTIMISTIC;
         final IsolationLevel isolationLevel = IsolationLevel.PL3;
         final boolean useDependencyTracking = true;
         final boolean noContention = false;
-        final boolean durable = false;
+        final boolean synchronous = false;
+        final boolean durable = true;
         final boolean queryOn = false;
 
         final boolean printPlan = false;
@@ -63,6 +67,7 @@ public class TransferTestDrive {
         tEnv.setIsolationLevel(isolationLevel);
         tEnv.setUseDependencyTracking(useDependencyTracking);
         tEnv.setDeadlockTimeout(1000000L); // making deadlock detector useless
+        tEnv.setSynchronous(synchronous);
         tEnv.setDurable(durable);
 
         // NEW setting pool size
@@ -107,10 +112,11 @@ public class TransferTestDrive {
         if (queryOn && (isolationLevel == IsolationLevel.PL3 || isolationLevel == IsolationLevel.PL4)) {
             open = tEnv.open(transfers, new ConsistencyCheck(startAmount));
             // select * from balances
-            Query query = new PredicateQuery<>("balances", new PredicateQuery.SelectAll<>());
-            tEnv.setQuerySupplier(
+            tEnv.enableStandardQuerying(
                     new FrequencyQuerySupplier(
-                            new PredefinedQuerySupplier(query), 1));
+                            queryID -> new PredicateQuery<>("balances", queryID, new PredicateQuery.SelectAll<>()),
+                            1));
+
         } else {
             open = tEnv.open(transfers);
         }
