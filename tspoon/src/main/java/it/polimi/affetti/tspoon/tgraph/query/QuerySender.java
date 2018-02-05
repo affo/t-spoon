@@ -16,9 +16,11 @@ import org.apache.log4j.Logger;
 import java.io.IOException;
 import java.io.Serializable;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 
 /**
  * Created by affo on 02/08/17.
@@ -109,14 +111,24 @@ public class QuerySender extends RichFlatMapFunction<Query, QueryResult>
         Set<Address> finalAddresses = addresses;
         Runnable deferredExecution = () -> {
             try {
-                long start = System.nanoTime();
-                QueryResult queryResult = new QueryResult(query.getQueryID());
-                for (Address address : finalAddresses) {
-                    // could raise NPE
-                    ObjectClient queryServer = queryServers.getOrCreateClient(address);
+                List<ObjectClient> objectClients = finalAddresses.stream().map(address -> {
+                    try {
+                        return queryServers.getOrCreateClient(address);
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                    return null;
+                }).collect(Collectors.toList());
 
-                    queryServer.send(query);
-                    QueryResult partialResult = (QueryResult) queryServer.receive();
+                long start = System.nanoTime();
+                for (ObjectClient client : objectClients) {
+                    // could raise NPE
+                    client.send(query);
+                }
+
+                QueryResult queryResult = new QueryResult(query.getQueryID());
+                for (ObjectClient client : objectClients) {
+                    QueryResult partialResult = (QueryResult) client.receive();
                     queryResult.merge(partialResult);
                 }
 
