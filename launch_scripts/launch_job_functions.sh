@@ -69,7 +69,12 @@ function launch {
     output="$RESULTS_DIR/$1.json"
     cmd="python run.py $output $PACKAGE_BASE.$2 $TARGET_JAR \"--label $1 ${@:3} --isolationLevel $ISOLATION --optOrNot $IS_OPTIMISTIC $DEFAULT\""
 
-    notify "t-spoon experiment" "$1"
+    opt=OPT
+    if [[ $IS_OPTIMISTIC != true ]]; then
+        opt=PESS
+    fi
+
+    notify "t-spoon experiment" "$1 $opt-PL$ISOLATION"
     echo $cmd
     if [[ $DEBUG != true ]]; then
         eval $cmd
