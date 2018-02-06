@@ -66,7 +66,7 @@ public class QueryEvaluation {
         tEnv.setDurable(false);
         tEnv.setStateServerPoolSize(Runtime.getRuntime().availableProcessors());
 
-        // TODO implement insert INTO phase
+        // TODO implement insert INTO phase?
         TransferSource transferSource = new TransferSource(Integer.MAX_VALUE, keySpaceSize, startAmount);
         transferSource.setMicroSleep(waitPeriodMicro);
 
@@ -92,7 +92,7 @@ public class QueryEvaluation {
                 .map(qr -> qr.queryID).returns(QueryID.class)
                 .addSink(
                         new FinishOnBackPressure<>(
-                                0.5, batchSize, startInputRate,
+                                0.25, batchSize, startInputRate,
                                 resolution, -1, QUERY_TRACKING_SERVER_NAME))
                 .name("FinishOnBackPressure")
                 .setParallelism(1);

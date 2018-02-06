@@ -47,17 +47,20 @@ public class JobControlServer extends AbstractServer {
         }
     }
 
-    private Set<Address> getRegisteredAddresses(String label) throws InterruptedException {
+    private Set<Address> getAddresses(String label) throws InterruptedException {
         LOG.info("Discovery request for " + label);
         Set<Address> result;
+
         synchronized (serversRegistry) {
             do {
                 result = serversRegistry.get(label);
                 if (result == null) {
+                    LOG.info("Waiting for registry entry: " + label);
                     serversRegistry.wait();
                 }
             } while (result == null);
         }
+
         return result;
     }
 
@@ -83,8 +86,10 @@ public class JobControlServer extends AbstractServer {
                 } else if (request.startsWith(discoverPattern)) {
                     String[] tokens = request.split(",");
                     String nameSpace = tokens[1];
-                    Set<String> stringAddresses = getRegisteredAddresses(nameSpace)
-                            .stream().map(Address::toString).collect(Collectors.toSet());
+                    Set<String> stringAddresses = getAddresses(nameSpace).stream()
+                            .map(Address::toString)
+                            .collect(Collectors.toSet());
+                    LOG.info("Answering discovery request for " + nameSpace + " with " + stringAddresses);
                     send(String.join(",", stringAddresses));
                 } else {
                     publish(request);

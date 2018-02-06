@@ -1,5 +1,7 @@
 package it.polimi.affetti.tspoon.tgraph.query;
 
+import it.polimi.affetti.tspoon.evaluation.UniquelyRepresentableForTracking;
+
 import java.io.Serializable;
 import java.util.HashSet;
 import java.util.Set;
@@ -7,7 +9,7 @@ import java.util.Set;
 /**
  * Created by affo on 02/08/17.
  */
-public class Query implements Serializable {
+public class Query implements Serializable, UniquelyRepresentableForTracking {
     public final QueryID queryID;
     public final String nameSpace;
     public final Set<String> keys = new HashSet<>();
@@ -53,5 +55,10 @@ public class Query implements Serializable {
                 ", keys=" + keys +
                 ", watermark=" + watermark +
                 '}';
+    }
+
+    @Override
+    public String getUniqueRepresentation() {
+        return queryID.getUniqueRepresentation();
     }
 }

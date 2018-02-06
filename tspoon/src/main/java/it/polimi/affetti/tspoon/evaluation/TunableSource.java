@@ -27,7 +27,7 @@ import java.util.concurrent.TimeUnit;
  * <p>
  * Sends the ping to keep a rate at source.
  */
-public abstract class TunableSource<T> extends RichParallelSourceFunction<T> implements JobControlListener {
+public abstract class TunableSource<T extends UniquelyRepresentableForTracking> extends RichParallelSourceFunction<T> implements JobControlListener {
     protected transient Logger LOG;
 
     protected final int baseRate, resolution, batchSize;
@@ -152,7 +152,7 @@ public abstract class TunableSource<T> extends RichParallelSourceFunction<T> imp
                     do {
                         T next = getNext(count);
                         elements.add(Optional.of(next));
-                        requestTrackerClient.send(next.toString());
+                        requestTrackerClient.send(next.getUniqueRepresentation());
                         count++;
                         TimeUnit.MICROSECONDS.sleep(getWaitPeriodInMicroseconds());
                     } while (!stop && count % numberOfRecordsPerTask != 0);

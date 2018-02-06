@@ -43,6 +43,7 @@ public abstract class AbstractServer implements Runnable {
                 srv = new ServerSocket(startPort);
                 listenPort = startPort;
                 LOG.info(CLASS_NAME + " listening on " + startPort);
+                open();
                 return;
             } catch (IOException ex) {
                 // do nothing, try next port...
@@ -59,6 +60,12 @@ public abstract class AbstractServer implements Runnable {
         throw new IOException("no free port found");
     }
 
+    /**
+     * Hook on init. Override for custom behaviour.
+     */
+    protected void open() {
+    }
+
     public void init(int listenPort) throws IOException {
         if (srv != null) {
             throw new IllegalStateException("Cannot init more than once");
@@ -66,6 +73,7 @@ public abstract class AbstractServer implements Runnable {
 
         srv = new ServerSocket(listenPort);
         this.listenPort = listenPort;
+        open();
         LOG.info(CLASS_NAME + " listening on " + listenPort);
     }
 
