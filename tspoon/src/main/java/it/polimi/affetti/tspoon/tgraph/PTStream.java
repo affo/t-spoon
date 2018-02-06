@@ -11,6 +11,8 @@ import org.apache.flink.util.OutputTag;
  * Created by affo on 13/07/17.
  */
 public class PTStream<T> extends AbstractTStream<T> {
+    private boolean alreadyScheduled = false;
+
     public PTStream(DataStream<Enriched<T>> enriched, int tGraphID) {
         super(enriched, tGraphID);
     }
@@ -50,7 +52,7 @@ public class PTStream<T> extends AbstractTStream<T> {
     private <U> DataStream<Enriched<U>> applySchedulerIfNecessary(DataStream<Enriched<U>> newStream) {
         IsolationLevel isolationLevel = getTransactionEnvironment().getIsolationLevel();
 
-        if (isolationLevel == IsolationLevel.PL4) {
+        if (!alreadyScheduled && isolationLevel == IsolationLevel.PL4) {
             return applyScheduler(newStream);
         }
 
@@ -58,6 +60,7 @@ public class PTStream<T> extends AbstractTStream<T> {
     }
 
     private <U> DataStream<Enriched<U>> applyScheduler(DataStream<Enriched<U>> newStream) {
+        alreadyScheduled = true;
         return newStream
                 .flatMap(new Scheduler<>())
                 .setParallelism(1)
