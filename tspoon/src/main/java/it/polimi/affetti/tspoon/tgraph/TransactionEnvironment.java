@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
+import static it.polimi.affetti.tspoon.tgraph.IsolationLevel.PL0;
 import static it.polimi.affetti.tspoon.tgraph.IsolationLevel.PL3;
 
 /**
@@ -33,7 +34,6 @@ public class TransactionEnvironment {
     private Strategy strategy;
     private boolean useDependencyTracking = true;
     private boolean verbose = false;
-    private long deadlockTimeout;
     // Pool sizes are per TaskManager (e.g. stateServerPoolSize = 4 and 3 TMs => 12 StateServers)
     // Pool sizes defaults to singletons.
     private int stateServerPoolSize = 1, openServerPoolSize = 1, queryServerPoolSize = 1;
@@ -90,7 +90,12 @@ public class TransactionEnvironment {
         return verbose;
     }
 
-    public void setStrategy(Strategy strategy) {
+    public void configIsolation(Strategy strategy, IsolationLevel isolationLevel) {
+        if (isolationLevel == PL0) {
+            // PL0 can be provided only with optimistic strategy
+            strategy = Strategy.OPTIMISTIC;
+        }
+
         this.strategy = strategy;
         switch (strategy) {
             case PESSIMISTIC:
@@ -99,9 +104,7 @@ public class TransactionEnvironment {
             default:
                 this.factory = new OptimisticTwoPCFactory();
         }
-    }
 
-    public void setIsolationLevel(IsolationLevel isolationLevel) {
         this.isolationLevel = isolationLevel;
     }
 
@@ -131,14 +134,6 @@ public class TransactionEnvironment {
 
     public boolean isDurabilityEnabled() {
         return isDurabilityEnabled;
-    }
-
-    public void setDeadlockTimeout(long deadlockTimeout) {
-        this.deadlockTimeout = deadlockTimeout;
-    }
-
-    public long getDeadlockTimeout() {
-        return deadlockTimeout;
     }
 
     public int getStateServerPoolSize() {

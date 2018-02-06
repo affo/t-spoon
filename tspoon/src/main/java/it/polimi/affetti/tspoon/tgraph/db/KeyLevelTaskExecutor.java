@@ -5,72 +5,39 @@ import org.apache.log4j.Logger;
 
 import java.util.*;
 import java.util.function.Supplier;
-import java.util.stream.Collectors;
 
 /**
- * Executes callables provided with method doRun with a key-level locking.
- * I.e., tasks are executed in FIFO order wrt the keys provided on doRun.
- * Keys needs to be explicitely unlocked by invoking unlock.
- * <p>
- * NOTE: Tasks are "running" from #run(k, ...) to #free(k).
- * The exception is the case for #runSynchronously(k, ...) in which the Task runs for the duration of
- * the method invocation.
- * <p>
- * Once a task is enqueued, its key is supposed to be locked exclusively.
- * After execution, the key's read-only value is updated accordingly to the OperationExecutionResult.
- * <p>
- * Every time an asynchronous #run(k, ...) is issued, the Executor doesn't bother if k is read-only or not.
- * A key, indeed, is supposed to be exclusively locked if a task with that key is running.
- * <p>
- * On synchronous runs (#runSynchronously), keys are checked for being read-only.
+ * Executes the provided tasks at #run with a key-level locking.
+ * I.e., tasks are executed in FIFO order wrt the keys provided on #run.
+ * Keys needs to be explicitly unlocked by invoking #complete.
  *
- * NOTE: Either a task deadlocks or executes.
+ * A key is supposed to be exclusively locked until a task with that key is running.
+ * The KeyLevelTaskExecutor uses the taskIDs provided at #run in order to reorder task execution.
+ * The KeyLevelTaskExecutor raises an OutOfOrderTaskException if it is provided with a task with a smaller ID
+ * than the ID of the last executed task for the same key. This means, indeed, that the task should be retried
+ * with a bigger taskID.
+ * Otherwise, the KeyLevelTaskExecutor keeps queues for every key provided and it enqueues the tasks in-order
+ * wrt their queue.
  *
- * @param <T> the type of the task result
+ * @param <R> the type of the task result
  */
-public class KeyLevelTaskExecutor<T extends KeyLevelTaskExecutor.TaskResult> {
-    public final long DEFAULT_MAX_MILLISECONDS_IN_QUEUE = 100L;
+public class KeyLevelTaskExecutor<R> {
     private final Logger LOG = Logger.getLogger(KeyLevelTaskExecutor.class);
 
-    private long taskProgressiveID = 0L;
-
-    private transient List<Tuple2<SerialExecutor, Thread>> pool;
     private final int numberOfExecutors;
-    private boolean deadlockDetectionEnabled;
-    private long maxTimeInQueue = DEFAULT_MAX_MILLISECONDS_IN_QUEUE;
-    private Timer deadlockTimer;
-    private boolean notified;
+    private transient List<Tuple2<SerialExecutor, Thread>> pool;
 
-    private final Map<Long, Task> registeredTasks = new HashMap<>();
-    // These queues contains tasks from `run` to `free`
-    private final LinkedHashMap<Long, Task> queue = new LinkedHashMap<>();
-    private final Map<String, Boolean> lockedKeys = new HashMap<>(); // key -> readOnly
-    private final TaskCompletionObserver<T> observer;
+    // These queues contains tasks from `run` to `complete`
+    private final Map<String, List<Task>> queues = new HashMap<>();
+    private final Map<String, Long> lastExecutedTaskID = new HashMap<>();
+    private final Set<String> freeKeys = new HashSet<>();
+    private final TaskCompletionObserver<R> observer;
 
     private boolean stop = false;
 
-    public KeyLevelTaskExecutor(int numberOfExecutors, TaskCompletionObserver<T> observer) {
+    public KeyLevelTaskExecutor(int numberOfExecutors, TaskCompletionObserver<R> observer) {
         this.numberOfExecutors = numberOfExecutors;
         this.observer = observer;
-    }
-
-    public void enableDeadlockDetection() {
-        this.enableDeadlockDetection(DEFAULT_MAX_MILLISECONDS_IN_QUEUE);
-    }
-
-    public void enableDeadlockDetection(long maxTimeInQueue) {
-        if (deadlockDetectionEnabled) {
-            // cannot enable more than once
-            return;
-        }
-
-        if (maxTimeInQueue <= 0) {
-            throw new IllegalArgumentException("Deadlock timeout must be > 0: " + maxTimeInQueue);
-        }
-
-        deadlockDetectionEnabled = true;
-        this.maxTimeInQueue = maxTimeInQueue;
-        this.deadlockTimer = new Timer("Deadlock Timer for " + Thread.currentThread().getName());
     }
 
     public void startProcessing() {
@@ -83,15 +50,11 @@ public class KeyLevelTaskExecutor<T extends KeyLevelTaskExecutor.TaskResult> {
             thread.setName("KeyLevelExecutor " + i + " for " + Thread.currentThread().getName());
             thread.start();
         }
-
-        if (deadlockDetectionEnabled) {
-            deadlockTimer.schedule(new DeadLockDetector(), maxTimeInQueue, maxTimeInQueue);
-        }
     }
 
     private synchronized void stop() {
         this.stop = true;
-        myNotify();
+        notifyAll();
     }
 
     public void stopProcessing() {
@@ -106,35 +69,24 @@ public class KeyLevelTaskExecutor<T extends KeyLevelTaskExecutor.TaskResult> {
         } catch (InterruptedException e) {
             LOG.error("Interrupted while waiting for KeyLevel executor to finish: " + e.getMessage());
         }
-
-        if (deadlockDetectionEnabled) {
-            deadlockTimer.cancel();
-            deadlockTimer.purge();
-        }
     }
 
     private class Task {
         public final long creationTime;
-        public long registrationTime;
         public final long id;
         public final String key;
-        public final Supplier<T> actualTask; // returns the id of the task
+        public final Supplier<R> actualTask; // returns the id of the task
         public boolean executed = false;
 
-        public Task(String key, Supplier<T> actualTask) {
+        public Task(long taskID, String key, Supplier<R> actualTask) {
             this.creationTime = System.currentTimeMillis();
-            this.id = taskProgressiveID;
+            this.id = taskID;
             this.key = key;
             this.actualTask = actualTask;
-            taskProgressiveID++;
         }
 
-        public synchronized T execute() {
+        public synchronized R execute() {
             return actualTask.get();
-        }
-
-        public void setRegistrationTime() {
-            this.registrationTime = System.currentTimeMillis();
         }
 
         @Override
@@ -157,199 +109,95 @@ public class KeyLevelTaskExecutor<T extends KeyLevelTaskExecutor.TaskResult> {
     private synchronized Task getAvailableTask() throws InterruptedException {
         while (!stop) {
             // Iterate until a non-blocked task is available
-            for (Task task : queue.values()) {
-                if (!lockedKeys.containsKey(task.key)) {
-                    lockedKeys.put(task.key, false); // put as not read-only
+            Iterator<String> keysIterator = freeKeys.iterator();
+            while (keysIterator.hasNext()) {
+                String freeKey = keysIterator.next();
+                List<Task> tasks = queues.get(freeKey);
+                if (!tasks.isEmpty()) {
+                    keysIterator.remove();
+                    Task task = tasks.get(0); // the oldest for this key
                     // once a task is taken from the queue it is considered as executed
                     task.executed = true;
+
+                    if (task.id > lastExecutedTaskID.getOrDefault(task.key, Long.MIN_VALUE)) {
+                        lastExecutedTaskID.put(task.key, task.id);
+                    }
+
                     return task;
                 }
             }
 
-            // If no key is available, just wait
+            // If no key or no task is available, just wait
             wait();
-            notified = false;
         }
 
         return null;
     }
 
     /**
-     * Returns the deadlocked task in task id order (from older to newer)
-     * @param now
-     * @return
-     */
-    private synchronized List<Task> removeDeadlockedTasks(long now) {
-        List<Task> removed = new LinkedList<>();
-
-        Iterator<Task> iterator = queue.values().iterator();
-        while (iterator.hasNext()) {
-            Task next = iterator.next();
-            long timePassed = now - next.registrationTime;
-            if (timePassed > maxTimeInQueue) {
-                iterator.remove();
-                removed.add(next);
-            } else {
-                break;
-            }
-        }
-
-        if (!removed.isEmpty()) {
-            myNotify();
-        }
-
-        return removed;
-    }
-
-    private synchronized void myNotify() {
-        notifyAll();
-        notified = true;
-    }
-
-    private synchronized void setReadOnly(String key) {
-        lockedKeys.put(key, true);
-        myNotify();
-    }
-
-    /**
-     * Sets a key as available
+     * Executes the task with the provided taskID (once possible, i.e. when its key is free).
      *
-     * @param key
-     */
-    public synchronized void free(String key) {
-        removeOldestTask(key);
-        lockedKeys.remove(key); // next task in queue can proceed
-        myNotify();
-    }
-
-    /**
-     * Acks the completion of a task and frees the corresponding keys if necessary
-     * @param taskID
-     */
-    public synchronized void ackCompletion(long taskID) {
-        String key;
-        try {
-            key = registeredTasks.remove(taskID).key;
-        } catch (NullPointerException npe) {
-            throw new IllegalStateException("Task not found: " + taskID);
-        }
-
-        boolean oldestForKey = true;
-        Iterator<Task> iterator = queue.values().iterator();
-        while (iterator.hasNext()) {
-            Task next = iterator.next();
-            if (next.id == taskID) {
-                iterator.remove();
-                break;
-            }
-
-            if (next.key.equals(key)) {
-                oldestForKey = false;
-            }
-        }
-
-        if (oldestForKey) {
-            lockedKeys.remove(key); // next task in queue can proceed
-            myNotify();
-        }
-    }
-
-    private synchronized Task removeOldestTask(String key) {
-        Task oldest = null;
-        Iterator<Task> iterator = queue.values().iterator();
-        while (iterator.hasNext()) {
-            Task next = iterator.next();
-            if (next.key.equals(key)) {
-                iterator.remove();
-                registeredTasks.remove(next.id);
-                oldest = next;
-                break;
-            }
-        }
-
-        return oldest;
-    }
-
-    /**
-     * adds the task and returns its id.
+     * Raises an OutOfOrderTaskException if a task with a smaller ID than the ID of the last executed task is provided.
+     * Otherwise it enqueues the task in order wrt the IDs for the specified key.
      *
      * @param key
      * @param task
      * @return
      */
-    public synchronized long add(String key, Supplier<T> task) {
-        Task actualTask = new Task(key, task);
-        registeredTasks.put(actualTask.id, actualTask);
-        return actualTask.id;
+    public synchronized void run(long taskID, String key, Supplier<R> task)
+            throws OutOfOrderTaskException {
+        long lastExecutedID = lastExecutedTaskID.getOrDefault(key, Long.MIN_VALUE);
+        if (taskID < lastExecutedID) {
+            throw new OutOfOrderTaskException(lastExecutedID,
+                    "TaskID provided is " + taskID + ", while last executed one's is " + lastExecutedID);
+        }
+
+        // add in execution order
+        ListIterator<Task> iterator = queues.computeIfAbsent(key, k -> {
+            freeKeys.add(k);
+            return new LinkedList<>();
+        }).listIterator();
+
+        while (iterator.hasNext()) {
+            Task inQueue = iterator.next();
+            if (inQueue.id > taskID) {
+                iterator.previous();
+                break;
+            }
+        }
+
+        Task actualTask = new Task(taskID, key, task);
+        iterator.add(actualTask);
+
+        notifyAll();
     }
 
     /**
-     * Executes the task when its key it's free.
-     *
-     * @param taskId the id of the task
-     * @return
+     * Completes the task and frees the corresponding key.
+     * @param taskID
      */
-    public synchronized void run(long taskId) {
-        Task task = registeredTasks.get(taskId);
-        queue.put(task.id, task); // put in execution order
-        task.setRegistrationTime();
-        myNotify();
-    }
+    public synchronized void complete(String key, long taskID) {
+        if (freeKeys.contains(key)) {
+            throw new IllegalStateException("Cannot unlock a free key: " + key + "-" + taskID);
+        }
 
-    /**
-     * Used by external, read-only queries
-     */
-    public synchronized <R> R runSynchronously(String key, Supplier<R> task) {
-        return this.runSynchronously(key, task, maxTimeInQueue);
+        List<Task> tasks = queues.get(key);
+        Task task = tasks.get(0);
+        if (task.id != taskID) {
+            throw new IllegalStateException("Task not found: " + key + "-" + taskID);
+        }
+
+        if (!task.executed) {
+            throw new IllegalStateException("The completed task has not yet been executed: " + key + "-" + taskID);
+        }
+
+        tasks.remove(0);
+        freeKeys.add(key); // next task in queue can proceed
+        notifyAll();
     }
 
     public synchronized int getNumberOfEnqueuedTasks() {
-        return queue.size();
-    }
-
-    public synchronized <R> R runSynchronously(String key, Supplier<R> task, long timeout) {
-        try {
-            while (lockedKeys.containsKey(key) && !lockedKeys.get(key)) {
-                wait(timeout);
-                if (!notified) {
-                    return null;
-                }
-                notified = false;
-            }
-
-            return task.get();
-
-        } catch (InterruptedException e) {
-            LOG.error("Serial executor interrupted while synchronously running: " + e.getMessage());
-        }
-
-        return null;
-    }
-
-    public interface TaskCompletionObserver<R extends TaskResult> {
-        void onTaskCompletion(long id, R taskResult);
-
-        /**
-         *
-         * @param deadlockedWithDependencies a map of the deadlocked tasks with their dependencies
-         *                                   (in task id order, i.e., from older to newer).
-         *                                   Dependencies consist of every other deadlocked task operating
-         *                                   on the same key.
-         */
-        default void onDeadlock(LinkedHashMap<Long, List<Long>> deadlockedWithDependencies) {
-            throw new UnsupportedOperationException();
-        }
-    }
-
-    /**
-     * Extend this class for results
-     */
-    public static class TaskResult {
-        public boolean isReadOnly;
-
-        public void setReadOnly() {
-            this.isReadOnly = true;
-        }
+        return queues.values().stream().mapToInt(List::size).sum();
     }
 
     private class SerialExecutor implements Runnable {
@@ -363,13 +211,8 @@ public class KeyLevelTaskExecutor<T extends KeyLevelTaskExecutor.TaskResult> {
                         break;
                     }
 
-                    T taskResult = task.execute();
-
-                    if (taskResult.isReadOnly) {
-                        setReadOnly(task.key);
-                    }
-
-                    observer.onTaskCompletion(task.id, taskResult);
+                    R taskResult = task.execute();
+                    observer.onTaskCompletion(task.key, task.id, taskResult);
                 }
             } catch (InterruptedException e) {
                 LOG.error("Serial executor interrupted while running: " + e.getMessage());
@@ -377,28 +220,20 @@ public class KeyLevelTaskExecutor<T extends KeyLevelTaskExecutor.TaskResult> {
         }
     }
 
-    private class DeadLockDetector extends TimerTask {
-        @Override
-        public void run() {
-            List<Task> deadlockedTasks = removeDeadlockedTasks(System.currentTimeMillis());
-            Map<String, List<Long>> byKey = deadlockedTasks.stream()
-                    .collect(
-                            Collectors.groupingBy(
-                                    task -> task.key,
-                                    Collectors.mapping(task -> task.id, Collectors.toList())));
+    public interface TaskCompletionObserver<R> {
+        void onTaskCompletion(String key, long id, R taskResult);
+    }
 
-            LinkedHashMap<Long, List<Long>> dependencies = new LinkedHashMap<>();
-            for (Task deadlocked : deadlockedTasks) {
-                // only not executed tasks can deadlock
-                if (!deadlocked.executed) {
-                    List<Long> dependency = byKey.get(deadlocked.key).stream()
-                            .filter(id -> id != deadlocked.id) // the others
-                            .collect(Collectors.toList());
-                    dependencies.put(deadlocked.id, dependency);
-                }
-            }
+    public static class OutOfOrderTaskException extends Exception {
+        private final long greaterID;
 
-            observer.onDeadlock(dependencies);
+        public OutOfOrderTaskException(long greaterID, String message) {
+            super(message);
+            this.greaterID = greaterID;
+        }
+
+        public long getGreaterID() {
+            return greaterID;
         }
     }
 }

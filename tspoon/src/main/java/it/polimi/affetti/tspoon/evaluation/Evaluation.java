@@ -61,7 +61,6 @@ public class Evaluation {
         final boolean synchronous = parameters.getBoolean("synchronous", false);
         final boolean durable = parameters.getBoolean("durable", true);
         final int isolationLevelNumber = parameters.getInt("isolationLevel", 3);
-        final long deadlockTimeout = parameters.getLong("deadlockTimeout", 100L);
         final int openServerPoolSize = parameters.getInt("openPool", 1);
         final int stateServerPoolSize = parameters.getInt("statePool", 1);
         final int queryServerPoolSize = parameters.getInt("queryPool", 1);
@@ -101,12 +100,10 @@ public class Evaluation {
         // >>>>> Topology
         TransactionEnvironment.clear();
         TransactionEnvironment tEnv = TransactionEnvironment.get(env);
-        tEnv.setStrategy(strategy);
-        tEnv.setIsolationLevel(isolationLevel);
+        tEnv.configIsolation(strategy, isolationLevel);
         tEnv.setUseDependencyTracking(useDependencyTracking);
         tEnv.setSynchronous(synchronous);
         tEnv.setDurable(durable);
-        tEnv.setDeadlockTimeout(deadlockTimeout);
         tEnv.setVerbose(false);
         tEnv.setOpenServerPoolSize(openServerPoolSize);
         tEnv.setStateServerPoolSize(stateServerPoolSize);

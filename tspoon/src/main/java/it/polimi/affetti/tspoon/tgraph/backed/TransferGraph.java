@@ -31,8 +31,7 @@ public abstract class TransferGraph extends TGraph<Movement, Double> {
     @Override
     protected TGraphOutput<Movement, Double> doDraw(StreamExecutionEnvironment env) {
         TransactionEnvironment tEnv = TransactionEnvironment.get(env);
-        tEnv.setStrategy(strategy);
-        tEnv.setIsolationLevel(isolationLevel);
+        tEnv.configIsolation(strategy, isolationLevel);
 
         TransferSource transferSource = getTransfers();
         DataStream<Transfer> transfers = env.addSource(transferSource);

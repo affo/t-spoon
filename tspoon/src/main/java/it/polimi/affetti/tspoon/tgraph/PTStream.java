@@ -31,16 +31,9 @@ public class PTStream<T> extends AbstractTStream<T> {
     protected <V> StateOperator<T, V> getStateOperator(
             String nameSpace, OutputTag<Update<V>> updatesTag,
             StateFunction<T, V> stateFunction) {
-        PessimisticStateOperator<T, V> stateOperator = new PessimisticStateOperator<>(
+        return new PessimisticStateOperator<>(
                 tGraphID, nameSpace, stateFunction, updatesTag,
                 getTransactionEnvironment().createTransactionalRuntimeContext());
-
-        if (getTransactionEnvironment().getIsolationLevel() != IsolationLevel.PL4) {
-            long deadlockTimeout = getTransactionEnvironment().getDeadlockTimeout();
-            stateOperator.enableDeadlockDetection(deadlockTimeout);
-        }
-
-        return stateOperator;
     }
 
     @Override

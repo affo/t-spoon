@@ -2,55 +2,21 @@ package it.polimi.affetti.tspoon.tgraph.db;
 
 import it.polimi.affetti.tspoon.tgraph.Vote;
 
-import java.util.*;
-import java.util.function.Consumer;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 
 /**
  * Provides results of executing transaction from a synchronous queue.
- * NOTE: Callback execution is synchronized.
- * I guarantee this
  */
 public class PessimisticTransactionExecutor implements
-        KeyLevelTaskExecutor.TaskCompletionObserver<PessimisticTransactionExecutor.OperationExecutionResult> {
-    private KeyLevelTaskExecutor<OperationExecutionResult> executor;
-    // taskId -> tid
-    private Map<Long, Integer> taskTidMapping;
-    // timestamp -> tasks (using timestamps for tracking to use a unique id)
-    private Map<Integer, List<Long>> timestampTaskMapping;
-    // taskId -> callback
-    private Map<Long, Consumer<OperationExecutionResult>> callbacks;
+        KeyLevelTaskExecutor.TaskCompletionObserver<Void> {
+    private KeyLevelTaskExecutor<Void> executor;
+    private Map<Integer, Integer> timestampTidMapping = new ConcurrentHashMap<>();
 
     public PessimisticTransactionExecutor(int numberOfExecutors) {
-        this(numberOfExecutors, -1);
-    }
-
-    public PessimisticTransactionExecutor(int numberOfExecutors, long deadlockTimeout) {
-        taskTidMapping = new HashMap<>();
-        timestampTaskMapping = new HashMap<>();
-        callbacks = new HashMap<>();
-
         executor = new KeyLevelTaskExecutor<>(numberOfExecutors, this);
-        if (deadlockTimeout > 0) {
-            executor.enableDeadlockDetection(deadlockTimeout);
-        }
         executor.startProcessing();
-    }
-
-    private synchronized void registerTask(long taskId, int tid, int timestamp, Consumer<OperationExecutionResult> callback) {
-        taskTidMapping.put(taskId, tid);
-        timestampTaskMapping.computeIfAbsent(timestamp, ts -> new LinkedList<>()).add(taskId);
-        callbacks.put(taskId, callback);
-    }
-
-    private synchronized void unregisterTransaction(int timestamp) {
-        List<Long> taskIds = timestampTaskMapping.remove(timestamp);
-        taskIds.forEach(
-                taskId -> {
-                    taskTidMapping.remove(taskId);
-                    callbacks.remove(taskId);
-                }
-        );
     }
 
     /**
@@ -77,114 +43,89 @@ public class PessimisticTransactionExecutor implements
      *
      * At the moment, we use a global timestamp tracking in order to provide a uniform querying strategy.
      * Queries, indeed, run in snapshot isolation mode by relying on a global order of versions given by the timestamp.
-     * Note that, at PL3, the order in which transaction run is not necessarily the timestamp's one,
-     * because it depends on locking and non-deterministic scheduling (in optimistic mode, a transaction with lower
-     * timestamp is replayed with a higher timestamp if out-of-order...). This makes external queries read non-properly
-     * isolated results, resulting in an overall PL2 isolation level.
+     *
+     * In order to preserve a global order for versioning, we need to REPLAY transactions that happen out of order.
+     * Indeed, you have no guarantee that, if T_i reads version j and writes version i, then i > j!
+     * The last committed version would be j, even if i committed and it read j.
+     * This could lead another transaction (read-only or not) to get an inconsistent state.
+     * For instance, take objects X and Y and (tid, ts) pairs for versions. The figure represents the order of version
+     * creation through time:
+     *
+     * X: <-- (6, 6) -- (4, 4) -- (5, 5) -- t
+     * Y: <-- (4, 4) -- t
+     *
+     * The last committed version for X is 5, while for Y it is 4.
+     * This causes a LOST UPDATE anomaly at X: (6, 6) accesses version 5, indeed.
+     * If somebody reads from the outside, it cannot trust the timestamps anymore!
+     *
+     * In order to prevent this kind of anomaly, we reorder transaction execution if possible, otherwise
+     * we REPLAY transactions (see #KeyLevelTaskExecutor for more information).
      *
      * At PL4, transaction ordering matches the timestamp, so there is no problem with external querying.
      */
-    public <V> void executeOperation(String key, Transaction<V> transaction, Consumer<OperationExecutionResult> callback) {
-        Supplier<OperationExecutionResult> task = () -> {
-            if (transaction.vote != Vote.COMMIT) {
-                // no further processing for REPLAYed or ABORTed transactions
-                OperationExecutionResult operationExecutionResult = new OperationExecutionResult(transaction.vote);
-                for (Integer dependency : transaction.getDependencies()) {
-                    operationExecutionResult.addDependency(dependency);
+    public <V> void executeOperation(String key, Transaction<V> transaction, Callback callback) {
+        Supplier<Void> task = () -> {
+            // no further processing for REPLAYed or ABORTed transactions
+            if (transaction.vote == Vote.COMMIT) {
+                Object<V> object = transaction.getObject(key);
+                ObjectVersion<V> version = object.getLastCommittedVersion();
+                ObjectHandler<V> handler = version.createHandler();
+
+                transaction.getOperation(key).accept(handler);
+                Vote vote = handler.applyInvariant() ? Vote.COMMIT : Vote.ABORT;
+                transaction.mergeVote(vote);
+                ObjectVersion<V> objectVersion = object.addVersion(transaction.tid, transaction.timestamp, handler.object);
+                transaction.addVersion(key, objectVersion);
+
+                if (!handler.write) {
+                    transaction.setReadOnly(true);
                 }
-                return operationExecutionResult;
             }
 
-            Object<V> object = transaction.getObject(key);
-            ObjectVersion<V> version = object.getLastCommittedVersion();
-            ObjectHandler<V> handler = version.createHandler();
-
-            transaction.getOperation(key).accept(handler);
-            Vote vote = handler.applyInvariant() ? Vote.COMMIT : Vote.ABORT;
-            transaction.mergeVote(vote);
-            ObjectVersion<V> objectVersion = object.addVersion(transaction.tid, transaction.timestamp, handler.object);
-            transaction.addVersion(key, objectVersion);
-
-            OperationExecutionResult taskResult = new OperationExecutionResult(vote);
-            if (!handler.write) {
-                taskResult.setReadOnly();
-                transaction.setReadOnly(true);
-            }
-
-            return taskResult;
+            callback.execute();
+            return null;
         };
 
-        long id = executor.add(key, task);
-        registerTask(id, transaction.tid, transaction.timestamp, callback);
-        executor.run(id);
+        try {
+            timestampTidMapping.put(transaction.timestamp, transaction.tid);
+            executor.run(transaction.timestamp, key, task);
+        } catch (KeyLevelTaskExecutor.OutOfOrderTaskException e) {
+            transaction.mergeVote(Vote.REPLAY);
+            Integer replayCause = timestampTidMapping.get((int) e.getGreaterID());
+            if (replayCause != null) {
+                // the replayCause could be `null` in the case its transaction has already terminated globally.
+                // in this case it is useless to specify it as a dependency (it has already finished...)
+                transaction.addDependency(replayCause);
+            }
+            callback.execute();
+        }
     }
 
     public <V> void onGlobalTermination(Transaction<V> transaction) {
-        List<Long> taskIds;
-        synchronized (this) {
-            taskIds = timestampTaskMapping.get(transaction.timestamp);
-        }
-
-        for (Long taskId : taskIds) {
-            executor.ackCompletion(taskId);
-        }
-
-        unregisterTransaction(transaction.timestamp);
-    }
-
-    @Override
-    public void onTaskCompletion(long id, OperationExecutionResult taskResult) {
-        Consumer<OperationExecutionResult> callback;
-        synchronized (this) {
-            callback = callbacks.get(id);
-        }
-
-        callback.accept(taskResult);
-    }
-
-    @Override
-    public void onDeadlock(LinkedHashMap<Long, List<Long>> deadlockedWithDependencies) {
-        for (Map.Entry<Long, List<Long>> entry : deadlockedWithDependencies.entrySet()) {
-            long taskId = entry.getKey();
-            List<Long> dependencies = entry.getValue();
-
-            OperationExecutionResult operationResult;
-            Consumer<OperationExecutionResult> callback;
-            synchronized (this) {
-                operationResult = new OperationExecutionResult(Vote.REPLAY);
-                for (Long dependency : dependencies) {
-                    Integer tid = taskTidMapping.get(dependency);
-                    if (tid == null) {
-                        // It could happen that we detect a dependency with a task that run to completion
-                        // and its transaction terminated globally.
-                        // No matter if we detected a dependency with this transaction,
-                        // we can skip tracking the dependency
-                        continue;
-                    }
-                    operationResult.addDependency(tid);
+        for (String key : transaction.getKeys()) {
+            try {
+                executor.complete(key, transaction.timestamp);
+            } catch (IllegalStateException ise) {
+                if (transaction.vote != Vote.REPLAY) {
+                    throw ise;
                 }
 
-                callback = callbacks.get(taskId);
+                // DO NOTHING...
+                // This means that the completed transaction had been REPLAYed
+                // and it is totally normal that its task hadn't been registered at the executor
             }
-
-            callback.accept(operationResult);
         }
+
+        timestampTidMapping.remove(transaction.timestamp);
     }
 
-    public class OperationExecutionResult extends KeyLevelTaskExecutor.TaskResult {
-        public final Vote vote;
-        private final HashSet<Integer> replayCauses = new HashSet<>();
+    @Override
+    public void onTaskCompletion(String key, long id, Void useless) {
+        // does nothing
+    }
 
-        public OperationExecutionResult(Vote vote) {
-            this.vote = vote;
-        }
-
-        public void addDependency(int tid) {
-            replayCauses.add(tid);
-        }
-
-        public HashSet<Integer> getReplayCauses() {
-            return replayCauses;
-        }
+    @FunctionalInterface
+    public interface Callback {
+        void execute();
     }
 }

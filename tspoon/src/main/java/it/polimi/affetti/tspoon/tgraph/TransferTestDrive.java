@@ -63,10 +63,8 @@ public class TransferTestDrive {
         env.setParallelism(baseParallelism);
 
         TransactionEnvironment tEnv = TransactionEnvironment.get(env);
-        tEnv.setStrategy(strategy);
-        tEnv.setIsolationLevel(isolationLevel);
+        tEnv.configIsolation(strategy, isolationLevel);
         tEnv.setUseDependencyTracking(useDependencyTracking);
-        tEnv.setDeadlockTimeout(1000000L); // making deadlock detector useless
         tEnv.setSynchronous(synchronous);
         tEnv.setDurable(durable);
 

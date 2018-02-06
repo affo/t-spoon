@@ -58,8 +58,7 @@ public class ConsistencyCheck {
         final String nameSpace = "balances";
 
         TransactionEnvironment tEnv = TransactionEnvironment.get(env);
-        tEnv.setStrategy(strategy);
-        tEnv.setIsolationLevel(isolationLevel);
+        tEnv.configIsolation(strategy, isolationLevel);
         tEnv.setSynchronous(synchronous);
         tEnv.setDurable(false);
         tEnv.setStateServerPoolSize(Runtime.getRuntime().availableProcessors());

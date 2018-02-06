@@ -6,6 +6,8 @@ import it.polimi.affetti.tspoon.tgraph.db.Transaction;
 import it.polimi.affetti.tspoon.tgraph.twopc.TRuntimeContext;
 import org.apache.flink.util.OutputTag;
 
+import java.util.HashSet;
+
 /**
  * Created by affo on 10/11/17.
  * <p>
@@ -19,10 +21,6 @@ import org.apache.flink.util.OutputTag;
 public class PessimisticStateOperator<T, V> extends StateOperator<T, V> {
     private transient PessimisticTransactionExecutor transactionExecutor;
 
-    // settings
-    private boolean deadlockEnabled;
-    private long deadlockTimeout;
-
     public PessimisticStateOperator(
             int tGraphID,
             String nameSpace,
@@ -32,27 +30,18 @@ public class PessimisticStateOperator<T, V> extends StateOperator<T, V> {
         super(tGraphID, nameSpace, stateFunction, updatesTag, tRuntimeContext);
     }
 
-    public void enableDeadlockDetection(long deadlockTimeout) {
-        this.deadlockEnabled = true;
-        this.deadlockTimeout = deadlockTimeout;
-    }
-
     @Override
     public void open() throws Exception {
         super.open();
-        if (deadlockEnabled) {
-            transactionExecutor = new PessimisticTransactionExecutor(1, deadlockTimeout);
-        } else {
-            transactionExecutor = new PessimisticTransactionExecutor(1);
-        }
+        transactionExecutor = new PessimisticTransactionExecutor(1);
     }
 
     @Override
     protected void execute(String key, Enriched<T> record, Transaction<V> transaction) throws Exception {
         transactionExecutor.executeOperation(key, transaction,
-                result -> {
-                    record.metadata.vote = record.metadata.vote.merge(result.vote);
-                    record.metadata.dependencyTracking = result.getReplayCauses();
+                () -> {
+                    record.metadata.vote = transaction.vote;
+                    record.metadata.dependencyTracking = new HashSet<>(transaction.getDependencies());
                     decorateRecordWithUpdates(key, record, transaction);
                     collector.safeCollect(record);
                 });

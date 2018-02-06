@@ -1,21 +1,19 @@
 package it.polimi.affetti.tspoon.tgraph.state;
 
 import it.polimi.affetti.tspoon.tgraph.db.KeyLevelTaskExecutor;
-import org.apache.flink.api.java.tuple.Tuple2;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
-import java.util.Iterator;
-import java.util.LinkedHashMap;
-import java.util.List;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 import static org.junit.Assert.*;
 
@@ -23,8 +21,6 @@ import static org.junit.Assert.*;
  * Created by affo on 16/11/17.
  */
 public class KeyLevelExecutorTest {
-    private final static long DEADLOCK_TIME = 100L;
-
     private KeyLevelTaskExecutor<TaskResult> executor;
     private Observer observer;
     // some keys;
@@ -41,219 +37,166 @@ public class KeyLevelExecutorTest {
         executor.stopProcessing();
     }
 
-    private void checkNext(Tuple2<Long, Integer>... results) throws InterruptedException {
-        checkNextRec(Stream.of(results).collect(Collectors.toList()));
-    }
-
-    private void checkNextRec(List<Tuple2<Long, Integer>> results) throws InterruptedException {
-        if (results.isEmpty()) {
-            return;
-        }
-
-        TaskResult taskResult = observer.get();
-        Iterator<Tuple2<Long, Integer>> iterator = results.iterator();
-        while (iterator.hasNext()) {
-            Tuple2<Long, Integer> next = iterator.next();
-            if (next.f0 == taskResult.tid) {
-                assertEquals(next.f1, taskResult.result);
-                iterator.remove();
-                checkNextRec(results);
-                return;
-            }
-        }
-
-        throw new IllegalStateException("Not FIFO");
-    }
-
     private void checkEverythingIsLocked() throws InterruptedException {
-        // 4 times because why not
-        assertNull(observer.get());
-        assertNull(observer.get());
-        assertNull(observer.get());
-        assertNull(observer.get());
+        for (String key : Arrays.asList(foo, bar, buz)) {
+            // 4 times because why not
+            assertNull(observer.get(key));
+            assertNull(observer.get(key));
+            assertNull(observer.get(key));
+            assertNull(observer.get(key));
+        }
     }
 
     @Test
-    public void testSimpleFIFO() throws InterruptedException {
+    public void testSimpleFIFO() throws InterruptedException, KeyLevelTaskExecutor.OutOfOrderTaskException {
         executor.startProcessing();
 
-        long foo1id = executor.add(foo, () -> new TaskResult(1));
-        long foo2id = executor.add(foo, () -> new TaskResult(3));
+        executor.run(1, foo, () -> new TaskResult(1));
+        executor.run(2, foo, () -> new TaskResult(3));
 
-        long bar1id = executor.add(bar, () -> new TaskResult(2));
-        long bar2id = executor.add(bar, () -> new TaskResult(5));
-        long bar3id = executor.add(bar, () -> new TaskResult(6));
+        executor.run(1, bar, () -> new TaskResult(2));
+        executor.run(2, bar, () -> new TaskResult(5));
+        executor.run(3, bar, () -> new TaskResult(6));
 
-        long buz1id = executor.add(buz, () -> new TaskResult(4));
+        executor.run(1, buz, () -> new TaskResult(4));
 
-        executor.run(foo1id);
-        executor.run(foo2id);
-        executor.run(bar1id);
-        executor.run(bar2id);
-        executor.run(bar3id);
-        executor.run(buz1id);
-
-        checkNext(
-                Tuple2.of(foo1id, 1),
-                Tuple2.of(bar1id, 2),
-                Tuple2.of(buz1id, 4));
+        assertEquals(1, observer.getUndefinitely(foo).result);
+        assertEquals(2, observer.getUndefinitely(bar).result);
+        assertEquals(4, observer.getUndefinitely(buz).result);
 
         // every key is locked now!
         checkEverythingIsLocked();
 
         // lets free foo
-        executor.free(foo);
-        assertEquals(3, observer.get().result.intValue());
+        executor.complete(foo, 1);
+        assertEquals(3, observer.getUndefinitely(foo).result);
 
         checkEverythingIsLocked();
 
         //let's free the others
-        executor.free(buz);
-        executor.free(bar);
-        assertEquals(5, observer.get().result.intValue());
-        executor.free(bar);
-        assertEquals(6, observer.get().result.intValue());
+        executor.complete(buz, 1);
+        executor.complete(bar, 1);
+        assertEquals(5, observer.getUndefinitely(bar).result);
+        executor.complete(bar, 2);
+        assertEquals(6, observer.getUndefinitely(bar).result);
+
+        executor.complete(bar, 3);
 
         checkEverythingIsLocked();
     }
 
     @Test
-    public void testReadOnly() throws InterruptedException {
-        executor.startProcessing();
-
-        TaskResult foo1Tr = new TaskResult(1);
-        TaskResult foo2Tr = new TaskResult(2);
-        foo2Tr.setReadOnly();
-
-        executor.run(executor.add(foo, () -> foo1Tr));
-        executor.run(executor.add(foo, () -> foo2Tr));
-
-        assertEquals(1, observer.get().result.intValue());
-        checkEverythingIsLocked();
-
-        // 1 is not readOnly, so a synch run should fail!
-        assertNull(executor.runSynchronously(foo, () -> 42, 1));
-        executor.free(foo);
-        // ok, now it should work even if the second task is executing!
-        assertEquals(42, executor.runSynchronously(foo, () -> 42, 1).intValue());
-        assertEquals(2, observer.get().result.intValue());
-        assertEquals(42, executor.runSynchronously(foo, () -> 42, 1).intValue());
-        executor.free(foo);
-
-        checkEverythingIsLocked();
-    }
-
-    @Test
-    public void testDeadlock() throws InterruptedException {
-        executor.enableDeadlockDetection(DEADLOCK_TIME);
-        executor.startProcessing();
-
-        long first = executor.add(foo, () -> new TaskResult(41));
-        executor.run(first);
-        long second = executor.add(foo, () -> new TaskResult(42));
-        executor.run(second);
-        long third = executor.add(foo, () -> new TaskResult(43));
-        executor.run(third);
-
-        // `first`'s futureResult
-        assertEquals(41, observer.getUndefinitely().result.intValue());
-        // `second` cannot run because `first` blocks --> getting the dependencies
-        assertEquals(first, observer.getUndefinitely().result.intValue());
-        assertEquals(third, observer.getUndefinitely().result.intValue());
-        // Note that tasks are invoked in reverse order by contract
-        // `third` cannot run because `second` and `first` block --> getting the dependencies
-        assertEquals(first, observer.getUndefinitely().result.intValue());
-        assertEquals(second, observer.getUndefinitely().result.intValue());
-
-
-        long fourth = executor.add(foo, () -> new TaskResult(44));
-
-        executor.free(foo);
-        executor.run(fourth);
-
-        // `first`, `second`, and `third` are killed because they deadlocked --> getting `fourth` futureResult
-        assertEquals(44, observer.getUndefinitely().result.intValue());
-
-        executor.free(foo);
-
-        checkEverythingIsLocked();
-        assertEquals(0, executor.getNumberOfEnqueuedTasks());
-    }
-
-    @Test
-    public void stressTest() throws InterruptedException {
+    public void stressTest() throws InterruptedException, KeyLevelTaskExecutor.OutOfOrderTaskException {
         executor.startProcessing();
 
         int numberOfTasks = 1000;
         String[] keys = {foo, bar, buz};
+        Map<String, Integer> numberOfTasksPerKey = new HashMap<>();
+        numberOfTasksPerKey.put(foo, 0);
+        numberOfTasksPerKey.put(bar, 0);
+        numberOfTasksPerKey.put(buz, 0);
+
         Random rand = new Random(0);
         for (int i = 0; i < numberOfTasks; i++) {
             String key = keys[rand.nextInt(keys.length)];
-            int finalI = i;
-            executor.run(executor.add(key, () -> new TaskResult(finalI, (tr) -> {
-                try {
-                    Thread.sleep(rand.nextInt(9) + 1);
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                }
-                executor.ackCompletion(tr.tid);
-            })));
+            numberOfTasksPerKey.compute(key, (k, v) -> v + 1);
+
+            executor.run(i, key, () -> new TaskResult(42,
+                    tr -> {
+                        try {
+                            Thread.sleep(ThreadLocalRandom.current().nextInt(9) + 1);
+                            executor.complete(key, tr.tid);
+                        } catch (InterruptedException e) {
+                            e.printStackTrace();
+                        }
+                    }));
         }
 
-        for (int i = 0; i < numberOfTasks; i++) {
-            assertNotNull(observer.getUndefinitely());
+        for (String key : numberOfTasksPerKey.keySet()) {
+            for (int i = 0; i < numberOfTasksPerKey.get(key); i++) {
+                assertNotNull(observer.getUndefinitely(key));
+            }
         }
 
         checkEverythingIsLocked();
         assertEquals(0, executor.getNumberOfEnqueuedTasks());
     }
 
-    private static class TaskResult extends KeyLevelTaskExecutor.TaskResult {
+    @Test
+    public void outOfOrderTest() throws KeyLevelTaskExecutor.OutOfOrderTaskException, InterruptedException {
+        executor.startProcessing();
+
+        // just to lock foo
+        executor.run(1, foo, () -> new TaskResult(1));
+
+        // this ones will be enqueued without any problem
+        executor.run(5, foo, () -> new TaskResult(5));
+        executor.run(3, foo, () -> new TaskResult(3));
+        executor.run(2, foo, () -> new TaskResult(2));
+        executor.run(7, foo, () -> new TaskResult(7));
+
+        // and executed in order
+        assertEquals(1, observer.getUndefinitely(foo).result);
+        executor.complete(foo, 1);
+        assertEquals(2, observer.getUndefinitely(foo).result);
+        executor.complete(foo, 2);
+        assertEquals(3, observer.getUndefinitely(foo).result);
+        executor.complete(foo, 3);
+        assertEquals(5, observer.getUndefinitely(foo).result);
+        executor.complete(foo, 5);
+        assertEquals(7, observer.getUndefinitely(foo).result);
+        executor.complete(foo, 7);
+
+        checkEverythingIsLocked();
+        assertEquals(0, executor.getNumberOfEnqueuedTasks());
+    }
+
+    @Test(expected = KeyLevelTaskExecutor.OutOfOrderTaskException.class)
+    public void outOfOrderWithViolationTest() throws KeyLevelTaskExecutor.OutOfOrderTaskException, InterruptedException {
+        executor.startProcessing();
+
+        executor.run(5, foo, () -> new TaskResult(42));
+        Thread.sleep(100); // task 5 will be executed
+        executor.run(1, foo, () -> new TaskResult(42)); // raises the exception
+    }
+
+    private static class TaskResult {
         public long tid;
-        public final Integer result;
+        public final int result;
         public Consumer<TaskResult> callback;
 
         public TaskResult(int result) {
             this.result = result;
         }
 
-        public TaskResult(Integer result, Consumer<TaskResult> callback) {
+        public TaskResult(int result, Consumer<TaskResult> callback) {
             this.result = result;
             this.callback = callback;
         }
     }
 
     private static class Observer implements KeyLevelTaskExecutor.TaskCompletionObserver<TaskResult> {
-        private BlockingQueue<TaskResult> results = new LinkedBlockingQueue<>();
+        private Map<String, BlockingQueue<TaskResult>> results = new HashMap<>();
 
-        public TaskResult get() throws InterruptedException {
-            return results.poll(1, TimeUnit.MILLISECONDS);
+        private synchronized BlockingQueue<TaskResult> getQueue(String key) {
+            return results.computeIfAbsent(key, k -> new LinkedBlockingQueue<>());
         }
 
-        public TaskResult getUndefinitely() throws InterruptedException {
-            return results.take();
+        public TaskResult get(String key) throws InterruptedException {
+            return getQueue(key).poll(1, TimeUnit.MILLISECONDS);
+        }
+
+        public TaskResult getUndefinitely(String key) throws InterruptedException {
+            return getQueue(key).take();
         }
 
         @Override
-        public void onTaskCompletion(long id, TaskResult taskResult) {
+        public void onTaskCompletion(String key, long id, TaskResult taskResult) {
             taskResult.tid = id;
-            results.add(taskResult);
+            getQueue(key).add(taskResult);
 
             if (taskResult.callback != null) {
                 taskResult.callback.accept(taskResult);
-            }
-        }
-
-        @Override
-        public void onDeadlock(LinkedHashMap<Long, List<Long>> deadlockedWithDependencies) {
-            for (List<Long> dependencies : deadlockedWithDependencies.values()) {
-                if (dependencies.isEmpty()) {
-                    results.add(new TaskResult(Math.toIntExact(-1)));
-                } else {
-                    for (Long dep : dependencies) {
-                        results.add(new TaskResult(Math.toIntExact(dep)));
-                    }
-                }
             }
         }
     }
