@@ -59,7 +59,7 @@ public class Shard<V> implements
     protected synchronized Object<V> getObject(String key) {
         return state.computeIfAbsent(key, k -> {
             keySpaceIndex.add(k);
-            return new Object<>(objectFunction);
+            return new Object<>(nameSpace, k, objectFunction);
         });
     }
 

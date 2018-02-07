@@ -1,6 +1,7 @@
 package it.polimi.affetti.tspoon.tgraph.db;
 
 import it.polimi.affetti.tspoon.common.OrderedElements;
+import org.apache.log4j.Logger;
 
 import java.io.Serializable;
 import java.util.LinkedList;
@@ -38,9 +39,11 @@ import java.util.function.Predicate;
  *  the last available committed version.
  */
 public class Object<T> implements Serializable {
+    private transient Logger LOG;
     public static int maxNumberOfVersions = 100;
     private static boolean forceSerializableRead = false;
 
+    public final String nameSpace, key;
     private final ObjectFunction<T> objectFunction;
     private OrderedElements<ObjectVersion<T>> versions;
     private ObjectVersion<T> lastVersion;
@@ -49,11 +52,16 @@ public class Object<T> implements Serializable {
     // for external event logging
     private List<DeferredReadListener> deferredReadListeners = new LinkedList<>();
 
-    public Object(ObjectFunction<T> objectFunction) {
+    public Object(String nameSpace, String key, ObjectFunction<T> objectFunction) {
+        this.nameSpace = nameSpace;
+        this.key = key;
         this.objectFunction = objectFunction;
         this.versions = new OrderedElements<>(obj -> (long) obj.version);
         this.lastCommittedVersion = initObject();
         this.lastVersion = initObject();
+
+        this.LOG = Logger.getLogger("Object<" + lastVersion.object.getClass().getSimpleName()
+                + ">@" + nameSpace + "." + key);
     }
 
     public static void forceSerializableRead() {
@@ -241,6 +249,8 @@ public class Object<T> implements Serializable {
             versions.addInOrder(lastCommittedVersion);
         }
 
+        LOG.info("Version clean-up performed up to " + version);
+
         return removedCount;
     }
 
@@ -293,11 +303,13 @@ public class Object<T> implements Serializable {
             lastCommittedBefore = getLastVersionBefore(version);
             if (!lastCommittedBefore.isCommitted()) {
                 inconsistencyPrevented = true;
+                LOG.info("Waiting for stable versions up to " + version + "...");
                 wait();
             }
         } while (!lastCommittedBefore.isCommitted());
 
         if (inconsistencyPrevented) {
+            LOG.info("Stability reached");
             notifyDeferredRead();
         }
 
