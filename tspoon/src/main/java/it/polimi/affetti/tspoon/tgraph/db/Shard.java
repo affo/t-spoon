@@ -29,6 +29,7 @@ public class Shard<V> implements
     private final ObjectFunction<V> objectFunction;
     // transaction contexts: timestamp -> context
     private final Map<Integer, Transaction<V>> transactions;
+    private Object.DeferredReadListener deferredReadListener;
 
     public Shard(
             String nameSpace,
@@ -54,12 +55,19 @@ public class Shard<V> implements
         Object.forceSerializableRead();
     }
 
+    public void setDeferredReadsListener(Object.DeferredReadListener listener) {
+        this.deferredReadListener = listener;
+    }
     // --------------------------------------- Transaction Execution and Completion ---------------------------------------
 
     protected synchronized Object<V> getObject(String key) {
         return state.computeIfAbsent(key, k -> {
             keySpaceIndex.add(k);
-            return new Object<>(nameSpace, k, objectFunction);
+            Object<V> object = new Object<>(nameSpace, k, objectFunction);
+            if (deferredReadListener != null) {
+                object.listenToDeferredReads(deferredReadListener);
+            }
+            return object;
         });
     }
 
@@ -102,16 +110,20 @@ public class Shard<V> implements
 
     // --------------------------------------- Querying ---------------------------------------
 
+    private V getObject(String key, int wm) {
+        V object;
+        if (externalReadCommitted) {
+            object = getObject(key).readCommittedBefore(wm).object;
+        } else {
+            object = getObject(key).getLastAvailableVersion().object;
+        }
+        return object;
+    }
+
     private void queryState(Query query) {
         QueryResult queryResult = query.getResult();
         for (String key : query.keys) {
-            V object;
-            if (externalReadCommitted) {
-                object = getObject(key).readCommittedBefore(query.watermark).object;
-            } else {
-                object = getObject(key).getLastAvailableVersion().object;
-            }
-
+            V object = getObject(key, query.watermark);
             if (object != null) {
                 queryResult.add(key, object);
             }
@@ -158,11 +170,11 @@ public class Shard<V> implements
         QueryResult result = query.getResult();
 
         for (String key : state.keySet()) {
-            V value = state.get(key).getLastVersionBefore(query.watermark).object;
+            V object = getObject(key, query.watermark);
             // hope that the predicate is coherent with the state
             try {
-                if (query.test((T) value)) {
-                    result.add(key, value);
+                if (query.test((T) object)) {
+                    result.add(key, object);
                 }
             } catch (ClassCastException e) {
                 LOG.error("Problem with provided predicate: " + e.getMessage());

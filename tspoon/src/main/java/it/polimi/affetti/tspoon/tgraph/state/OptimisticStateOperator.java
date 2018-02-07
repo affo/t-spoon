@@ -3,7 +3,6 @@ package it.polimi.affetti.tspoon.tgraph.state;
 import it.polimi.affetti.tspoon.metrics.MetricAccumulator;
 import it.polimi.affetti.tspoon.tgraph.Enriched;
 import it.polimi.affetti.tspoon.tgraph.Vote;
-import it.polimi.affetti.tspoon.tgraph.db.Object;
 import it.polimi.affetti.tspoon.tgraph.db.OptimisticTransactionExecutor;
 import it.polimi.affetti.tspoon.tgraph.db.Transaction;
 import it.polimi.affetti.tspoon.tgraph.twopc.TRuntimeContext;
@@ -13,25 +12,20 @@ import org.apache.flink.util.OutputTag;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
-import java.util.Set;
 import java.util.function.Consumer;
 
 /**
  * Created by affo on 25/07/17.
  */
-public class OptimisticStateOperator<T, V> extends StateOperator<T, V>
-        implements Object.DeferredReadListener {
+public class OptimisticStateOperator<T, V> extends StateOperator<T, V> {
     private transient OptimisticTransactionExecutor transactionExecutor;
 
     // stats
     private IntCounter replays = new IntCounter();
-    private IntCounter inconsistenciesPrevented = new IntCounter();
     private Map<String, Long> hitTimestamps = new HashMap<>();
     private MetricAccumulator hitRate = new MetricAccumulator();
     private MetricAccumulator inputRate = new MetricAccumulator();
     private Long lastTS;
-
-    private Set<String> listeningTo = new HashSet<>();
 
     public OptimisticStateOperator(
             int tGraphID,
@@ -54,10 +48,6 @@ public class OptimisticStateOperator<T, V> extends StateOperator<T, V>
         getRuntimeContext().addAccumulator("replays-at-state", replays);
         getRuntimeContext().addAccumulator("hit-rate", hitRate);
         getRuntimeContext().addAccumulator("input-rate", inputRate);
-
-        if (tRuntimeContext.needWaitOnRead()) {
-            getRuntimeContext().addAccumulator("inconsistencies-prevented", inconsistenciesPrevented);
-        }
     }
 
     @Override
@@ -95,22 +85,11 @@ public class OptimisticStateOperator<T, V> extends StateOperator<T, V>
             hitTimestamps.put(key, now);
         };
 
-        if (!listeningTo.contains(key)) {
-            // listen only once per object
-            transaction.getObject(key).listenToDeferredReads(this);
-            listeningTo.add(key);
-        }
-
         transactionExecutor.executeOperation(key, transaction, andThen);
     }
 
     @Override
     protected void onGlobalTermination(Transaction<V> transaction) {
         // does nothing
-    }
-
-    @Override
-    public void onDeferredExecution() {
-        inconsistenciesPrevented.add(1);
     }
 }

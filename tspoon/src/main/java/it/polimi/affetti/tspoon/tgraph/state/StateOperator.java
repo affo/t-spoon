@@ -7,15 +7,14 @@ import it.polimi.affetti.tspoon.tgraph.Enriched;
 import it.polimi.affetti.tspoon.tgraph.IsolationLevel;
 import it.polimi.affetti.tspoon.tgraph.Metadata;
 import it.polimi.affetti.tspoon.tgraph.Vote;
-import it.polimi.affetti.tspoon.tgraph.db.ObjectFunction;
-import it.polimi.affetti.tspoon.tgraph.db.Operation;
-import it.polimi.affetti.tspoon.tgraph.db.Shard;
-import it.polimi.affetti.tspoon.tgraph.db.Transaction;
+import it.polimi.affetti.tspoon.tgraph.db.Object;
+import it.polimi.affetti.tspoon.tgraph.db.*;
 import it.polimi.affetti.tspoon.tgraph.query.Query;
 import it.polimi.affetti.tspoon.tgraph.query.QueryListener;
 import it.polimi.affetti.tspoon.tgraph.query.QueryResult;
 import it.polimi.affetti.tspoon.tgraph.query.QueryServer;
 import it.polimi.affetti.tspoon.tgraph.twopc.*;
+import org.apache.flink.api.common.accumulators.IntCounter;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.runtime.state.StateInitializationContext;
 import org.apache.flink.runtime.state.StateSnapshotContext;
@@ -34,7 +33,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public abstract class StateOperator<T, V>
         extends AbstractStreamOperator<Enriched<T>>
         implements OneInputStreamOperator<Enriched<T>, Enriched<T>>,
-        StateOperatorTransactionCloseListener, QueryListener {
+        StateOperatorTransactionCloseListener, QueryListener, Object.DeferredReadListener {
     protected final int tGraphID;
     private long counter = 0;
     protected final String nameSpace;
@@ -44,6 +43,8 @@ public abstract class StateOperator<T, V>
     protected final TRuntimeContext tRuntimeContext;
     // timestamp -> localId
     private final Map<Integer, Long> localIds;
+
+    private IntCounter inconsistenciesPrevented = new IntCounter();
 
     protected transient InOrderSideCollector<T, Update<V>> collector;
     private transient AbstractStateOperatorTransactionCloser transactionCloser;
@@ -80,6 +81,7 @@ public abstract class StateOperator<T, V>
 
         if (tRuntimeContext.needWaitOnRead()) {
             shard.forceSerializableRead();
+            shard.setDeferredReadsListener(this);
         }
 
         collector = new InOrderSideCollector<>(output, updatesTag);
@@ -89,6 +91,10 @@ public abstract class StateOperator<T, V>
 
         if (tRuntimeContext.getSubscriptionMode() == AbstractTwoPCParticipant.SubscriptionMode.GENERIC) {
             transactionCloser.subscribe(this);
+        }
+
+        if (tRuntimeContext.needWaitOnRead()) {
+            getRuntimeContext().addAccumulator("inconsistencies-prevented", inconsistenciesPrevented);
         }
 
         // Querying
@@ -132,6 +138,11 @@ public abstract class StateOperator<T, V>
 
         Transaction<V> transaction = shard.getTransaction(timestamp);
         execute(key, sr.getValue(), transaction);
+    }
+
+    @Override
+    public void onDeferredExecution() {
+        inconsistenciesPrevented.add(1);
     }
 
     // hooks
