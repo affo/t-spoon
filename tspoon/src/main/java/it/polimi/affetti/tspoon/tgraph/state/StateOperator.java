@@ -7,8 +7,10 @@ import it.polimi.affetti.tspoon.tgraph.Enriched;
 import it.polimi.affetti.tspoon.tgraph.IsolationLevel;
 import it.polimi.affetti.tspoon.tgraph.Metadata;
 import it.polimi.affetti.tspoon.tgraph.Vote;
-import it.polimi.affetti.tspoon.tgraph.db.Object;
-import it.polimi.affetti.tspoon.tgraph.db.*;
+import it.polimi.affetti.tspoon.tgraph.db.ObjectFunction;
+import it.polimi.affetti.tspoon.tgraph.db.Operation;
+import it.polimi.affetti.tspoon.tgraph.db.Shard;
+import it.polimi.affetti.tspoon.tgraph.db.Transaction;
 import it.polimi.affetti.tspoon.tgraph.query.Query;
 import it.polimi.affetti.tspoon.tgraph.query.QueryListener;
 import it.polimi.affetti.tspoon.tgraph.query.QueryResult;
@@ -66,8 +68,8 @@ public abstract class StateOperator<T, V>
         super.open();
         ParameterTool parameterTool = (ParameterTool)
                 getRuntimeContext().getExecutionConfig().getGlobalJobParameters();
-        int maxNumberOfVersions = parameterTool.getInt("maxNoVersions", 100);
-        Object.maxNumberOfVersions = maxNumberOfVersions;
+        // TODO by default, we disable version compaction (for now...).
+        int maxNumberOfVersions = parameterTool.getInt("maxNoVersions", Integer.MAX_VALUE);
 
         int taskNumber = getRuntimeContext().getIndexOfThisSubtask();
         int numberOfTasks = getRuntimeContext().getNumberOfParallelSubtasks();
