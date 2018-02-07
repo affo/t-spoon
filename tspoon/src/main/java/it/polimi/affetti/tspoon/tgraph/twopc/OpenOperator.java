@@ -202,7 +202,9 @@ public class OpenOperator<T>
 
         double totalTransactions = numberOfClosedTransactions.getLocalValue();
         double replayed = replays.getLocalValue();
-        replayedRatio.update(totalTransactions / replayed); // hope it's bigger than 1!
+        if (replayed > 0) {
+            replayedRatio.update(totalTransactions / replayed); // hope it's bigger than 1!
+        }
     }
 
     @Override
