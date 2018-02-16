@@ -1,5 +1,6 @@
 import requests
 import sys, os, time, json, math
+from requests.exceptions import ConnectionError
 
 if __name__ == "__main__":
     if len(sys.argv) < 5:
@@ -13,7 +14,7 @@ if __name__ == "__main__":
     # For now, we don't allow to send jobs from outside.
     # The client must be co-located with the JobManager
     base_url = "http://localhost:8081"
-    polling_interval = 5
+    polling_interval = 20
     experiment_deadline = 2 * 60 * 60 # 2 hours
 
     resp = requests.post(
@@ -55,11 +56,16 @@ if __name__ == "__main__":
         status = "RUNNING"
         url = base_url + "/jobs/" + job_id
         while status == "RUNNING" and iteration < number_of_polls:
-            resp = requests.get(url)
-            resp = json.loads(resp.content)
-            status = resp["state"]
-            iteration += 1
             print "{} - Polling job status every {} seconds: {}".format(iteration, polling_interval, status)
+            try:
+                resp = requests.get(url)
+                resp = json.loads(resp.content)
+                status = resp["state"]
+            except ConnectionError:
+                # it could happen for JobManager congestion
+                print "{} - Connection error...".format(iteration)
+
+            iteration += 1
             time.sleep(polling_interval)
 
         additional_notes = {}
@@ -136,4 +142,3 @@ if __name__ == "__main__":
     print json.dumps(results, indent=4, sort_keys=True)
     with open(output_file, "w") as f:
         json.dump(results, f, indent=4, sort_keys=True)
-
