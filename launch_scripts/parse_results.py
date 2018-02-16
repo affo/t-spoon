@@ -36,11 +36,13 @@ class ExperimentResult(object):
             if latency > self.LATENCY_STABILITY_THRESHOLD:
                 break;
 
-            self.latency_at_tp_stable = latency
             batch_number += 1
 
         self.tp_stable = self.throughput_curve[batch_number]['value']
 
+        df = pd.DataFrame(self.latency_curve)
+        self.latency_at_tp_stable = \
+            df[df.value <= self.LATENCY_STABILITY_THRESHOLD]['value'].mean()
 
     def _check_result(self, result):
         reasons = []
@@ -146,7 +148,7 @@ def load_results(folder_name):
     def append(result):
         tags = extract_columns(result)
 
-        aggregates_df.append([result.latency_min] + tags + ['lat_min'])
+        aggregates_df.append([result.latency_at_tp_stable] + tags + ['lat_stable'])
         aggregates_df.append([result.tp_max] + tags + ['tp_max'])
         aggregates_df.append([result.tp_stable] + tags + ['tp_stable'])
 
@@ -159,7 +161,7 @@ def load_results(folder_name):
             frame = mapping[1]
             for point in curve:
                 row = [
-                    point['expectedRate'],
+                    point['actualRate'],
                     point['value']
                 ]
                 row.extend(tags)

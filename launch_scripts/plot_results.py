@@ -16,6 +16,8 @@ def plot_figure(chart_label, frames, plot_fn, columns=2):
         ax = axarr[row, col]
         ax.set_title(str(key))
         plot_fn(ax, frame)
+        ax.set_ylim((0, ax.yaxis.get_data_interval()[1]))
+        ax.margins(y=0.1)
         col += 1
         col = col % columns
         if col == 0:
@@ -35,6 +37,8 @@ def plot_single_figure(chart_label, label, data, plot_fn):
     fig.canvas.set_window_title(chart_label)
     ax.set_title(str(label))
     plot_fn(ax, data)
+    ax.set_ylim((0, ax.yaxis.get_data_interval()[1]))
+    ax.margins(y=0.1)
 
     return chart_label, fig
 
@@ -136,7 +140,10 @@ if __name__ == '__main__':
     tp = pd.read_json(out_fname + '_throughput.json')
     lat = pd.read_json(out_fname + '_latency.json')
     aggr = pd.read_json(out_fname + '_aggregates.json')
-    figures = []
+
+    def savefig(label, figure):
+        figure.savefig(os.path.join(img_folder, label + '.png'))
+        plt.close(figure)
 
     # -------- 1tgVSntg --------
     def plot_1tgVSntg(ax, data):
@@ -147,19 +154,20 @@ if __name__ == '__main__':
     frames = get_1tgVSntg_frames(aggr)
     for k, v in frames.iteritems():
         for sk, sv in v.iteritems():
-            f = plot_figure(k + '-' + sk, sv, plot_1tgVSntg, 4)
-            figures.append(f)
+            label, fig = plot_figure(k + '-' + sk, sv, plot_1tgVSntg, 4)
+            savefig(label, fig)
 
     # -------- VSstrategy --------
     def plot_VSstrategy(ax, data):
         for key, group in data.groupby('strategy'):
+            group = group.sort_values('var')
             ax = group.plot(ax=ax, kind='line', x='var', y='value', label=key)
             ax.set_xlabel('')
 
     frames = get_VSstrategy(aggr)
     for k, v in frames.iteritems():
-        f = plot_figure(k, v, plot_VSstrategy, 3)
-        figures.append(f)
+        label, fig = plot_figure(k, v, plot_VSstrategy, 3)
+        savefig(label, fig)
 
     # -------- curves --------
     def plot_curve(ax, data):
@@ -167,17 +175,13 @@ if __name__ == '__main__':
             ax = group.plot(ax=ax, kind='line', x='inRate', y='value', label=key)
             ax.set_xlabel('')
 
-    frames = get_curves(tp)
+    frames = get_curves(tp[tp.inRate > 0].sort_values('inRate'))
     # 1 figure per frame
     for k, v in frames:
-        f = plot_single_figure('throughput-curves-' + k, k, v, plot_curve)
-        figures.append(f)
+        label, fig = plot_single_figure('throughput-curves-' + k, k, v, plot_curve)
+        savefig(label, fig)
 
-    frames = get_curves(lat)
+    frames = get_curves(lat[lat.inRate > 0].sort_values('inRate'))
     for k, v in frames:
-        f = plot_single_figure('latency-curves-' + k, k, v, plot_curve)
-        figures.append(f)
-
-    # save generated figures to file
-    for label, figure in figures:
-        figure.savefig(os.path.join(img_folder, label + '.png'))
+        label, fig = plot_single_figure('latency-curves-' + k, k, v, plot_curve)
+        savefig(label, fig)
