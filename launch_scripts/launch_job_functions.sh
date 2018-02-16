@@ -74,11 +74,12 @@ function launch {
         opt=PESS
     fi
 
-    notify "t-spoon experiment" "$1 $opt-PL$ISOLATION"
+    notify "[BEGIN] t-spoon experiment" "$1 $opt-PL$ISOLATION"
     echo $cmd
     if [[ $DEBUG != true ]]; then
         eval $cmd
     fi
+    notify "[END] t-spoon experiment" "$1 $opt-PL$ISOLATION"
 }
 
 function stop-cluster {
@@ -109,4 +110,3 @@ function restart-cluster {
     start-cluster
     sleep_if 20
 }
-
