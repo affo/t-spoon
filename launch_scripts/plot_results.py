@@ -1,113 +1,183 @@
-import sys, json, os
+import sys, os, math, shutil
+import pandas as pd
 import matplotlib.pyplot as plt
 
-# prefixes
-SERIES_1TG = 'series_1tg_'
-SERIES_NTG = 'series_ntg_'
-PARALLEL_1TG = 'parallel_1tg_'
-PARALLEL_NTG = 'parallel_ntg_'
-KEYSPACE = 'keyspace_'
+# frames is supposed to be a list of couples:
+#   (exp_label, frame)
+def plot_figure(chart_label, frames, plot_fn, columns=2):
+    rows = int(math.ceil(len(frames) / float(columns)))
+    fig, axarr = plt.subplots(rows, columns)
+    fig.tight_layout()
+    fig.canvas.set_window_title(chart_label)
+
+    row = 0
+    col = 0
+    for key, frame in frames:
+        ax = axarr[row, col]
+        ax.set_title(str(key))
+        plot_fn(ax, frame)
+        col += 1
+        col = col % columns
+        if col == 0:
+            row += 1
+
+    while row < rows:
+        while col < columns:
+            axarr[row, col].axis('off')
+            col += 1
+        row += 1
+
+    return chart_label, fig
 
 
+def plot_single_figure(chart_label, label, data, plot_fn):
+    fig, ax = plt.subplots()
+    fig.canvas.set_window_title(chart_label)
+    ax.set_title(str(label))
+    plot_fn(ax, data)
+
+    return chart_label, fig
+
+
+# plot by strategy + isolation_level + tag1 (compare 1tg VS ntg):
+#   OPT-PL0-series -> 1tg vs ntg
+#   OPT-PL1-series -> ...
+#   ...
+#   OPT-PL1-parallel -> ...
+def get_1tgVSntg_frames(aggr):
+    frames = {}
+    filtered = aggr[(aggr.tag1 == 'series') | (aggr.tag1 == 'parallel')] # no ks or query
+
+    for key, group in filtered.groupby(['tag3', 'tag1', 'strategy', 'isolationLevel']):
+        kpi = frames.get(key[0])
+        if not kpi:
+            kpi = {}
+            frames[key[0]] = kpi
+
+        sp = kpi.get(key[1])
+        if not sp:
+            sp = []
+            kpi[key[1]] = sp
+
+        sp.append((key[2] + '-' + key[3], group))
+
+    return frames
+
+
+# plot by experiment type (compare strategy + isolation level):
+#   series-1tg -> OPT-PL0 vs OPT-PL1 ... vs PESS-PL4
+#   parallel-1tg -> ...
+#   series-ntg -> ...
+#   ...
+def get_VSstrategy(aggr):
+    def merge_tags(row):
+        tag = row.tag1 if row.tag2 is None else '-'.join([row.tag1, row.tag2])
+        s = pd.Series({
+            'value': row.value,
+            'strategy': '-'.join([row.strategy, row.isolationLevel]),
+            'var': row['var'],
+            'tag': tag,
+            'type': row.tag3
+        })
+        return s
+
+    frames = {}
+    merged = aggr.apply(merge_tags, axis=1)
+
+    for key, group in merged.groupby(['type', 'tag']):
+        kpi = frames.get(key[0])
+        if not kpi:
+            kpi = []
+            frames[key[0]] = kpi
+
+        kpi.append((key[1], group))
+
+    return frames
+
+
+# plot the curves by strategy + isolation level + exp type
+# in the same graph we will have every curve for every topological configuration
+#   OPT-PL?-series-1tg -> 1 state vs 2 state vs 3 state vs ...
+#   OPT-PL?-parallel-1tg -> 1 state vs 2 state vs 3 state vs ...
+#   OPT-PL?-series-ntg -> 1 tg vs 2 tg vs 3 tg vs ...
+#   ...
+#   OPT-PL?-keyspace -> 100k vs 10k vs 100 vs ...
+# NOTE: For queries we should compare only isolation levels at a fixed strategy
+def get_curves(data):
+    def merge_tags(row):
+        tag = '-'.join([row.strategy, row.isolationLevel])
+        tag += '-' + (row.tag1 if row.tag2 is None else '-'.join([row.tag1, row.tag2]))
+        s = pd.Series({
+            'inRate': row.inRate,
+            'value': row.value,
+            'var': row['var'],
+            'tag': tag,
+        })
+        return s
+
+    merged = data.apply(merge_tags, axis=1)
+    return [(key, group) for key, group in merged.groupby('tag')]
+
+
+# ------------ MAIN ------------
 if __name__ == '__main__':
     if len(sys.argv) < 2:
         print 'Provide folder name, please'
         sys.exit(1)
 
     folder_name = sys.argv[1]
+    img_folder = os.path.join(folder_name, 'img')
 
-    def join(fname):
-        return os.path.join(folder_name, fname)
+    if os.path.exists(img_folder):
+        shutil.rmtree(img_folder)
 
-    def load_json(fname):
-        path = join(fname + '.json')
-        with open(path) as fp:
-            return json.load(fp)
+    os.mkdir(img_folder)
+    out_fname = os.path.join(folder_name, 'parsed')
+    tp = pd.read_json(out_fname + '_throughput.json')
+    lat = pd.read_json(out_fname + '_latency.json')
+    aggr = pd.read_json(out_fname + '_aggregates.json')
+    figures = []
 
-    # for series and parallel, I want to compare 1tg against ntg.
-    # on the x-axis I have the number of states/tgs, while on the y-axis
-    # I have throughput and latency
+    # -------- 1tgVSntg --------
+    def plot_1tgVSntg(ax, data):
+        for key, group in data.groupby('tag2'):
+            ax = group.plot(ax=ax, kind='line', x='var', y='value', label=key)
+            ax.set_xlabel('')
 
-    # returns a couple of (throughputs, latencies)
-    def get_ys(x_axis, prefix):
-        throughputs = []
-        latencies = []
-        max_or_avg = False
+    frames = get_1tgVSntg_frames(aggr)
+    for k, v in frames.iteritems():
+        for sk, sv in v.iteritems():
+            f = plot_figure(k + '-' + sk, sv, plot_1tgVSntg, 4)
+            figures.append(f)
 
-        for x in x_axis:
-            tp = None
-            lat = None
-            try:
-                data = load_json(prefix + str(x))
-                tp_and_lat = data['accumulators'].get('max-throughput-and-latency')
+    # -------- VSstrategy --------
+    def plot_VSstrategy(ax, data):
+        for key, group in data.groupby('strategy'):
+            ax = group.plot(ax=ax, kind='line', x='var', y='value', label=key)
+            ax.set_xlabel('')
 
-                if tp_and_lat is not None:
-                    max_or_avg = True
-                    tp = tp_and_lat['max-throughput']
-                    lat = tp_and_lat['latency-at-max-throughput']
-                else:
-                    tp = data['accumulators']['throughput']['mean']
-                    lat = data['accumulators'].get('latency')
+    frames = get_VSstrategy(aggr)
+    for k, v in frames.iteritems():
+        f = plot_figure(k, v, plot_VSstrategy, 3)
+        figures.append(f)
 
-                    # backward compatibility
-                    if lat is None:
-                        lat = data['accumulators']['timestamp-deltas']['latency']['mean']
-                    else:
-                        lat = lat['mean']
+    # -------- curves --------
+    def plot_curve(ax, data):
+        for key, group in data.groupby('var'):
+            ax = group.plot(ax=ax, kind='line', x='inRate', y='value', label=key)
+            ax.set_xlabel('')
 
-            except Exception as e:
-                print "Some exception happened:", e
-            finally:
-                throughputs.append(tp)
-                latencies.append(lat)
+    frames = get_curves(tp)
+    # 1 figure per frame
+    for k, v in frames:
+        f = plot_single_figure('throughput-curves-' + k, k, v, plot_curve)
+        figures.append(f)
 
-        tp_label = '{} [records/s]'
-        lat_label = '{} [ms]'
+    frames = get_curves(lat)
+    for k, v in frames:
+        f = plot_single_figure('latency-curves-' + k, k, v, plot_curve)
+        figures.append(f)
 
-        if max_or_avg:
-            tp_label = tp_label.format('Maximum throughput')
-            lat_label = lat_label.format('Latency at maximum throughput')
-        else:
-            tp_label = tp_label.format('Maximum input throughput')
-            lat_label = lat_label.format('Mean latency')
-
-        return throughputs, latencies, tp_label, lat_label
-
-    xlabel = 'Number of states/tgraphs'
-
-    def plot_stuff(x, y_onetg, y_ntgs, ylabel, filename):
-        fig, ax = plt.subplots()
-        ax.plot(x, y_onetg, 'b-', marker='x', label='1tg')
-        ax.plot(x, y_ntgs, 'r-', marker='x', label='ntg')
-        ax.xaxis.set_ticks(x) # integer ticks
-        ax.set_xlabel(xlabel)
-        ax.set_ylabel(ylabel)
-        ax.legend(loc='upper right')
-        fig.savefig(filename)
-
-    x_axis = [1, 2, 3, 4, 5]
-    for label in [('series', SERIES_1TG, SERIES_NTG), ('parallel', PARALLEL_1TG, PARALLEL_NTG)]:
-        tps1, lats1, tp_label, lat_label = get_ys(x_axis, label[1])
-        tpsn, latsn, _, _ = get_ys(x_axis, label[2])
-
-        plot_stuff(x_axis, tps1, tpsn, tp_label, join(label[0] + '_throughput.png'))
-        plot_stuff(x_axis, lats1, latsn, lat_label, join(label[0] + '_latency.png'))
-
-
-    factors = [10 ** i for i in xrange(1, 5)]
-    keyspace_x_axis = [base * factor for factor in factors for base in [1, 4, 7]]
-    keyspace_x_axis.append(10 ** 5)
-    ks_throughput, ks_latency, _, _ = get_ys(keyspace_x_axis, KEYSPACE)
-
-    fig, ax = plt.subplots()
-    ax.plot(keyspace_x_axis, ks_throughput, 'b-', marker='x')
-    ax.set_xlabel('Keyspace dimension')
-    ax.set_ylabel('Maximum input throughput (records/s)')
-    fig.savefig(join('keyspace_throughput.png'))
-
-    fig, ax = plt.subplots()
-    ax.plot(keyspace_x_axis, ks_latency, 'b-', marker='x')
-    ax.set_xlabel('Keyspace dimension')
-    ax.set_ylabel('Average latency (ms)')
-    fig.savefig(join('keyspace_latency.png'))
-
+    # save generated figures to file
+    for label, figure in figures:
+        figure.savefig(os.path.join(img_folder, label + '.png'))
