@@ -5,7 +5,7 @@ from requests.exceptions import ConnectionError
 if __name__ == "__main__":
     if len(sys.argv) < 5:
         print "Please pass in <output>, <main class>, <jar file path>, and <program arguments>"
-        exit(1)
+        sys.exit(1)
 
     output_file = sys.argv[1]
     main_class = sys.argv[2]
@@ -15,6 +15,7 @@ if __name__ == "__main__":
     # The client must be co-located with the JobManager
     base_url = "http://localhost:8081"
     polling_interval = 20
+    errors_threshold = 10
     experiment_deadline = 2 * 60 * 60 # 2 hours
 
     resp = requests.post(
@@ -45,7 +46,7 @@ if __name__ == "__main__":
         resp = json.loads(resp.content)
         if resp.get("error") != None:
             print resp["error"]
-            exit(1)
+            return {}, 1
 
         job_id = resp["jobid"]
         print job_id
@@ -53,6 +54,7 @@ if __name__ == "__main__":
         # start polling until the end of the job...
         number_of_polls = experiment_deadline / polling_interval
         iteration = 0
+        errors = 0
         status = "RUNNING"
         url = base_url + "/jobs/" + job_id
         while status == "RUNNING" and iteration < number_of_polls:
@@ -61,13 +63,18 @@ if __name__ == "__main__":
                 resp = requests.get(url)
                 resp = json.loads(resp.content)
                 status = resp["state"]
+                errors = 0 # reset errors
             except ConnectionError:
                 # it could happen for JobManager congestion
                 print "{} - Connection error...".format(iteration)
+                errors += 1
+                if errors > errors_threshold:
+                    return {}, 1
 
             iteration += 1
             time.sleep(polling_interval)
 
+        exit_code = 0
         additional_notes = {}
         if status == "RUNNING":
             # the job is still running after the deadline: kill the job
@@ -75,6 +82,7 @@ if __name__ == "__main__":
             requests.delete(url + "/cancel")
             print "Job canceled"
             additional_notes["job_canceled"] = "Deadline exceeded: {}s".format(experiment_deadline)
+            exit_code = 2
 
         # gathering results now
         execution_results = {}
@@ -93,6 +101,8 @@ if __name__ == "__main__":
             # save the exceptions, if any
             resp = requests.get(url + "/exceptions")
             execution_results["exceptions"] = json.loads(resp.content)
+            if len(execution_results["exceptions"]["all-exceptions"]) > 0:
+                exit_code = 1
 
         execution_results["additional-notes"] = additional_notes
 
@@ -104,41 +114,18 @@ if __name__ == "__main__":
 
         accumulators = {acc["name"]: parse_acc_value(acc["value"]) for acc in accumulators}
         execution_results["accumulators"] = accumulators
-        return execution_results
+        return execution_results, exit_code
 
-    results = execute_job(args)
-
-    user_config = results["config"]["execution-config"]["user-config"]
-
-    is_tunable = user_config.get("tunable", False)
-    is_query = user_config.get("queryOn", False)
-
+    results = {}
+    exit_code = 0
     try:
-        if not is_tunable and not is_query:
-            throughput = float(results["accumulators"]["throughput"]["mean"])
-            percentage = 0.8
-            input_rate = int(math.floor(throughput * percentage))
-
-            latency_n_rec = 20000
-            latency_sled = 0
-            latency_experiment_message = "Executing latency experiment with input rate {} * {} = {}" \
-                .format(throughput, percentage, input_rate)
-            results["additional-notes"]["inputRate"] = latency_experiment_message
-            results["additional-notes"]["nRec"] = "Using nRec {} and sled {}" \
-                    .format(latency_n_rec, latency_sled)
-            print latency_experiment_message
-
-            time.sleep(5)
-
-            latency_results = execute_job(
-                    "{} --inputRate {} --nRec {} --sled {}" \
-                            .format(args, input_rate, latency_n_rec, latency_sled))
-            results["accumulators"]["latency"] = \
-                    latency_results["accumulators"]["latency"]
-            results["config"]["execution-config"]["user-config"]["inputRate"] = input_rate
-    except KeyError as ke:
-        print "Got some key error: {}, persisting output to file anyways...".format(ke)
+        results, exit_code = execute_job(args)
+    except Exception as e:
+        results["exception"] = str(e)
+        exit_code = 1
 
     print json.dumps(results, indent=4, sort_keys=True)
     with open(output_file, "w") as f:
         json.dump(results, f, indent=4, sort_keys=True)
+
+    sys.exit(exit_code)

@@ -76,10 +76,17 @@ function launch {
 
     notify "[BEGIN] t-spoon experiment" "$1 $opt-PL$ISOLATION"
     echo $cmd
+    status="OK"
     if [[ $DEBUG != true ]]; then
         eval $cmd
+        exit_code=$?
+        if [[ $exit_code -eq 1 ]]; then
+          status="ERROR"
+        elif [[ $exit_code -eq 2 ]]; then
+          status="CANCELED"
+        fi
     fi
-    notify "[END] t-spoon experiment" "$1 $opt-PL$ISOLATION"
+    notify "[END-$status] t-spoon experiment" "$1 $opt-PL$ISOLATION"
 }
 
 function stop-cluster {
