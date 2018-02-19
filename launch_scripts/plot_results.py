@@ -156,6 +156,7 @@ if __name__ == '__main__':
         for sk, sv in v.iteritems():
             label, fig = plot_figure(k + '-' + sk, sv, plot_1tgVSntg, 4)
             savefig(label, fig)
+            print '>>> Figure saved: ' + label
 
     # -------- VSstrategy --------
     def plot_VSstrategy(ax, data):
@@ -168,6 +169,7 @@ if __name__ == '__main__':
     for k, v in frames.iteritems():
         label, fig = plot_figure(k, v, plot_VSstrategy, 3)
         savefig(label, fig)
+        print '>>> Figure saved: ' + label
 
     # -------- curves --------
     def plot_curve(ax, data):
@@ -180,8 +182,10 @@ if __name__ == '__main__':
     for k, v in frames:
         label, fig = plot_single_figure('throughput-curves-' + k, k, v, plot_curve)
         savefig(label, fig)
+        print '>>> Figure saved: ' + label
 
     frames = get_curves(lat[lat.inRate > 0].sort_values('inRate'))
     for k, v in frames:
         label, fig = plot_single_figure('latency-curves-' + k, k, v, plot_curve)
         savefig(label, fig)
+        print '>>> Figure saved: ' + label
