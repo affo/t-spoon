@@ -12,37 +12,43 @@ class ExperimentResult(object):
     LATENCY_STABILITY_THRESHOLD = 100 #ms
 
     def __init__(self, result_dict):
-        self.problems = self._check_result(result_dict)
+        try:
+            self.valid = True
+            self.problems = self._check_result(result_dict)
 
-        self._raw = result_dict
-        self._tags = self._parse_tags(
-            result_dict['config']['execution-config']['user-config'])
+            self._raw = result_dict
+            self._tags = self._parse_tags(
+                result_dict['config']['execution-config']['user-config'])
 
-        for tag, value in self._tags.iteritems():
-            setattr(self, tag, value)
+            for tag, value in self._tags.iteritems():
+                setattr(self, tag, value)
 
-        self._results = self._raw['accumulators']
-        self.latency_curve = self._results['latency-curve']
-        self.throughput_curve = self._results['throughput-curve']
+            self._results = self._raw['accumulators']
+            self.latency_curve = self._results['latency-curve']
+            self.throughput_curve = self._results['throughput-curve']
 
-        self.latency_min = min([point['value'] for point in self.latency_curve])
-        self.tp_max = self._results['max-throughput-and-latency']['max-throughput']
-        self.latency_at_tp_max = self._results['max-throughput-and-latency']['latency-at-max-throughput']
+            self.latency_min = min([point['value'] for point in self.latency_curve])
+            self.tp_max = self._results['max-throughput-and-latency']['max-throughput']
+            self.latency_at_tp_max = self._results['max-throughput-and-latency']['latency-at-max-throughput']
 
-        # find the stability point
-        batch_number = -1
-        for point in self.latency_curve:
-            latency = point['value']
-            if latency > self.LATENCY_STABILITY_THRESHOLD:
-                break;
+            # find the stability point
+            batch_number = -1
+            for point in self.latency_curve:
+                latency = point['value']
+                if latency > self.LATENCY_STABILITY_THRESHOLD:
+                    break;
 
-            batch_number += 1
+                batch_number += 1
 
-        self.tp_stable = self.throughput_curve[batch_number]['value']
+            self.tp_stable = self.throughput_curve[batch_number]['value']
 
-        df = pd.DataFrame(self.latency_curve)
-        self.latency_at_tp_stable = \
-            df[df.value <= self.LATENCY_STABILITY_THRESHOLD]['value'].mean()
+            df = pd.DataFrame(self.latency_curve)
+            self.latency_at_tp_stable = \
+                df[df.value <= self.LATENCY_STABILITY_THRESHOLD]['value'].mean()
+        except KeyError as ke:
+            self.valid = False
+            self.problems = ['Malformed results: ' + str(ke)]
+
 
     def _check_result(self, result):
         reasons = []
@@ -185,7 +191,8 @@ def load_results(folder_name):
                 if parsed.problems != None:
                     problems.append(dict(label=fname, reasons=parsed.problems))
 
-                append(parsed)
+                if parsed.valid:
+                    append(parsed)
 
 
     print '>>> Number of experiments:', number_of_experiments
