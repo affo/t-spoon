@@ -45,9 +45,9 @@ class ExperimentResult(object):
             df = pd.DataFrame(self.latency_curve)
             self.latency_at_tp_stable = \
                 df[df.value <= self.LATENCY_STABILITY_THRESHOLD]['value'].mean()
-        except KeyError as ke:
+        except Exception as ex:
             self.valid = False
-            self.problems = ['Malformed results: ' + str(ke)]
+            self.problems = ['Malformed results: ' + str(ex)]
 
 
     def _check_result(self, result):
