@@ -1,5 +1,7 @@
 package it.polimi.affetti.tspoon.tgraph.twopc;
 
+import it.polimi.affetti.tspoon.tgraph.Updates;
+
 import java.io.IOException;
 
 /**
@@ -14,5 +16,5 @@ public interface WAL {
 
     void abort(int tid) throws IOException;
 
-    void commit(int tid, String updates) throws IOException;
+    void commit(int tid, Updates updates) throws IOException;
 }

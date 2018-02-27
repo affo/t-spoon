@@ -15,7 +15,7 @@ import java.io.Serializable;
  * It is used to obtain singleton instances of AbstractOpenOperatorTransactionCloser and
  * AbstractStateOperatorTransactionCloser.
  * <p>
- * There is no need to return singleton instances of CloseSinkTransactionCloser, because we want the
+ * There is no need to return singleton instances of AbstractCloseOperatorTransactionCloser, because we want the
  * maximum degree of parallelism for closing transactions.
  */
 public class TRuntimeContext implements Serializable {
@@ -134,10 +134,6 @@ public class TRuntimeContext implements Serializable {
                 } else {
                     openOperatorTransactionCloserPool[index] = new AsynchronousOpenOperatorTransactionCloser(subscriptionMode);
                 }
-
-                if (isDurabilityEnabled()) {
-                    openOperatorTransactionCloserPool[index].enableDurability();
-                }
             }
 
             return openOperatorTransactionCloserPool[index];
@@ -176,9 +172,9 @@ public class TRuntimeContext implements Serializable {
     }
 
     // no singleton
-    public CloseSinkTransactionCloser getSinkTransactionCloser() {
+    public AbstractCloseOperatorTransactionCloser getSinkTransactionCloser() {
         if (isSynchronous()) {
-            return new SynchronousSinkTransactionCloser();
+            return new SynchronousSinkTransactionCloser(isDurabilityEnabled());
         }
 
         return new AsynchronousSinkTransactionCloser(isDurabilityEnabled());

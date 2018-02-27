@@ -1,5 +1,7 @@
 package it.polimi.affetti.tspoon.tgraph.twopc;
 
+import it.polimi.affetti.tspoon.tgraph.Updates;
+
 import java.io.IOException;
 
 /**
@@ -29,7 +31,7 @@ public class NoWAL implements WAL {
     }
 
     @Override
-    public void commit(int tid, String updates) throws IOException {
+    public void commit(int tid, Updates updates) throws IOException {
 
     }
 }

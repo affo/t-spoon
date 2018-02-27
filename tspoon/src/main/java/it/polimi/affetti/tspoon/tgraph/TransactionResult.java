@@ -1,15 +1,15 @@
 package it.polimi.affetti.tspoon.tgraph;
 
-import org.apache.flink.api.java.tuple.Tuple3;
+import org.apache.flink.api.java.tuple.Tuple5;
 
 /**
  * Created by affo on 26/07/17.
  */
-public class TransactionResult<T> extends Tuple3<Integer, Vote, T> {
+public class TransactionResult extends Tuple5<Integer, Integer, Object, Vote, Updates> {
     public TransactionResult() {
     }
 
-    public TransactionResult(Integer tid, Vote vote, T value) {
-        super(tid, vote, value);
+    public TransactionResult(Integer tid, Integer timestamp, Object originalRecord, Vote vote, Updates updates) {
+        super(tid, timestamp, originalRecord, vote, updates);
     }
 }

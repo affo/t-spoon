@@ -35,10 +35,9 @@ public class OTStream<T> extends AbstractTStream<T> {
 
     @Override
     protected <V> StateOperator<T, V> getStateOperator(
-            String nameSpace, OutputTag<Update<V>> updatesTag,
-            StateFunction<T, V> stateFunction, KeySelector<T, String> ks) {
+            String nameSpace, StateFunction<T, V> stateFunction, KeySelector<T, String> ks) {
         return new OptimisticStateOperator<>(
-                tGraphID, nameSpace, stateFunction, updatesTag, ks,
+                tGraphID, nameSpace, stateFunction, ks,
                 getTransactionEnvironment().createTransactionalRuntimeContext()
         );
     }

@@ -21,7 +21,6 @@ public class AsynchronousOpenOperatorTransactionCloser extends AbstractOpenOpera
         protected void parseRequest(String request) {
             // LOG.info(request);
             CloseTransactionNotification notification = CloseTransactionNotification.deserialize(request);
-            writeToWAL(notification.timestamp, notification.vote, notification.updates);
             notifyListeners(notification, (listener) -> listener.onCloseTransaction(notification));
         }
     }

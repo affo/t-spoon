@@ -8,7 +8,6 @@ import it.polimi.affetti.tspoon.tgraph.query.*;
 import it.polimi.affetti.tspoon.tgraph.state.StateFunction;
 import it.polimi.affetti.tspoon.tgraph.state.StateOperator;
 import it.polimi.affetti.tspoon.tgraph.state.StateStream;
-import it.polimi.affetti.tspoon.tgraph.state.Update;
 import it.polimi.affetti.tspoon.tgraph.twopc.OpenOperator;
 import org.apache.flink.api.common.functions.FilterFunction;
 import org.apache.flink.api.common.functions.MapFunction;
@@ -19,7 +18,7 @@ import org.apache.flink.streaming.api.datastream.ConnectedStreams;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.datastream.SplitStream;
-import org.apache.flink.util.OutputTag;
+
 
 import java.util.Collections;
 import java.util.List;
@@ -57,8 +56,7 @@ public abstract class AbstractTStream<T> implements TStream<T> {
     protected abstract <U> AbstractTStream<U> replace(DataStream<Enriched<U>> newStream);
 
     protected abstract <V> StateOperator<T, V> getStateOperator(
-            String nameSpace, OutputTag<Update<V>> updatesTag,
-            StateFunction<T, V> stateFunction, KeySelector<T, String> ks);
+            String nameSpace, StateFunction<T, V> stateFunction, KeySelector<T, String> ks);
 
     protected static <T> OpenOutputs<T> open(
             DataStream<T> dataStream, DataStream<MultiStateQuery> inputQueryStream, int tGraphId) {
@@ -142,12 +140,12 @@ public abstract class AbstractTStream<T> implements TStream<T> {
         return this;
     }
 
-    public <V> StateStream<T, V> state(
-            String nameSpace, OutputTag<Update<V>> updatesTag, KeySelector<T, String> ks,
+    public <V> StateStream<T> state(
+            String nameSpace, KeySelector<T, String> ks,
             StateFunction<T, V> stateFunction, int partitioning) {
         keyBy(ks);
 
-        StateOperator<T, V> stateOperator = getStateOperator(nameSpace, updatesTag, stateFunction, ks);
+        StateOperator<T, V> stateOperator = getStateOperator(nameSpace, stateFunction, ks);
         // broadcasting queries to every replica
         DataStream<Query> selected = queryStream.select(nameSpace);
         selected = PartitionOrBcastPartitioner.apply(selected);
@@ -157,7 +155,6 @@ public abstract class AbstractTStream<T> implements TStream<T> {
                         "StateOperator: " + nameSpace, dataStream.getType(), stateOperator)
                         .name(nameSpace).setParallelism(partitioning);
 
-        DataStream<Update<V>> updates = mainStream.getSideOutput(updatesTag);
         DataStream<QueryResult> queryResults = mainStream.getSideOutput(stateOperator.queryResultTag);
 
         queryResults = queryResults
@@ -166,7 +163,7 @@ public abstract class AbstractTStream<T> implements TStream<T> {
                 .name("QueryResultMerger");
 
         // TODO should merge every result to rebuild the multiStateQuery...
-        return new StateStream<>(replace(mainStream), updates, queryResults);
+        return new StateStream<>(replace(mainStream), queryResults);
     }
 
     @Override

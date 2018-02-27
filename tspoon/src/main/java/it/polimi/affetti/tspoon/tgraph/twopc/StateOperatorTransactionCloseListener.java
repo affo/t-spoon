@@ -13,8 +13,6 @@ public interface StateOperatorTransactionCloseListener extends TwoPCParticipant.
     void onTransactionClosedError(
             CloseTransactionNotification notification, Throwable error);
 
-    void pushTransactionUpdates(int timestamp);
-
     String getUpdatesRepresentation(int timestamp);
 
     Address getCoordinatorAddressForTransaction(int timestamp);

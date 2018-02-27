@@ -5,7 +5,6 @@ import it.polimi.affetti.tspoon.tgraph.*;
 import it.polimi.affetti.tspoon.tgraph.db.ObjectHandler;
 import it.polimi.affetti.tspoon.tgraph.state.StateFunction;
 import it.polimi.affetti.tspoon.tgraph.state.StateStream;
-import it.polimi.affetti.tspoon.tgraph.state.Update;
 import it.polimi.affetti.tspoon.tgraph.twopc.OpenStream;
 import org.apache.flink.api.common.functions.RichMapFunction;
 import org.apache.flink.api.java.functions.KeySelector;
@@ -20,7 +19,6 @@ import org.apache.flink.streaming.api.functions.windowing.WindowFunction;
 import org.apache.flink.streaming.api.windowing.time.Time;
 import org.apache.flink.streaming.api.windowing.windows.TimeWindow;
 import org.apache.flink.util.Collector;
-import org.apache.flink.util.OutputTag;
 
 import java.io.Serializable;
 import java.util.*;
@@ -78,35 +76,29 @@ public class BuyProducts {
         KeySelector<Purchase, String> byUserSelector = p -> p.customer.toString();
         KeySelector<Purchase, String> byProductSelector = p -> p.product.toString();
 
-        OutputTag<Update<List<Product>>> productsByUserUpdates =
-                new OutputTag<Update<List<Product>>>("productsByUserUpdates") {
-                };
-        OutputTag<Update<Integer>> warehouseUpdates =
-                new OutputTag<Update<Integer>>("productsUpdates") {
-                };
-
-        StateStream<Purchase, List<Product>> productsByUser = tPurchases.state(
+        StateStream<Purchase> productsByUser = tPurchases.state(
                 "productsByUser",
-                productsByUserUpdates,
                 byUserSelector,
                 new PurchasesState(),
                 partitioning
         );
 
-        StateStream<Purchase, Integer> warehouse = tPurchases.state(
+        StateStream<Purchase> warehouse = tPurchases.state(
                 "warehouse",
-                warehouseUpdates,
                 byProductSelector,
                 new WarehouseState(),
                 partitioning
         );
 
-        DataStream<TransactionResult<Purchase>> transactionResults = tEnv
-                .close(productsByUser.leftUnchanged, warehouse.leftUnchanged)
-                .get(0);
+        DataStream<TransactionResult> transactionResults = tEnv
+                .close(productsByUser.leftUnchanged, warehouse.leftUnchanged);
 
         // --------------- Tracking
-        transactionResults.map(tr -> tr.f2.id).returns(PurchaseID.class)
+        transactionResults
+                .map(tr -> {
+                    Purchase original = (Purchase) tr.f2;
+                    return original.id;
+                }).returns(PurchaseID.class)
                 .addSink(new FinishOnBackPressure<>(
                         0.25, batchSize, startInputRate,
                         resolution, -1, TRANSACTION_TRACKING_SERVER_NAME))
@@ -118,17 +110,17 @@ public class BuyProducts {
         // prints stats about the last 20 seconds about transactions
         transactionResults
                 .timeWindowAll(Time.seconds(20))
-                .apply(new AllWindowFunction<TransactionResult<Purchase>, Object, TimeWindow>() {
+                .apply(new AllWindowFunction<TransactionResult, Object, TimeWindow>() {
                     @Override
                     public void apply(
                             TimeWindow timeWindow,
-                            Iterable<TransactionResult<Purchase>> results,
+                            Iterable<TransactionResult> results,
                             Collector<Object> collector) throws Exception {
                         int commits = 0;
                         int aborts = 0;
 
-                        for (TransactionResult<Purchase> result : results) {
-                            if (result.f1 == Vote.COMMIT) {
+                        for (TransactionResult result : results) {
+                            if (result.f3 == Vote.COMMIT) {
                                 commits++;
                             } else {
                                 aborts++;
@@ -139,7 +131,8 @@ public class BuyProducts {
                     }
                 }).name("Transaction STATS");
 
-        DataStream<Purchase> successfulPurchases = transactionResults.map(tr -> tr.f2).returns(Purchase.class);
+        DataStream<Purchase> successfulPurchases = transactionResults.map(tr -> (Purchase) tr.f2)
+                .returns(Purchase.class);
 
 
         // TODO we can use `purchases` or `successfulPurchases`

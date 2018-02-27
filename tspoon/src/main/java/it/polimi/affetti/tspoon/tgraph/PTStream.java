@@ -36,22 +36,20 @@ public class PTStream<T> extends AbstractTStream<T> {
 
     @Override
     protected <V> StateOperator<T, V> getStateOperator(
-            String nameSpace, OutputTag<Update<V>> updatesTag,
-            StateFunction<T, V> stateFunction, KeySelector<T, String> ks) {
+            String nameSpace, StateFunction<T, V> stateFunction, KeySelector<T, String> ks) {
         return new PessimisticStateOperator<>(
-                tGraphID, nameSpace, stateFunction, updatesTag, ks,
+                tGraphID, nameSpace, stateFunction, ks,
                 getTransactionEnvironment().createTransactionalRuntimeContext());
     }
 
     @Override
-    public <V> StateStream<T, V> state(
+    public <V> StateStream<T> state(
             String nameSpace,
-            OutputTag<Update<V>> updatesTag,
             KeySelector<T, String> ks,
             StateFunction<T, V> stateFunction,
             int partitioning) {
         dataStream = applySchedulerIfNecessary(dataStream);
-        return super.state(nameSpace, updatesTag, ks, stateFunction, partitioning);
+        return super.state(nameSpace, ks, stateFunction, partitioning);
     }
 
     private <U> DataStream<Enriched<U>> applySchedulerIfNecessary(DataStream<Enriched<U>> newStream) {

@@ -1,11 +1,9 @@
 package it.polimi.affetti.tspoon.tgraph;
 
 import it.polimi.affetti.tspoon.common.Address;
-import it.polimi.affetti.tspoon.tgraph.state.Update;
 import org.apache.flink.api.java.tuple.Tuple2;
 
 import java.io.Serializable;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -15,6 +13,9 @@ import java.util.stream.Collectors;
  * Created by affo on 13/07/17.
  */
 public class Metadata implements Serializable {
+    // The original record, needs to be casted for proper use
+    // TODO parametrize Metadata on the originalRecord
+    public Object originalRecord;
     public int tGraphID;
     public BatchID batchID;
     public int tid, timestamp;
@@ -23,7 +24,7 @@ public class Metadata implements Serializable {
     public Vote vote = Vote.COMMIT;
     public int watermark = 0;
     public HashSet<Integer> dependencyTracking = new HashSet<>();
-    public HashMap<String, Update<?>> updates = new HashMap<>();
+    public Updates updates = new Updates();
 
     public Metadata() {
     }
@@ -56,7 +57,8 @@ public class Metadata implements Serializable {
         cloned.vote = vote;
         cloned.watermark = watermark;
         cloned.dependencyTracking = new HashSet<>(dependencyTracking);
-        cloned.updates = new HashMap<>(updates);
+        cloned.updates = updates.clone();
+        cloned.originalRecord = originalRecord;
         return cloned;
     }
 
@@ -64,12 +66,12 @@ public class Metadata implements Serializable {
         cohorts.add(cohortAddress);
     }
 
-    public void addUpdate(String key, Update<?> update) {
-        this.updates.put(key, update);
+    public void addUpdate(String namespace, String key, Object update) {
+        this.updates.addUpdate(namespace, key, update);
     }
 
-    public void mergeUpdates(HashMap<String, Update<?>> updates) {
-        this.updates.putAll(updates);
+    public void mergeUpdates(Updates updates) {
+        this.updates.merge(updates);
     }
 
     public Iterator<Address> cohorts() {

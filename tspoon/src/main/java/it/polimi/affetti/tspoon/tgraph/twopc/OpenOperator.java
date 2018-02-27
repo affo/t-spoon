@@ -98,8 +98,6 @@ public class OpenOperator<T>
     @Override
     public void open() throws Exception {
         super.open();
-        // TODO temporarly avoiding log ordering
-        // collector = new InOrderSideCollector<>(output, logTag);
         collector = new SafeCollector<>(output);
         // everybody shares the same OpenServer by specifying the same taskNumber
         openOperatorTransactionCloser = tRuntimeContext.getSourceTransactionCloser(0);
@@ -155,6 +153,7 @@ public class OpenOperator<T>
     private void collect(TransactionsIndex<T>.LocalTransactionContext transactionContext) {
         int tid = transactionContext.tid;
         Metadata metadata = new Metadata(tGraphID, tid);
+        metadata.originalRecord = transactionContext.element;
         metadata.timestamp = transactionContext.timestamp;
         metadata.coordinator = openOperatorTransactionCloser.getServerAddress();
         metadata.watermark = transactionsIndex.getCurrentWatermark();
@@ -288,10 +287,6 @@ public class OpenOperator<T>
                 }
         }
 
-        /* TODO temporarly avoiding log ordering
-        collector.collectInOrder(Tuple2.of(ts, notification.vote), ts);
-        collector.flushOrdered(transactionsIndex.getCurrentWatermark());
-        */
         collector.safeCollect(logTag,
                 Tuple2.of((long) notification.timestamp, notification.vote));
     }

@@ -11,7 +11,7 @@ import java.util.stream.Collectors;
  * <p>
  * The BatchID is a data structure responsible for representing the composed ID of a record.
  * <p>
- * The ID is built by each operator as the records passes throw, from the OpenOperator to the CloseSink.
+ * The ID is built by each operator as the records passes throw, from the OpenOperator to the CloseFunction.
  * <p>
  * An operator can generate 1 (in the case of 0, an empty record is generated) or more records from 1 record.
  * When an operator produces a new batch of records from one record, it is supposed to copy the current BatchID of

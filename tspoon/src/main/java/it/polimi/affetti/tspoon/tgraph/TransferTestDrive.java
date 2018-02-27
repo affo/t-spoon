@@ -13,7 +13,6 @@ import it.polimi.affetti.tspoon.tgraph.db.ObjectHandler;
 import it.polimi.affetti.tspoon.tgraph.query.*;
 import it.polimi.affetti.tspoon.tgraph.state.StateFunction;
 import it.polimi.affetti.tspoon.tgraph.state.StateStream;
-import it.polimi.affetti.tspoon.tgraph.state.Update;
 import it.polimi.affetti.tspoon.tgraph.twopc.OpenStream;
 import org.apache.flink.api.common.JobExecutionResult;
 import org.apache.flink.api.common.typeinfo.TypeHint;
@@ -120,9 +119,8 @@ public class TransferTestDrive {
         TStream<Movement> halves = open.opened.flatMap(
                 (FlatMapFunction<Transfer, Movement>) t -> Arrays.asList(t.getDeposit(), t.getWithdrawal()));
 
-        StateStream<Movement, Double> balances = halves.state(
-                "balances", new OutputTag<Update<Double>>("balances") {
-                }, t -> t.f1,
+        StateStream<Movement> balances = halves.state(
+                "balances", t -> t.f1,
                 new StateFunction<Movement, Double>() {
                     @Override
                     public Double defaultValue() {
@@ -149,9 +147,9 @@ public class TransferTestDrive {
 
         //balances.updates.print();
 
-        DataStream<TransactionResult<Movement>> output = tEnv.close(balances.leftUnchanged).get(0);
+        DataStream<TransactionResult> output = tEnv.close(balances.leftUnchanged);
         output.process(
-                new RecordTracker<TransactionResult<Movement>, TransferID>("responseTime", false) {
+                new RecordTracker<TransactionResult, TransferID>("responseTime", false) {
                     @Override
                     public OutputTag<TransferID> createRecordTrackingOutputTag(String label) {
                         return new OutputTag<TransferID>(label) {
@@ -159,11 +157,12 @@ public class TransferTestDrive {
                     }
 
                     @Override
-                    protected TransferID extractId(TransactionResult<Movement> element) {
-                        return element.f2.f0;
+                    protected TransferID extractId(TransactionResult result) {
+                        Transfer transfer = (Transfer) result.f2;
+                        return transfer.f0;
                     }
                 })
-                .returns(new TypeHint<TransactionResult<Movement>>() {
+                .returns(new TypeHint<TransactionResult>() {
                 });
 
         open.wal
@@ -171,8 +170,8 @@ public class TransferTestDrive {
                 .addSink(new FinishOnCountSink<>(numberOfElements)).setParallelism(1)
                 .name("FinishOnCount");
 
-        //open.wal.print();
-        //open.watermarks.print();
+        // Print output
+        //output.print();
 
         if (printPlan) {
             String executionPlan = env.getExecutionPlan();
@@ -181,9 +180,6 @@ public class TransferTestDrive {
         }
 
         JobExecutionResult result = env.execute();
-
-        //System.out.println(getWatermarks(result));
-        //System.out.println(getUpdates(result));
 
         Report report = new Report("report");
         report.addAccumulators(result);

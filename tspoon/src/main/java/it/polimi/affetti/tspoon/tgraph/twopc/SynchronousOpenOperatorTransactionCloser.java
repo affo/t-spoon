@@ -12,7 +12,6 @@ import java.util.Map;
  */
 public class SynchronousOpenOperatorTransactionCloser extends AbstractOpenOperatorTransactionCloser {
     private final Map<Integer, Integer> counters = new HashMap<>();
-    private final Map<Integer, String> updates = new HashMap<>();
 
     protected SynchronousOpenOperatorTransactionCloser(SubscriptionMode subscriptionMode) {
         super(subscriptionMode);
@@ -26,7 +25,6 @@ public class SynchronousOpenOperatorTransactionCloser extends AbstractOpenOperat
     private synchronized boolean handleStateAck(CloseTransactionNotification notification) {
         int timestamp = notification.timestamp;
         int batchSize = notification.batchSize;
-        Vote vote = notification.vote;
 
         int count;
         counters.putIfAbsent(timestamp, batchSize);
@@ -34,14 +32,8 @@ public class SynchronousOpenOperatorTransactionCloser extends AbstractOpenOperat
         count--;
         counters.put(timestamp, count);
 
-        String updates = this.updates.getOrDefault(timestamp, "");
-        updates += notification.updates;
-        this.updates.put(timestamp, updates);
-
         if (count == 0) {
             counters.remove(timestamp);
-            this.updates.remove(timestamp);
-            writeToWAL(timestamp, vote, updates);
             return true;
         }
 

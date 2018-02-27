@@ -39,11 +39,6 @@ public class AtStateListener extends AbstractListener<StateOperatorTransactionCl
     }
 
     @Override
-    public void pushTransactionUpdates(int timestamp) {
-        // does nothing
-    }
-
-    @Override
     public String getUpdatesRepresentation(int timestamp) {
         return "[updates_for_transaction_" + timestamp;
     }

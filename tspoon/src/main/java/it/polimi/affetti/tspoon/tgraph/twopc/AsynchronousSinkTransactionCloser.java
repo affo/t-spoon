@@ -1,7 +1,5 @@
 package it.polimi.affetti.tspoon.tgraph.twopc;
 
-import it.polimi.affetti.tspoon.common.Address;
-import it.polimi.affetti.tspoon.runtime.StringClientsCache;
 import it.polimi.affetti.tspoon.tgraph.Metadata;
 
 import java.util.Collections;
@@ -9,26 +7,14 @@ import java.util.Collections;
 /**
  * Created by affo on 10/11/17.
  */
-public class AsynchronousSinkTransactionCloser implements CloseSinkTransactionCloser {
-    private StringClientsCache clients;
-    private final boolean isDurabilityEnabled;
+public class AsynchronousSinkTransactionCloser extends AbstractCloseOperatorTransactionCloser {
 
     public AsynchronousSinkTransactionCloser(boolean isDurabilityEnabled) {
-        this.isDurabilityEnabled = isDurabilityEnabled;
+        super(isDurabilityEnabled);
     }
 
     @Override
-    public void open() throws Exception {
-        this.clients = new StringClientsCache();
-    }
-
-    @Override
-    public void close() throws Exception {
-        clients.clear();
-    }
-
-    @Override
-    public void onMetadata(Metadata metadata) throws Exception {
+    public void applyProtocolOnMetadata(Metadata metadata) throws Exception {
         int dependency;
 
         if (metadata.dependencyTracking.isEmpty()) {
@@ -37,29 +23,15 @@ public class AsynchronousSinkTransactionCloser implements CloseSinkTransactionCl
             dependency = Collections.max(metadata.dependencyTracking);
         }
 
-        String sUpdates = isDurabilityEnabled ? metadata.updates.values().toString() : "";
-
-        String messageForCoordinator = CloseTransactionNotification.serialize(
+        String message = CloseTransactionNotification.serialize(
                 metadata.tGraphID,
                 metadata.timestamp,
                 metadata.vote,
                 metadata.cohorts.size(),
-                dependency, sUpdates
+                dependency
         );
 
-        String messageForCohorts = CloseTransactionNotification.serialize(
-                metadata.tGraphID,
-                metadata.timestamp,
-                metadata.vote,
-                metadata.cohorts.size(),
-                dependency, ""
-        );
-
-        clients.getOrCreateClient(metadata.coordinator).send(messageForCoordinator);
-
-
-        for (Address cohort : metadata.cohorts) {
-            clients.getOrCreateClient(cohort).send(messageForCohorts);
-        }
+        send(metadata.coordinator, message);
+        send(metadata.cohorts, message);
     }
 }

@@ -1,5 +1,7 @@
 package it.polimi.affetti.tspoon.tgraph.twopc;
 
+import it.polimi.affetti.tspoon.tgraph.Updates;
+
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
@@ -39,7 +41,7 @@ public class DummyWAL implements WAL {
     }
 
     @Override
-    public void commit(int tid, String updates) throws IOException {
+    public void commit(int tid, Updates updates) throws IOException {
         out.write("C" + tid + "-" + updates + ";");
         out.flush();
     }

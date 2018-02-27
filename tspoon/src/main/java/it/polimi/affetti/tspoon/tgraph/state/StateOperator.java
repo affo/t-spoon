@@ -1,7 +1,7 @@
 package it.polimi.affetti.tspoon.tgraph.state;
 
 import it.polimi.affetti.tspoon.common.Address;
-import it.polimi.affetti.tspoon.common.InOrderSideCollector;
+import it.polimi.affetti.tspoon.common.SafeCollector;
 import it.polimi.affetti.tspoon.runtime.NetUtils;
 import it.polimi.affetti.tspoon.tgraph.Enriched;
 import it.polimi.affetti.tspoon.tgraph.IsolationLevel;
@@ -35,7 +35,6 @@ public abstract class StateOperator<T, V>
     protected final int tGraphID;
     private long counter = 0;
     protected final String nameSpace;
-    public final OutputTag<Update<V>> updatesTag;
     public final OutputTag<QueryResult> queryResultTag = new OutputTag<QueryResult>("queryResult") {
     };
     protected transient Shard<V> shard;
@@ -47,20 +46,18 @@ public abstract class StateOperator<T, V>
 
     private IntCounter inconsistenciesPrevented = new IntCounter();
 
-    protected transient InOrderSideCollector<T, Update<V>> collector;
+    protected transient SafeCollector<T> collector;
     private transient AbstractStateOperatorTransactionCloser transactionCloser;
 
     public StateOperator(
             int tGraphID,
             String nameSpace,
             StateFunction<T, V> stateFunction,
-            OutputTag<Update<V>> updatesTag,
             KeySelector<T, String> ks,
             TRuntimeContext tRuntimeContext) {
         this.tGraphID = tGraphID;
         this.nameSpace = nameSpace;
         this.stateFunction = stateFunction;
-        this.updatesTag = updatesTag;
         this.keySelector = ks;
         this.tRuntimeContext = tRuntimeContext;
 
@@ -87,7 +84,7 @@ public abstract class StateOperator<T, V>
             shard.setDeferredReadsListener(this);
         }
 
-        collector = new InOrderSideCollector<>(output, updatesTag);
+        collector = new SafeCollector<>(output);
 
         transactionCloser = tRuntimeContext.getAtStateTransactionCloser(taskNumber);
         transactionCloser.open();
@@ -190,15 +187,7 @@ public abstract class StateOperator<T, V>
         return shard.getTransaction(timestamp).getCoordinator();
     }
 
-    @Override
-    public void pushTransactionUpdates(int timestamp) {
-        Transaction<V> transaction = shard.removeTransaction(timestamp);
-        long localId = localIds.remove(transaction.timestamp);
-        collector.collectInOrder(transaction.getUpdates(), localId);
-        collector.flushOrdered(localId);
-    }
-
-    /**
+    /** TODO review
      * This method is an helper for subclasses for enriching a record with the updates of some transaction for
      * some key.
      *
@@ -215,9 +204,7 @@ public abstract class StateOperator<T, V>
         if (record.metadata.vote == Vote.COMMIT &&
                 tRuntimeContext.isDurabilityEnabled() && !tRuntimeContext.isSynchronous()) {
             V version = transaction.getVersion(key);
-            String uniqueKey = nameSpace + "." + key;
-            Update<V> update = Update.of(transaction.tid, uniqueKey, version);
-            record.metadata.addUpdate(uniqueKey, update);
+            record.metadata.addUpdate(nameSpace, key, version);
         }
     }
 

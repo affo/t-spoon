@@ -15,13 +15,11 @@ import it.polimi.affetti.tspoon.tgraph.query.Query;
 import it.polimi.affetti.tspoon.tgraph.query.QueryID;
 import it.polimi.affetti.tspoon.tgraph.state.StateFunction;
 import it.polimi.affetti.tspoon.tgraph.state.StateStream;
-import it.polimi.affetti.tspoon.tgraph.state.Update;
 import it.polimi.affetti.tspoon.tgraph.twopc.OpenStream;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.streaming.api.TimeCharacteristic;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
-import org.apache.flink.util.OutputTag;
 
 import java.util.Arrays;
 
@@ -92,9 +90,8 @@ public class QueryEvaluation {
         TStream<Movement> halves = open.opened.flatMap(
                 (FlatMapFunction<Transfer, Movement>) t -> Arrays.asList(t.getDeposit(), t.getWithdrawal()));
 
-        StateStream<Movement, Double> balances = halves.state(
-                nameSpace, new OutputTag<Update<Double>>(nameSpace) {
-                }, t -> t.f1,
+        StateStream<Movement> balances = halves.state(
+                nameSpace, t -> t.f1,
                 new StateFunction<Movement, Double>() {
                     @Override
                     public Double defaultValue() {

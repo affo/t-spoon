@@ -18,7 +18,7 @@ public abstract class SimpleTwoPCTest {
     private TRuntimeContext tRuntimeContext;
     private AbstractOpenOperatorTransactionCloser openOperatorTransactionCloser;
     private AbstractStateOperatorTransactionCloser stateOperatorTransactionCloser;
-    private CloseSinkTransactionCloser sinkTransactionCloser;
+    private AbstractCloseOperatorTransactionCloser sinkTransactionCloser;
 
     @Before
     public void setUp() throws Exception {

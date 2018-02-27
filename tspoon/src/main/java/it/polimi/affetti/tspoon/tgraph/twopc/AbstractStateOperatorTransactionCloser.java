@@ -68,9 +68,7 @@ public abstract class AbstractStateOperatorTransactionCloser
                         }
                     },
                     aVoid -> {
-                        for (StateOperatorTransactionCloseListener listener : listeners) {
-                            listener.pushTransactionUpdates(notification.timestamp);
-                        }
+                        // does nothing
                     },
                     error -> {
                         for (StateOperatorTransactionCloseListener listener : listeners) {
