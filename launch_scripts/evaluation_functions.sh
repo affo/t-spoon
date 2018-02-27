@@ -105,7 +105,8 @@ function launch_keyspace {
 
     local ks=$1
 
-    launch 'keyspace_'$ks $EVAL_CLASS --ks $ks "${@:2}"
+    launch 'keyspace_'$ks $EVAL_CLASS --ks $ks \
+      --noStates 1 --noTG 1 --series true "${@:2}"
 }
 
 function launch_query {
@@ -143,8 +144,7 @@ function launch_suite_parallel_ntg {
 }
 
 function launch_suite_keyspace {
-    _launch_suite_keyspace 100000,70000,40000,10000,7000,4000,1000,700,400,100,70,40,10 \
-        --noTG 1 --noStates 1 --series true
+    _launch_suite_keyspace 100000,70000,40000,10000,7000,4000,1000,700,400,100,70,40,10
 }
 
 # keyspace 50, queryPerc 0.1
