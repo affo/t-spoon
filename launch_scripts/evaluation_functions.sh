@@ -26,7 +26,7 @@ function _launch_suite_keyspace {
     local kss=(`echo $1 | tr ',' '\n'`)
 
     for ks in ${kss[@]}; do
-        launch 'keyspace_'$ks $EVAL_CLASS --ks $ks "${@:2}"
+        launch_keyspace $ks "${@:2}"
         sleep 1
     done
 }
@@ -97,6 +97,17 @@ function launch_parallel_ntg {
     _launch_tgs 1 $1 false "${@:2}"
 }
 
+function launch_keyspace {
+    if [[ "$#" -lt 1 ]]; then
+        echo "Input: <keyspace_size> <params...>"
+        return 1
+    fi
+
+    local ks=$1
+
+    launch 'keyspace_'$ks $EVAL_CLASS --ks $ks "${@:2}"
+}
+
 function launch_query {
     if [[ "$#" -lt 1 ]]; then
         echo "Input: <update_frequency> <params...>"
@@ -150,4 +161,3 @@ function launch_suite_query {
     launch_query 3000
     launch_query 5000
 }
-
