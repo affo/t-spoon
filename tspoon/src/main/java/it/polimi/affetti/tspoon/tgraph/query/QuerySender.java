@@ -8,6 +8,7 @@ import it.polimi.affetti.tspoon.runtime.ClientsCache;
 import it.polimi.affetti.tspoon.runtime.JobControlClient;
 import it.polimi.affetti.tspoon.runtime.ObjectClient;
 import org.apache.flink.api.common.functions.RichFlatMapFunction;
+import org.apache.flink.api.java.tuple.Tuple3;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.util.Collector;
@@ -34,6 +35,7 @@ public class QuerySender extends RichFlatMapFunction<Query, QueryResult>
     private final OnQueryResult onQueryResult;
     private transient TaskExecutor deferredExecutor;
     private volatile Throwable error;
+    private final Map<QueryID, Tuple3<Long, Integer, QueryResult>> results = new HashMap<>();
 
     private static boolean verbose = false;
 
@@ -108,55 +110,64 @@ public class QuerySender extends RichFlatMapFunction<Query, QueryResult>
             return;
         }
 
-        Set<Address> finalAddresses = addresses;
-        Runnable deferredExecution = () -> {
+        List<ObjectClient> objectClients = addresses.stream().map(address -> {
             try {
-                List<ObjectClient> objectClients = finalAddresses.stream().map(address -> {
-                    try {
-                        return queryServers.getOrCreateClient(address);
-                    } catch (IOException e) {
-                        e.printStackTrace();
-                    }
-                    return null;
-                }).collect(Collectors.toList());
-
-                long start = System.nanoTime();
-                for (ObjectClient client : objectClients) {
-                    // could raise NPE
-                    client.send(query);
-                }
-
-                QueryResult queryResult = new QueryResult(query.getQueryID());
-                for (ObjectClient client : objectClients) {
-                    QueryResult partialResult = (QueryResult) client.receive();
-                    queryResult.merge(partialResult);
-                }
-
-                long end = System.nanoTime();
-                long latency = (long) ((end - start) / Math.pow(10, 6));
-                queryLatency.add((double) latency);
-                queryResultSize.add((double) queryResult.getSize());
-
-                collector.collect(queryResult);
-
-                start = System.nanoTime();
-                onQueryResult.accept(queryResult);
-                end = System.nanoTime();
-                long executionTime = (long) ((end - start) / Math.pow(10, 6));
-
-                if (verbose) {
-                    LOG.info("Query answered in " + latency + " ms, executed in " + executionTime + " ms");
-                }
+                return queryServers.getOrCreateClient(address);
             } catch (IOException e) {
-                LOG.info("Query discarded because of IOException. Query: " + query
-                        + ", Exception message: " + e.getMessage() + ".");
-            } catch (ClassNotFoundException e) {
-                LOG.info("Cannot cast message to QueryResult. Query: " + query
-                        + ", Exception message: " + e.getMessage() + ".");
+                e.printStackTrace();
             }
-        };
+            return null;
+        }).collect(Collectors.toList());
 
-        deferredExecutor.addTask(deferredExecution, this);
+        final long start = System.nanoTime();
+        for (ObjectClient client : objectClients) {
+            // could raise NPE
+            client.send(query);
+        }
+
+        synchronized (results) {
+            results.put(query.getQueryID(), Tuple3.of(start, addresses.size(), new QueryResult(query.getQueryID())));
+        }
+
+        for (ObjectClient client : objectClients) {
+            Runnable deferredExecution = () -> {
+                try {
+                    Tuple3<Long, Integer, QueryResult> accumulatedResult;
+                    QueryResult newResult = (QueryResult) client.receive();
+                    synchronized (results) {
+                        accumulatedResult = results.get(newResult.queryID);
+                        accumulatedResult.f2.merge(newResult);
+                        accumulatedResult.f1--;
+                    }
+
+                    if (accumulatedResult.f1 == 0) {
+                        long end = System.nanoTime();
+                        long latency = (long) ((end - accumulatedResult.f0) / Math.pow(10, 6));
+                        queryLatency.add((double) latency);
+                        queryResultSize.add((double) accumulatedResult.f2.getSize());
+
+                        collector.collect(accumulatedResult.f2);
+
+                        long startExecution = System.nanoTime();
+                        onQueryResult.accept(accumulatedResult.f2);
+                        end = System.nanoTime();
+                        long executionTime = (long) ((end - startExecution) / Math.pow(10, 6));
+
+                        if (verbose) {
+                            LOG.info("Query answered in " + latency + " ms, executed in " + executionTime + " ms");
+                        }
+                    }
+                } catch (IOException e) {
+                    LOG.info("Query discarded because of IOException. Query: " + query
+                            + ", Exception message: " + e.getMessage() + ".");
+                } catch (ClassNotFoundException e) {
+                    LOG.info("Cannot cast message to QueryResult. Query: " + query
+                            + ", Exception message: " + e.getMessage() + ".");
+                }
+            };
+            deferredExecutor.addTask(deferredExecution, this);
+
+        }
     }
 
     @Override

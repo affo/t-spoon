@@ -212,7 +212,10 @@ public class TransactionEnvironment {
         DataStream<Query> queries = openStream.watermarks.connect(queryStream)
                 .flatMap(new QueryProcessor())
                 .name("QueryProcessor");
-        DataStream<QueryResult> results = queries.flatMap(querySender).name("QuerySender");
+        DataStream<QueryResult> results = queries.flatMap(querySender)
+                .name("QuerySender")
+                // half parallelism because every query sender spawns a thread for deferred execution
+                .setParallelism(streamExecutionEnvironment.getParallelism() / 2);
         openStream.addQueryResults(results);
 
         return openStream;
