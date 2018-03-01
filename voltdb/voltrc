@@ -1,0 +1,7 @@
+#!/bin/bash
+echo ">>> voltrc sourced"
+
+export VOLT_HOME=`pwd`/voltdb-home
+export DATA_DIR=`pwd`/generated-data
+
+mkdir -p $DATA_DIR

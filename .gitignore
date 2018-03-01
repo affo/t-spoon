@@ -6,3 +6,6 @@ target
 launch_scripts/results/**/*.json
 launch_scripts/results/**/*.png
 launchrc
+
+generated-data
+voltdb-home
