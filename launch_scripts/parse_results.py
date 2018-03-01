@@ -177,8 +177,7 @@ def load_results(folder_name):
     for subdir, dirs, files in os.walk(folder_name):
         for file in files:
             if not file.startswith('parsed') \
-                and file.endswith('.json') \
-                and not file.startswith('query'): # TODO query results are malformed by now!
+                and file.endswith('.json'):
                 number_of_experiments += 1
                 fname = os.path.join(subdir, file)
                 print '>>> Parsing', fname
