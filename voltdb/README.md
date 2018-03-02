@@ -30,22 +30,36 @@ Send to your nodes:
  - deploy_conf.template.xml
  - voltdb_deploy.sh
 
-In this README, I assume that every file is in a folder named `voltdb`.
+In this README, I assume that every file is in a folder named `voltdb` and that
+every node in the cluster can reach the leader node. The leader's IP is `leader`
+and is available to every node and in `/etc/hosts`:
 
-Add to `hosts.csv` the IPs in the cluster (except `localhost`) as
+```
+# /etc/hosts content:
+
+...
+192.168.0.1 leader
+...
+```
+
+Add to `hosts.csv` the IPs in the cluster (except `leader`) as
 comma-separated values.
 
 In a separate shell, on the leader:
 
 ```
-$ ./voltdb_deploy.sh <no_hosts> localhost <sitesperhost>
+$ ./voltdb_deploy.sh <no_hosts> leader <sitesperhost>
 ```
 
 Adapt the file `remote_deploy.sh` (if you need to), that is the one that will be
-executed on remote nodes. The command `./voltdb_deploy.sh ... -B` should match
-the one above except for the IP of the leader (not `localhost` anymore).
+executed on remote nodes. The command `./voltdb_deploy.sh ... -B` must match the
+one above.
 
-Eventually, you can run the cluster.
+Eventually, you can run the cluster:
+
+```
+$ ./deploy_cluster.sh
+```
 
 ## Running Voter benchmark
 
@@ -62,4 +76,19 @@ The deploy VoltDB (see above) and run the benchmark:
 $ cd voltdb-home/examples/voter
 $ ./voter_run.sh init
 $ ./voter_run.sh client ?<AsyncBenchmark params...>
+```
+
+## NOTE
+
+If you want to run benchmarks by issuing queries to every host in parallel, you
+can pass in the option `--servers ...` by using the file `hosts.csv`:
+
+```
+$ ./run_benchmark.sh ... --servers localhost,$(cat hosts.csv)
+```
+
+or
+
+```
+$ ./voter_run.sh ... --servers localhost,$(cat hosts.csv)
 ```
