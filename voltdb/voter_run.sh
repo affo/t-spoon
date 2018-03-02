@@ -21,6 +21,7 @@ source $VOLTDB_BIN/voltenv
 # (once running, all nodes are the same -- no leaders)
 STARTUPLEADERHOST="localhost"
 # list of cluster nodes separated by commas in host:[port] format
+# TODO [fix] $SERVERS is now an array... should be joined with commas...
 SERVERS=${SERVERS:-"localhost"}
 
 # remove binaries, logs, runtime artifacts, etc... but keep the jars
@@ -91,12 +92,11 @@ function async-benchmark {
 
     echo "Params:"
     echo "$@"
-    
+
     java -classpath voter-client.jar:$CLIENTCLASSPATH voter.AsyncBenchmark \
         --displayinterval=5 \
         --warmup=5 \
         --duration=120 \
-        --servers=$SERVERS \
         --contestants=6 \
         --maxvotes=2 "$@"
 }
