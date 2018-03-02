@@ -23,16 +23,16 @@ $ ./run_benchmark.sh
 
 ## Cluster deploy
 
-Send to your nodes:
+Send to every slave node in the cluster:
 
  - voltdb-home
  - voltrc
  - deploy_conf.template.xml
  - voltdb_deploy.sh
 
-In this README, I assume that every file is in a folder named `voltdb` and that
-every node in the cluster can reach the leader node. The leader's IP is `leader`
-and is available to every node and in `/etc/hosts`:
+In this README, I assume that every slave gathers files in a folder named
+`voltdb` and it can reach the leader node. The leader's IP is `leader` and is
+available to every node. For example, in `/etc/hosts`:
 
 ```
 # /etc/hosts content:
@@ -42,16 +42,16 @@ and is available to every node and in `/etc/hosts`:
 ...
 ```
 
-Add to `hosts.csv` the IPs in the cluster (except `leader`) as
+On the leader, add to `hosts.csv` the IPs in the cluster (except `leader`) as
 comma-separated values.
 
-In a separate shell, on the leader:
+In a separate shell (on the leader):
 
 ```
 $ ./voltdb_deploy.sh <no_hosts> leader <sitesperhost>
 ```
 
-Adapt the file `remote_deploy.sh` (if you need to), that is the one that will be
+Adapt the file `remote_deploy.sh` (if you need to). It is the one that will be
 executed on remote nodes. The command `./voltdb_deploy.sh ... -B` must match the
 one above.
 
