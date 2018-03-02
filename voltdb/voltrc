@@ -1,7 +1,19 @@
 #!/bin/bash
-echo ">>> voltrc sourced"
 
 export VOLT_HOME=`pwd`/voltdb-home
 export DATA_DIR=`pwd`/generated-data
+IFS=","
+read -ra SERVERS <<< "$(cat hosts.csv)"
+IFS=" "
+export SERVERS
 
 mkdir -p $DATA_DIR
+
+echo ">>> voltrc sourced"
+
+if [[ ${#SERVERS[@]} -eq 0 ]]; then
+  echo ">>> No server found in hosts.csv"
+else
+  echo ">>> Servers loaded from hosts.csv:"
+  echo "    ${SERVERS[@]}"
+fi
