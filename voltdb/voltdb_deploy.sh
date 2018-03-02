@@ -1,6 +1,6 @@
 #!/bin/bash
 if [[ "$#" -lt 3 ]]; then
-    echo "./voltdb_deploy.sh <hostcount> <leader> <sites(/cores)>"
+    echo "./voltdb_deploy.sh <hostcount> <leader> <sites(/cores)> ?<start_params...>"
     exit 1
 fi
 
@@ -19,4 +19,4 @@ VOLT_BIN="$VOLT_HOME/bin/voltdb"
 
 $VOLT_BIN init --force --dir $DATA_DIR --config $deployment_file
 $VOLT_BIN start --dir $DATA_DIR --ignore=thp \
-            --count $hostcount --host $volt_host
+            --count $hostcount --host $volt_host "${@:4}"
