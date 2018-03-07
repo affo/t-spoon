@@ -4,6 +4,7 @@ import it.polimi.affetti.tspoon.tgraph.Enriched;
 import it.polimi.affetti.tspoon.tgraph.db.PessimisticTransactionExecutor;
 import it.polimi.affetti.tspoon.tgraph.db.Transaction;
 import it.polimi.affetti.tspoon.tgraph.twopc.TRuntimeContext;
+import org.apache.flink.api.java.functions.KeySelector;
 import org.apache.flink.util.OutputTag;
 
 import java.util.HashSet;
@@ -26,8 +27,9 @@ public class PessimisticStateOperator<T, V> extends StateOperator<T, V> {
             String nameSpace,
             StateFunction<T, V> stateFunction,
             OutputTag<Update<V>> updatesTag,
+            KeySelector<T, String> ks,
             TRuntimeContext tRuntimeContext) {
-        super(tGraphID, nameSpace, stateFunction, updatesTag, tRuntimeContext);
+        super(tGraphID, nameSpace, stateFunction, updatesTag, ks, tRuntimeContext);
     }
 
     @Override

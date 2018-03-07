@@ -87,15 +87,6 @@ public class QueryEvaluation {
         DataStream<Transfer> transfers = env.addSource(transferSource).setParallelism(1);
         OpenStream<Transfer> open = tEnv.open(transfers);
 
-        open.queryResults
-                .map(qr -> qr.queryID).returns(QueryID.class)
-                .addSink(
-                        new FinishOnBackPressure<>(
-                                0.25, batchSize, startInputRate,
-                                resolution, -1, QUERY_TRACKING_SERVER_NAME))
-                .name("FinishOnBackPressure")
-                .setParallelism(1);
-
         TStream<Movement> halves = open.opened.flatMap(
                 (FlatMapFunction<Transfer, Movement>) t -> Arrays.asList(t.getDeposit(), t.getWithdrawal()));
 
@@ -125,6 +116,15 @@ public class QueryEvaluation {
                         handler.write(handler.read() + element.f2);
                     }
                 }, partitioning);
+
+        balances.queryResults
+                .map(qr -> qr.queryID).returns(QueryID.class)
+                .addSink(
+                        new FinishOnBackPressure<>(
+                                0.25, batchSize, startInputRate,
+                                resolution, -1, QUERY_TRACKING_SERVER_NAME))
+                .name("FinishOnBackPressure")
+                .setParallelism(1);
 
 
         tEnv.close(balances.leftUnchanged);

@@ -3,6 +3,7 @@ package it.polimi.affetti.tspoon.tgraph;
 import it.polimi.affetti.tspoon.common.FlatMapFunction;
 import it.polimi.affetti.tspoon.common.TWindowFunction;
 import it.polimi.affetti.tspoon.tgraph.functions.*;
+import it.polimi.affetti.tspoon.tgraph.query.*;
 import it.polimi.affetti.tspoon.tgraph.state.StateFunction;
 import it.polimi.affetti.tspoon.tgraph.state.StateOperator;
 import it.polimi.affetti.tspoon.tgraph.state.StateStream;
@@ -13,10 +14,13 @@ import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.java.functions.KeySelector;
 import org.apache.flink.api.java.tuple.Tuple2;
+import org.apache.flink.streaming.api.datastream.ConnectedStreams;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
+import org.apache.flink.streaming.api.datastream.SplitStream;
 import org.apache.flink.util.OutputTag;
 
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -27,9 +31,17 @@ public abstract class AbstractTStream<T> implements TStream<T> {
     protected static TransactionEnvironment transactionEnvironment;
 
     protected DataStream<Enriched<T>> dataStream;
+    protected SplitStream<Query> queryStream;
 
-    public AbstractTStream(DataStream<Enriched<T>> enriched, int tGraphID) {
+    /**
+     *
+     * @param enriched
+     * @param queryStream can be `null` for testing purposes
+     * @param tGraphID
+     */
+    public AbstractTStream(DataStream<Enriched<T>> enriched, SplitStream<Query> queryStream, int tGraphID) {
         this.dataStream = enriched;
+        this.queryStream = queryStream;
         this.tGraphID = tGraphID;
     }
 
@@ -44,9 +56,11 @@ public abstract class AbstractTStream<T> implements TStream<T> {
     protected abstract <U> AbstractTStream<U> replace(DataStream<Enriched<U>> newStream);
 
     protected abstract <V> StateOperator<T, V> getStateOperator(
-            String nameSpace, OutputTag<Update<V>> updatesTag, StateFunction<T, V> stateFunction);
+            String nameSpace, OutputTag<Update<V>> updatesTag,
+            StateFunction<T, V> stateFunction, KeySelector<T, String> ks);
 
-    protected static <T> OpenOutputs<T> open(DataStream<T> dataStream, int tGraphId) {
+    protected static <T> OpenOutputs<T> open(
+            DataStream<T> dataStream, DataStream<MultiStateQuery> inputQueryStream, int tGraphId) {
         TypeInformation<Enriched<T>> type = Enriched.getTypeInfo(dataStream.getType());
         OpenOperator<T> openOperator = new OpenOperator<>(
                 transactionEnvironment.createTransactionalRuntimeContext(), tGraphId);
@@ -57,7 +71,16 @@ public abstract class AbstractTStream<T> implements TStream<T> {
 
         DataStream<Integer> watermarks = enriched.getSideOutput(openOperator.watermarkTag);
         DataStream<Tuple2<Long, Vote>> tLog = enriched.getSideOutput(openOperator.logTag);
-        return new OpenOutputs<>(enriched, watermarks, tLog);
+
+        SplitStream<Query> queryStream = null;
+        if (inputQueryStream != null) {
+            queryStream = watermarks.connect(inputQueryStream)
+                    .flatMap(new QueryProcessor())
+                    .name("AssignWatermark")
+                    .split(query -> Collections.singleton(query.getNameSpace()));
+        }
+
+        return new OpenOutputs<>(enriched, queryStream, tLog, watermarks);
     }
 
     public <U> AbstractTStream<U> map(MapFunction<T, U> fn) {
@@ -123,13 +146,25 @@ public abstract class AbstractTStream<T> implements TStream<T> {
             StateFunction<T, V> stateFunction, int partitioning) {
         keyBy(ks);
 
-        StateOperator<T, V> stateOperator = getStateOperator(nameSpace, updatesTag, stateFunction);
-        SingleOutputStreamOperator<Enriched<T>> mainStream = dataStream.transform(
-                "StateOperator: " + nameSpace, dataStream.getType(), stateOperator)
-                .name(nameSpace).setParallelism(partitioning);
+        StateOperator<T, V> stateOperator = getStateOperator(nameSpace, updatesTag, stateFunction, ks);
+        // broadcasting queries to every replica
+        DataStream<Query> selected = queryStream.select(nameSpace);
+        ConnectedStreams<Enriched<T>, Query> connected = dataStream.connect(selected.broadcast());
+        SingleOutputStreamOperator<Enriched<T>> mainStream =
+                connected.transform(
+                        "StateOperator: " + nameSpace, dataStream.getType(), stateOperator)
+                        .name(nameSpace).setParallelism(partitioning);
 
         DataStream<Update<V>> updates = mainStream.getSideOutput(updatesTag);
-        return new StateStream<>(replace(mainStream), updates);
+        DataStream<QueryResult> queryResults = mainStream.getSideOutput(stateOperator.queryResultTag);
+
+        queryResults = queryResults
+                .keyBy(queryResult -> queryResult.queryID)
+                .flatMap(new QueryResultMerger(transactionEnvironment.getOnQueryResult(), partitioning))
+                .name("QueryResultMerger");
+
+        // TODO should merge every result to rebuild the multiStateQuery...
+        return new StateStream<>(replace(mainStream), updates, queryResults);
     }
 
     @Override
@@ -139,16 +174,19 @@ public abstract class AbstractTStream<T> implements TStream<T> {
 
     protected static class OpenOutputs<T> {
         public DataStream<Enriched<T>> enrichedDataStream;
-        public DataStream<Integer> watermarks;
+        public SplitStream<Query> queryStream;
         public DataStream<Tuple2<Long, Vote>> tLog;
+        public DataStream<Integer> watermarks;
 
         public OpenOutputs(
                 DataStream<Enriched<T>> enrichedDataStream,
-                DataStream<Integer> watermarks,
-                DataStream<Tuple2<Long, Vote>> tLog) {
+                SplitStream<Query> queryStream,
+                DataStream<Tuple2<Long, Vote>> tLog,
+                DataStream<Integer> watermarks) {
             this.enrichedDataStream = enrichedDataStream;
-            this.watermarks = watermarks;
+            this.queryStream = queryStream;
             this.tLog = tLog;
+            this.watermarks = watermarks;
         }
     }
 }

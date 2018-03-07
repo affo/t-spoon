@@ -7,11 +7,14 @@ import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.api.java.functions.KeySelector;
 import org.apache.flink.api.java.typeutils.runtime.kryo.JavaSerializer;
 import org.apache.flink.streaming.api.datastream.DataStream;
+import org.apache.flink.streaming.api.datastream.SplitStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.util.Preconditions;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -29,6 +32,7 @@ public class TransactionEnvironment {
     private final StreamExecutionEnvironment streamExecutionEnvironment;
     private boolean isDurabilityEnabled;
     private DataStream<MultiStateQuery> queryStream;
+    private QueryResultMerger.OnQueryResult onQueryResult = new QueryResultMerger.NOPOnQueryResult();
     private TwoPCFactory factory;
     private IsolationLevel isolationLevel = PL3; // max level by default
     private Strategy strategy;
@@ -80,6 +84,14 @@ public class TransactionEnvironment {
         Preconditions.checkState(this.queryStream == null, "Cannot enable querying more than once");
 
         this.queryStream = queryStream;
+    }
+
+    public void setOnQueryResult(QueryResultMerger.OnQueryResult onQueryResult) {
+        this.onQueryResult = onQueryResult;
+    }
+
+    public QueryResultMerger.OnQueryResult getOnQueryResult() {
+        return onQueryResult;
     }
 
     public void setVerbose(boolean verbose) {
@@ -183,42 +195,13 @@ public class TransactionEnvironment {
     }
 
     public <T> OpenStream<T> open(DataStream<T> ds) {
-        return open(ds, null);
-    }
-
-    public <T> OpenStream<T> open(DataStream<T> ds, QuerySender.OnQueryResult onQueryResult) {
         AbstractTStream.setTransactionEnvironment(this);
 
         if (queryStream == null) {
             enableStandardQuerying(new NullQuerySupplier());
         }
 
-        // TODO every tGraph should receive queries only for the states it is responsible for!
-        // In this implementation every tGraph receives every query...
-        // NOTE: for the Evaluation it is ok, because we only query on a single tGraph (on a single state)
-        QuerySender querySender;
-        if (onQueryResult == null) {
-            querySender = new QuerySender();
-        } else {
-            querySender = new QuerySender(onQueryResult);
-        }
-
-        OpenStream<T> openStream = factory.open(ds, tGraphId++);
-
-        // It should be (for queries on multiple TGs and outside of this function, in TransactionEnvironment.get()):
-        //      processed = queryStream.flatMap(new QueryProcessor()).select(... byStateName ...)
-        // and later:
-        //      processed.select(... the stateNames of this tGraph ...).connect(watermarks).addSink(querySender)
-        DataStream<Query> queries = openStream.watermarks.connect(queryStream)
-                .flatMap(new QueryProcessor())
-                .name("QueryProcessor");
-        DataStream<QueryResult> results = queries.flatMap(querySender)
-                .name("QuerySender")
-                // half parallelism because every query sender spawns a thread for deferred execution
-                .setParallelism(streamExecutionEnvironment.getParallelism() / 2);
-        openStream.addQueryResults(results);
-
-        return openStream;
+        return factory.open(ds, queryStream, tGraphId++);
     }
 
     public <T> List<DataStream<TransactionResult<T>>> close(TStream<T>... exitPoints) {

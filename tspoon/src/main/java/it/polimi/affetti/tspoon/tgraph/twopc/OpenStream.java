@@ -13,7 +13,6 @@ public class OpenStream<T> {
     public final TStream<T> opened;
     public final DataStream<Integer> watermarks;
     public final DataStream<Tuple2<Long, Vote>> wal;
-    public DataStream<QueryResult> queryResults;
 
     public OpenStream(
             TStream<T> opened,
@@ -22,9 +21,5 @@ public class OpenStream<T> {
         this.opened = opened;
         this.watermarks = watermarks;
         this.wal = wal;
-    }
-
-    public void addQueryResults(DataStream<QueryResult> queryResults) {
-        this.queryResults = queryResults;
     }
 }

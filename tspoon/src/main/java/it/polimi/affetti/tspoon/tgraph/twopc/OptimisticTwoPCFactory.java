@@ -4,15 +4,18 @@ import it.polimi.affetti.tspoon.tgraph.IsolationLevel;
 import it.polimi.affetti.tspoon.tgraph.Metadata;
 import it.polimi.affetti.tspoon.tgraph.OTStream;
 import it.polimi.affetti.tspoon.tgraph.TransactionEnvironment;
+import it.polimi.affetti.tspoon.tgraph.query.MultiStateQuery;
+import it.polimi.affetti.tspoon.tgraph.query.Query;
 import org.apache.flink.streaming.api.datastream.DataStream;
 
 /**
  * Created by affo on 17/07/17.
  */
 public class OptimisticTwoPCFactory implements TwoPCFactory {
+
     @Override
-    public <T> OpenStream<T> open(DataStream<T> ds, int tGraphID) {
-        return OTStream.fromStream(ds, tGraphID);
+    public <T> OpenStream<T> open(DataStream<T> ds, DataStream<MultiStateQuery> queryStream, int tGraphId) {
+        return OTStream.fromStream(ds, queryStream, tGraphId);
     }
 
     @Override

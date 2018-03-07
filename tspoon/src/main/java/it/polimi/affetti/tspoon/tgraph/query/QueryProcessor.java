@@ -13,7 +13,7 @@ public class QueryProcessor implements CoFlatMapFunction<Integer, MultiStateQuer
 
     @Override
     public void flatMap1(Integer watermark, Collector<Query> collector) throws Exception {
-        currentWatermark = watermark;
+        currentWatermark = Math.max(currentWatermark, watermark);
     }
 
     @Override

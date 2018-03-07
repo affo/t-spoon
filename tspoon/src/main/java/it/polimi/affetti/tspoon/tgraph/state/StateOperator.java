@@ -10,20 +10,18 @@ import it.polimi.affetti.tspoon.tgraph.Vote;
 import it.polimi.affetti.tspoon.tgraph.db.Object;
 import it.polimi.affetti.tspoon.tgraph.db.*;
 import it.polimi.affetti.tspoon.tgraph.query.Query;
-import it.polimi.affetti.tspoon.tgraph.query.QueryListener;
 import it.polimi.affetti.tspoon.tgraph.query.QueryResult;
-import it.polimi.affetti.tspoon.tgraph.query.QueryServer;
 import it.polimi.affetti.tspoon.tgraph.twopc.*;
 import org.apache.flink.api.common.accumulators.IntCounter;
+import org.apache.flink.api.java.functions.KeySelector;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.runtime.state.StateInitializationContext;
 import org.apache.flink.runtime.state.StateSnapshotContext;
 import org.apache.flink.streaming.api.operators.AbstractStreamOperator;
-import org.apache.flink.streaming.api.operators.OneInputStreamOperator;
+import org.apache.flink.streaming.api.operators.TwoInputStreamOperator;
 import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
 import org.apache.flink.util.OutputTag;
 
-import java.util.Collections;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -32,14 +30,17 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public abstract class StateOperator<T, V>
         extends AbstractStreamOperator<Enriched<T>>
-        implements OneInputStreamOperator<Enriched<T>, Enriched<T>>,
-        StateOperatorTransactionCloseListener, QueryListener, Object.DeferredReadListener {
+        implements TwoInputStreamOperator<Enriched<T>, Query, Enriched<T>>,
+        StateOperatorTransactionCloseListener, Object.DeferredReadListener {
     protected final int tGraphID;
     private long counter = 0;
     protected final String nameSpace;
     public final OutputTag<Update<V>> updatesTag;
+    public final OutputTag<QueryResult> queryResultTag = new OutputTag<QueryResult>("queryResult") {
+    };
     protected transient Shard<V> shard;
-    protected StateFunction<T, V> stateFunction;
+    protected final StateFunction<T, V> stateFunction;
+    protected final KeySelector<T, String> keySelector;
     protected final TRuntimeContext tRuntimeContext;
     // timestamp -> localId
     private final Map<Integer, Long> localIds;
@@ -54,11 +55,13 @@ public abstract class StateOperator<T, V>
             String nameSpace,
             StateFunction<T, V> stateFunction,
             OutputTag<Update<V>> updatesTag,
+            KeySelector<T, String> ks,
             TRuntimeContext tRuntimeContext) {
         this.tGraphID = tGraphID;
         this.nameSpace = nameSpace;
         this.stateFunction = stateFunction;
         this.updatesTag = updatesTag;
+        this.keySelector = ks;
         this.tRuntimeContext = tRuntimeContext;
 
         this.localIds = new ConcurrentHashMap<>();
@@ -96,15 +99,6 @@ public abstract class StateOperator<T, V>
         if (tRuntimeContext.needWaitOnRead()) {
             getRuntimeContext().addAccumulator("inconsistencies-prevented", inconsistenciesPrevented);
         }
-
-        // Querying
-        // NOTE: we could use `NetUtils.openInPool(...)`, but every task of the StateOperator
-        // would register its nameSpace at the ip:port of its particular queryServer. At this point,
-        // the QueryServer would need to perform a query for the nameSpace at every queryServer...
-        // Would it be better to have multiple servers if they are broadcast at every request?!
-        QueryServer queryServer = NetUtils.openAsSingleton(NetUtils.ServerType.QUERY,
-                () -> new QueryServer(getRuntimeContext()));
-        queryServer.listen(this);
     }
 
     @Override
@@ -117,11 +111,10 @@ public abstract class StateOperator<T, V>
     // --------------------------------------- Transaction Execution and Completion ---------------------------------------
 
     @Override
-    public void processElement(StreamRecord<Enriched<T>> sr) throws Exception {
-        final String key = getCurrentKey().toString();
-
+    public void processElement1(StreamRecord<Enriched<T>> sr) throws Exception {
         T element = sr.getValue().value;
         Metadata metadata = sr.getValue().metadata;
+        final String key = keySelector.getKey(element);
 
         metadata.addCohort(transactionCloser.getServerAddress());
         int timestamp = metadata.timestamp;
@@ -138,6 +131,13 @@ public abstract class StateOperator<T, V>
 
         Transaction<V> transaction = shard.getTransaction(timestamp);
         execute(key, sr.getValue(), transaction);
+    }
+
+    @Override
+    public void processElement2(StreamRecord<Query> streamRecord) throws Exception {
+        Query query = streamRecord.getValue();
+        QueryResult result = shard.runQuery(query);
+        collector.safeCollect(queryResultTag, result);
     }
 
     @Override
@@ -219,18 +219,6 @@ public abstract class StateOperator<T, V>
             Update<V> update = Update.of(transaction.tid, uniqueKey, version);
             record.metadata.addUpdate(uniqueKey, update);
         }
-    }
-
-    // --------------------------------------- Querying ---------------------------------------
-
-    @Override
-    public QueryResult onQuery(Query query) {
-        return shard.runQuery(query);
-    }
-
-    @Override
-    public Iterable<String> getNameSpaces() {
-        return Collections.singleton(nameSpace);
     }
 
     // --------------------------------------- State Recovery ---------------------------------------

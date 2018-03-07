@@ -11,7 +11,6 @@ import it.polimi.affetti.tspoon.tgraph.db.ObjectHandler;
 import it.polimi.affetti.tspoon.tgraph.query.FrequencyQuerySupplier;
 import it.polimi.affetti.tspoon.tgraph.query.PredicateQuery;
 import it.polimi.affetti.tspoon.tgraph.query.QueryResult;
-import it.polimi.affetti.tspoon.tgraph.query.QuerySender;
 import it.polimi.affetti.tspoon.tgraph.state.StateFunction;
 import it.polimi.affetti.tspoon.tgraph.state.StateStream;
 import it.polimi.affetti.tspoon.tgraph.state.Update;
@@ -20,6 +19,7 @@ import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.streaming.api.TimeCharacteristic;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.apache.flink.streaming.api.functions.sink.SinkFunction;
 import org.apache.flink.util.OutputTag;
 
 import java.util.Arrays;
@@ -73,7 +73,7 @@ public class ConsistencyCheck {
                         queryRate));
 
         DataStream<Transfer> transfers = env.addSource(transferSource).setParallelism(1);
-        OpenStream<Transfer> open = tEnv.open(transfers, new CheckOnQueryResult(startAmount));
+        OpenStream<Transfer> open = tEnv.open(transfers);
 
         TStream<Movement> halves = open.opened.flatMap(
                 (FlatMapFunction<Transfer, Movement>) t -> Arrays.asList(t.getDeposit(), t.getWithdrawal()));
@@ -105,6 +105,7 @@ public class ConsistencyCheck {
                     }
                 }, partitioning);
 
+        balances.queryResults.addSink(new CheckOnQueryResult(startAmount));
 
         tEnv.close(balances.leftUnchanged);
 
@@ -116,7 +117,7 @@ public class ConsistencyCheck {
         env.execute("Consistency check at " + strategy + " - " + isolationLevel);
     }
 
-    private static class CheckOnQueryResult implements QuerySender.OnQueryResult {
+    private static class CheckOnQueryResult implements SinkFunction<QueryResult> {
         private final double startAmount;
 
         public CheckOnQueryResult(double startAmount) {
@@ -124,7 +125,7 @@ public class ConsistencyCheck {
         }
 
         @Override
-        public void accept(QueryResult queryResult) {
+        public void invoke(QueryResult queryResult) {
             final double[] totalAmount = {0};
             final int[] size = {0};
             queryResult.getResult().forEachRemaining(

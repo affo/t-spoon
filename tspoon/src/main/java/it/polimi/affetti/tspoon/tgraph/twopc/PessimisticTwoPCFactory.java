@@ -3,6 +3,7 @@ package it.polimi.affetti.tspoon.tgraph.twopc;
 import it.polimi.affetti.tspoon.tgraph.Metadata;
 import it.polimi.affetti.tspoon.tgraph.PTStream;
 import it.polimi.affetti.tspoon.tgraph.TransactionEnvironment;
+import it.polimi.affetti.tspoon.tgraph.query.MultiStateQuery;
 import org.apache.flink.streaming.api.datastream.DataStream;
 
 /**
@@ -10,8 +11,8 @@ import org.apache.flink.streaming.api.datastream.DataStream;
  */
 public class PessimisticTwoPCFactory implements TwoPCFactory {
     @Override
-    public <T> OpenStream<T> open(DataStream<T> ds, int tGraphID) {
-        return PTStream.fromStream(ds, tGraphID);
+    public <T> OpenStream<T> open(DataStream<T> ds, DataStream<MultiStateQuery> queryStream, int tGraphID) {
+        return PTStream.fromStream(ds, queryStream, tGraphID);
     }
 
     @Override

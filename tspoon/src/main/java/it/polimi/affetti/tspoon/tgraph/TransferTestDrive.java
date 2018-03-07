@@ -12,8 +12,7 @@ import it.polimi.affetti.tspoon.tgraph.backed.TransferSource;
 import it.polimi.affetti.tspoon.tgraph.db.ObjectHandler;
 import it.polimi.affetti.tspoon.tgraph.query.FrequencyQuerySupplier;
 import it.polimi.affetti.tspoon.tgraph.query.PredicateQuery;
-import it.polimi.affetti.tspoon.tgraph.query.QueryResult;
-import it.polimi.affetti.tspoon.tgraph.query.QuerySender;
+import it.polimi.affetti.tspoon.tgraph.query.QueryResultMerger;
 import it.polimi.affetti.tspoon.tgraph.state.StateFunction;
 import it.polimi.affetti.tspoon.tgraph.state.StateStream;
 import it.polimi.affetti.tspoon.tgraph.state.Update;
@@ -23,12 +22,9 @@ import org.apache.flink.api.common.typeinfo.TypeHint;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
-import org.apache.flink.streaming.api.functions.sink.SinkFunction;
 import org.apache.flink.util.OutputTag;
 
 import java.util.Arrays;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.stream.IntStream;
 
 /**
@@ -50,7 +46,7 @@ public class TransferTestDrive {
         final boolean noContention = false;
         final boolean synchronous = false;
         final boolean durable = true;
-        final boolean queryOn = false;
+        final boolean queryOn = true;
 
         final boolean printPlan = false;
 
@@ -87,6 +83,16 @@ public class TransferTestDrive {
             transferSource = new TransferSource(numberOfElements, 100000, startAmount);
         }
 
+        if (queryOn) {
+            tEnv.enableStandardQuerying(
+                    new FrequencyQuerySupplier(
+                            queryID -> new PredicateQuery<>(
+                                    "balances", queryID, new SelectLessThan(50.0)
+                            ),
+                            1));
+            tEnv.setOnQueryResult(new QueryResultMerger.PrintQueryResult());
+        }
+
         DataStream<Transfer> transfers = env.addSource(transferSource).setParallelism(1);
 
         //transfers.print();
@@ -105,19 +111,7 @@ public class TransferTestDrive {
                     }
                 });
 
-        OpenStream<Transfer> open;
-        // we can check consistency only at level PL3 or PL4
-        if (queryOn && (isolationLevel == IsolationLevel.PL3 || isolationLevel == IsolationLevel.PL4)) {
-            open = tEnv.open(transfers, new ConsistencyCheck(startAmount));
-            // select * from balances
-            tEnv.enableStandardQuerying(
-                    new FrequencyQuerySupplier(
-                            queryID -> new PredicateQuery<>("balances", queryID, new PredicateQuery.SelectAll<>()),
-                            1));
-
-        } else {
-            open = tEnv.open(transfers);
-        }
+        OpenStream<Transfer> open = tEnv.open(transfers);
 
         TStream<Movement> halves = open.opened.flatMap(
                 (FlatMapFunction<Transfer, Movement>) t -> Arrays.asList(t.getDeposit(), t.getWithdrawal()));
@@ -167,13 +161,6 @@ public class TransferTestDrive {
                 })
                 .returns(new TypeHint<TransactionResult<Movement>>() {
                 });
-        //balances.updates.addSink(new MaterializedViewChecker(startAmount, false)).setParallelism(1);
-
-        /*
-        TGraphOutput<Movement, Double> tGraphOutput = new TGraphOutput<>(open.watermarks, balances.updates, output);
-        ResultUtils.addAccumulator(tGraphOutput.watermarks, "watermarks");
-        ResultUtils.addAccumulator(tGraphOutput.updates, "updates");
-        */
 
         open.wal
                 .filter(entry -> entry.f1 != Vote.REPLAY)
@@ -203,69 +190,16 @@ public class TransferTestDrive {
         report.writeToFile();
     }
 
-    /**
-     * Materializes the view using the updates and checks that no money has been created nor
-     * destroyed in consistent cuts on the update.
-     */
-    private static class MaterializedViewChecker implements SinkFunction<Update<Double>> {
-        private final double startAmount;
-        private final Map<String, Double> balances = new HashMap<>();
-        private final Map<Integer, String> incomplete = new HashMap<>();
-        private final boolean verbose;
+    private static class SelectLessThan implements PredicateQuery.QueryPredicate<Double> {
+        private final double threshold;
 
-        public MaterializedViewChecker(double startAmount, boolean verbose) {
-            this.startAmount = startAmount;
-            this.verbose = verbose;
+        public SelectLessThan(double threshold) {
+            this.threshold = threshold;
         }
 
         @Override
-        public void invoke(Update<Double> update) throws Exception {
-            balances.put(update.f1, update.f2);
-
-            if (incomplete.containsKey(update.f0)) {
-                incomplete.remove(update.f0);
-            } else {
-                incomplete.put(update.f0, update.f1);
-            }
-
-            // check on consistent cut
-            double total = balances.entrySet().stream()
-                    .filter(e -> !incomplete.containsValue(e.getKey())).mapToDouble(Map.Entry::getValue).sum();
-            if (total % startAmount != 0) {
-                throw new RuntimeException(
-                        "Invariant violated on transaction " + update.f0 + ": " + total);
-            }
-
-            if (verbose) {
-                System.out.println("Check OK: " + total);
-            }
-        }
-    }
-
-    private static class ConsistencyCheck implements QuerySender.OnQueryResult {
-        private final double startAmount;
-
-        public ConsistencyCheck(double startAmount) {
-            this.startAmount = startAmount;
-        }
-
-        @Override
-        public void accept(QueryResult queryResult) {
-            final double[] totalAmount = {0};
-            final int[] size = {0};
-            queryResult.getResult().forEachRemaining(
-                    entry -> {
-                        totalAmount[0] += (Double) entry.getValue();
-                        size[0]++;
-                    }
-            );
-
-            if (totalAmount[0] % startAmount != 0) {
-                throw new RuntimeException(
-                        "Invariant violated: " + totalAmount[0]);
-            } else {
-                System.out.println("Invariant verified on " + size[0] + " keys");
-            }
+        public boolean test(Double balance) {
+            return balance < threshold;
         }
     }
 }

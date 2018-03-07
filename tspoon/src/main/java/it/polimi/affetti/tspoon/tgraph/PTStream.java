@@ -1,10 +1,13 @@
 package it.polimi.affetti.tspoon.tgraph;
 
 import it.polimi.affetti.tspoon.tgraph.functions.Scheduler;
+import it.polimi.affetti.tspoon.tgraph.query.MultiStateQuery;
+import it.polimi.affetti.tspoon.tgraph.query.Query;
 import it.polimi.affetti.tspoon.tgraph.state.*;
 import it.polimi.affetti.tspoon.tgraph.twopc.OpenStream;
 import org.apache.flink.api.java.functions.KeySelector;
 import org.apache.flink.streaming.api.datastream.DataStream;
+import org.apache.flink.streaming.api.datastream.SplitStream;
 import org.apache.flink.util.OutputTag;
 
 /**
@@ -13,28 +16,30 @@ import org.apache.flink.util.OutputTag;
 public class PTStream<T> extends AbstractTStream<T> {
     private boolean alreadyScheduled = false;
 
-    public PTStream(DataStream<Enriched<T>> enriched, int tGraphID) {
-        super(enriched, tGraphID);
+    public PTStream(DataStream<Enriched<T>> enriched, SplitStream<Query> queryStream, int tGraphID) {
+        super(enriched, queryStream, tGraphID);
     }
 
-    public static <T> OpenStream<T> fromStream(DataStream<T> ds, int tGraphID) {
-        OpenOutputs<T> outputs = AbstractTStream.open(ds, tGraphID);
+
+    public static <T> OpenStream<T> fromStream(
+            DataStream<T> ds, DataStream<MultiStateQuery> queryStream, int tGraphID) {
+        OpenOutputs<T> outputs = AbstractTStream.open(ds, queryStream, tGraphID);
         return new OpenStream<>(
-                new PTStream<>(outputs.enrichedDataStream, tGraphID),
+                new PTStream<>(outputs.enrichedDataStream, outputs.queryStream, tGraphID),
                 outputs.watermarks, outputs.tLog);
     }
 
     @Override
     protected <U> PTStream<U> replace(DataStream<Enriched<U>> newStream) {
-        return new PTStream<>(newStream, tGraphID);
+        return new PTStream<>(newStream, queryStream, tGraphID);
     }
 
     @Override
     protected <V> StateOperator<T, V> getStateOperator(
             String nameSpace, OutputTag<Update<V>> updatesTag,
-            StateFunction<T, V> stateFunction) {
+            StateFunction<T, V> stateFunction, KeySelector<T, String> ks) {
         return new PessimisticStateOperator<>(
-                tGraphID, nameSpace, stateFunction, updatesTag,
+                tGraphID, nameSpace, stateFunction, updatesTag, ks,
                 getTransactionEnvironment().createTransactionalRuntimeContext());
     }
 
