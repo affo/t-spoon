@@ -1,12 +1,14 @@
 package it.polimi.affetti.tspoon.tgraph.query;
 
+import it.polimi.affetti.tspoon.common.PartitionOrBcastPartitioner;
+
 import java.io.Serializable;
 import java.util.function.Predicate;
 
 /**
  * Created by affo on 02/08/17.
  */
-public class PredicateQuery<T> extends Query {
+public class PredicateQuery<T> extends Query implements PartitionOrBcastPartitioner.Broadcastable {
     public final QueryPredicate<T> predicate;
 
     public PredicateQuery(String nameSpace, QueryID queryID) {

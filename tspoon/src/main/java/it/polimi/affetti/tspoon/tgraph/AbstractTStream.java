@@ -1,6 +1,7 @@
 package it.polimi.affetti.tspoon.tgraph;
 
 import it.polimi.affetti.tspoon.common.FlatMapFunction;
+import it.polimi.affetti.tspoon.common.PartitionOrBcastPartitioner;
 import it.polimi.affetti.tspoon.common.TWindowFunction;
 import it.polimi.affetti.tspoon.tgraph.functions.*;
 import it.polimi.affetti.tspoon.tgraph.query.*;
@@ -149,7 +150,8 @@ public abstract class AbstractTStream<T> implements TStream<T> {
         StateOperator<T, V> stateOperator = getStateOperator(nameSpace, updatesTag, stateFunction, ks);
         // broadcasting queries to every replica
         DataStream<Query> selected = queryStream.select(nameSpace);
-        ConnectedStreams<Enriched<T>, Query> connected = dataStream.connect(selected.broadcast());
+        selected = PartitionOrBcastPartitioner.apply(selected);
+        ConnectedStreams<Enriched<T>, Query> connected = dataStream.connect(selected);
         SingleOutputStreamOperator<Enriched<T>> mainStream =
                 connected.transform(
                         "StateOperator: " + nameSpace, dataStream.getType(), stateOperator)
@@ -160,7 +162,7 @@ public abstract class AbstractTStream<T> implements TStream<T> {
 
         queryResults = queryResults
                 .keyBy(queryResult -> queryResult.queryID)
-                .flatMap(new QueryResultMerger(transactionEnvironment.getOnQueryResult(), partitioning))
+                .flatMap(new QueryResultMerger(transactionEnvironment.getOnQueryResult()))
                 .name("QueryResultMerger");
 
         // TODO should merge every result to rebuild the multiStateQuery...

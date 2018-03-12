@@ -13,10 +13,12 @@ import java.util.Map;
 public class QueryResult implements Serializable, UniquelyRepresentableForTracking {
     public final Map<String, Object> result;
     public final QueryID queryID;
+    public final int batchSize;
 
-    public QueryResult(QueryID queryID) {
+    public QueryResult(QueryID queryID, int batchSize) {
         this.queryID = queryID;
         this.result = new HashMap<>();
+        this.batchSize = batchSize;
     }
 
     public void add(String key, Object partialResult) {

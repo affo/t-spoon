@@ -10,6 +10,7 @@ import java.util.Random;
  */
 public class Transfer extends Tuple4<TransferID, String, String, Double> {
     private static Random random = RandomProvider.get();
+    public static final String KEY_PREFIX = "a";
 
     public Transfer() {
     }
@@ -31,10 +32,10 @@ public class Transfer extends Tuple4<TransferID, String, String, Double> {
     }
 
     public static Transfer generateTransfer(TransferID id, int noAccounts, double startAmount, Random random) {
-        String from = "a" + random.nextInt(noAccounts);
+        String from = KEY_PREFIX + random.nextInt(noAccounts);
         String to;
         do {
-            to = "a" + random.nextInt(noAccounts);
+            to = KEY_PREFIX + random.nextInt(noAccounts);
         } while (from.equals(to));
         Double amount = Math.ceil(random.nextDouble() * startAmount);
 

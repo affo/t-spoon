@@ -1,17 +1,16 @@
 package it.polimi.affetti.tspoon.tgraph.db;
 
-import it.polimi.affetti.tspoon.common.RandomProvider;
 import it.polimi.affetti.tspoon.tgraph.Metadata;
-import it.polimi.affetti.tspoon.tgraph.query.*;
+import it.polimi.affetti.tspoon.tgraph.query.PredicateQuery;
+import it.polimi.affetti.tspoon.tgraph.query.Query;
+import it.polimi.affetti.tspoon.tgraph.query.QueryResult;
+import it.polimi.affetti.tspoon.tgraph.query.QueryVisitor;
 import org.apache.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.IntStream;
-import java.util.stream.Stream;
 
 /**
  * Created by affo on 19/12/17.
@@ -58,6 +57,7 @@ public class Shard<V> implements
     public void setDeferredReadsListener(Object.DeferredReadListener listener) {
         this.deferredReadListener = listener;
     }
+
     // --------------------------------------- Transaction Execution and Completion ---------------------------------------
 
     protected synchronized Object<V> getObject(String key) {
@@ -110,58 +110,33 @@ public class Shard<V> implements
 
     // --------------------------------------- Querying ---------------------------------------
 
-    private V getObject(String key, int wm) {
-        V object;
-        if (externalReadCommitted) {
-            object = getObject(key).readCommittedBefore(wm).object;
-        } else {
-            object = getObject(key).getLastAvailableVersion().object;
+    private V queryGetsObject(String key, int wm) {
+        synchronized (state) {
+            Object<V> object = state.get(key);
+            if (object == null) {
+                return null;
+            }
+
+            if (externalReadCommitted) {
+                return object.readCommittedBefore(wm).object;
+            }
+
+            return object.getLastAvailableVersion().object;
         }
-        return object;
     }
 
     private void queryState(Query query) {
         QueryResult queryResult = query.getResult();
         for (String key : query.keys) {
-            V object = getObject(key, query.watermark);
+            V object = queryGetsObject(key, query.watermark);
             if (object != null) {
                 queryResult.add(key, object);
             }
         }
     }
 
-    // randomizer to build queries
-    private Random random = RandomProvider.get();
-
     @Override
     public void visit(Query query) {
-        queryState(query);
-    }
-
-    @Override
-    public void visit(RandomQuery query) {
-        int noKeys = state.size();
-        int noKeysToQuery = query.size / numberOfShards;
-
-        if (shardNumber == 0) {
-            // if you are the first shard, get the remaining keys
-            noKeysToQuery += state.size() % numberOfShards;
-        }
-
-        if (state.isEmpty()) {
-            return;
-        }
-
-        Stream<Integer> indexes;
-        if (noKeys > noKeysToQuery) {
-            indexes = random.ints(0, noKeys).distinct().limit(noKeysToQuery)
-                    .boxed();
-        } else {
-            // select *
-            indexes = IntStream.range(0, keySpaceIndex.size()).boxed();
-        }
-
-        indexes.forEach(index -> query.addKey(keySpaceIndex.get(index)));
         queryState(query);
     }
 
@@ -170,7 +145,7 @@ public class Shard<V> implements
         QueryResult result = query.getResult();
 
         for (String key : state.keySet()) {
-            V object = getObject(key, query.watermark);
+            V object = queryGetsObject(key, query.watermark);
             // hope that the predicate is coherent with the state
             try {
                 if (query.test((T) object)) {

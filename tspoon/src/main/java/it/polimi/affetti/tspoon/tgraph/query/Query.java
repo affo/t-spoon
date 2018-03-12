@@ -1,5 +1,6 @@
 package it.polimi.affetti.tspoon.tgraph.query;
 
+import it.polimi.affetti.tspoon.common.PartitionOrBcastPartitioner;
 import it.polimi.affetti.tspoon.evaluation.UniquelyRepresentableForTracking;
 
 import java.io.Serializable;
@@ -9,11 +10,13 @@ import java.util.Set;
 /**
  * Created by affo on 02/08/17.
  */
-public class Query implements Serializable, UniquelyRepresentableForTracking {
+public class Query implements Serializable, UniquelyRepresentableForTracking,
+        PartitionOrBcastPartitioner.Partitionable<String> {
     public final QueryID queryID;
     public final String nameSpace;
     public final Set<String> keys = new HashSet<>();
     public int watermark;
+    public int numberOfPartitions;
     public QueryResult result;
 
     public Query(String nameSpace, QueryID queryID) {
@@ -21,8 +24,14 @@ public class Query implements Serializable, UniquelyRepresentableForTracking {
         this.nameSpace = nameSpace;
     }
 
+    @Override
     public Set<String> getKeys() {
         return keys;
+    }
+
+    @Override
+    public void setNumberOfPartitions(int n) {
+        this.numberOfPartitions = n;
     }
 
     public String getNameSpace() {
@@ -31,7 +40,7 @@ public class Query implements Serializable, UniquelyRepresentableForTracking {
 
     public QueryResult getResult() {
         if (result == null) {
-            result = new QueryResult(getQueryID());
+            result = new QueryResult(getQueryID(), numberOfPartitions);
         }
         return result;
     }

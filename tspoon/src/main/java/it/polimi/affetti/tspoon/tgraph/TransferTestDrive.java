@@ -10,9 +10,7 @@ import it.polimi.affetti.tspoon.tgraph.backed.Transfer;
 import it.polimi.affetti.tspoon.tgraph.backed.TransferID;
 import it.polimi.affetti.tspoon.tgraph.backed.TransferSource;
 import it.polimi.affetti.tspoon.tgraph.db.ObjectHandler;
-import it.polimi.affetti.tspoon.tgraph.query.FrequencyQuerySupplier;
-import it.polimi.affetti.tspoon.tgraph.query.PredicateQuery;
-import it.polimi.affetti.tspoon.tgraph.query.QueryResultMerger;
+import it.polimi.affetti.tspoon.tgraph.query.*;
 import it.polimi.affetti.tspoon.tgraph.state.StateFunction;
 import it.polimi.affetti.tspoon.tgraph.state.StateStream;
 import it.polimi.affetti.tspoon.tgraph.state.Update;
@@ -84,12 +82,18 @@ public class TransferTestDrive {
         }
 
         if (queryOn) {
+            QuerySupplier predicateQuerySupplier = queryID -> new PredicateQuery<>(
+                    "balances", queryID, new SelectLessThan(50.0)
+            );
+
+            QuerySupplier singleKeyQuerySupplier = queryID -> {
+                Query q = new Query("balances", queryID);
+                q.addKey("a42");
+                return q;
+            };
+
             tEnv.enableStandardQuerying(
-                    new FrequencyQuerySupplier(
-                            queryID -> new PredicateQuery<>(
-                                    "balances", queryID, new SelectLessThan(50.0)
-                            ),
-                            1));
+                    new FrequencyQuerySupplier(singleKeyQuerySupplier,1));
             tEnv.setOnQueryResult(new QueryResultMerger.PrintQueryResult());
         }
 

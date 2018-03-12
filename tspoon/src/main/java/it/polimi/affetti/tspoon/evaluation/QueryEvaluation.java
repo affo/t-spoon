@@ -10,7 +10,9 @@ import it.polimi.affetti.tspoon.tgraph.backed.Movement;
 import it.polimi.affetti.tspoon.tgraph.backed.Transfer;
 import it.polimi.affetti.tspoon.tgraph.backed.TransferSource;
 import it.polimi.affetti.tspoon.tgraph.db.ObjectHandler;
-import it.polimi.affetti.tspoon.tgraph.query.*;
+import it.polimi.affetti.tspoon.tgraph.query.MultiStateQuery;
+import it.polimi.affetti.tspoon.tgraph.query.Query;
+import it.polimi.affetti.tspoon.tgraph.query.QueryID;
 import it.polimi.affetti.tspoon.tgraph.state.StateFunction;
 import it.polimi.affetti.tspoon.tgraph.state.StateStream;
 import it.polimi.affetti.tspoon.tgraph.state.Update;
@@ -45,10 +47,13 @@ public class QueryEvaluation {
         final boolean synchronous = parameters.getBoolean("synchronous", false);
         final int isolationLevelNumber = parameters.getInt("isolationLevel", 3);
 
-        final double queryPerc = parameters.getDouble("queryPerc", 0.01);
+        final int averageQuerySize = parameters.getInt("avg", 1);
+        final int stdDevQuerySize = parameters.getInt("stddev", 0);
         final int batchSize = parameters.getInt("batchSize", 10000);
         final int resolution = parameters.getInt("resolution", 100);
         final int startInputRate = parameters.getInt("startInputRate", 100);
+
+        assert averageQuerySize < keySpaceSize;
 
         NetUtils.launchJobControlServer(parameters);
         env.getConfig().setGlobalJobParameters(parameters);
@@ -69,12 +74,9 @@ public class QueryEvaluation {
         TransferSource transferSource = new TransferSource(Integer.MAX_VALUE, keySpaceSize, startAmount);
         transferSource.setMicroSleep(waitPeriodMicro);
 
-        int noKeys = (int) (keySpaceSize * queryPerc);
-        QuerySupplier querySupplier = queryID ->
-                new RandomQuery(nameSpace, queryID, noKeys);
-
         TunableSource.TunableQuerySource tunableQuerySource = new TunableSource.TunableQuerySource(
-                startInputRate, resolution, batchSize, QUERY_TRACKING_SERVER_NAME, querySupplier);
+                startInputRate, resolution, batchSize, QUERY_TRACKING_SERVER_NAME, nameSpace,
+                keySpaceSize, averageQuerySize, stdDevQuerySize);
         DataStream<Query> queries = env.addSource(tunableQuerySource).name("TunableQuerySource");
         DataStream<MultiStateQuery> msQueries = queries.map(q -> {
             MultiStateQuery multiStateQuery = new MultiStateQuery();

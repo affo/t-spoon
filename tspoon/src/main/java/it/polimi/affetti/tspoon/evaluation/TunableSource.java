@@ -9,6 +9,7 @@ import it.polimi.affetti.tspoon.tgraph.backed.TransferID;
 import it.polimi.affetti.tspoon.tgraph.query.Query;
 import it.polimi.affetti.tspoon.tgraph.query.QueryID;
 import it.polimi.affetti.tspoon.tgraph.query.QuerySupplier;
+import it.polimi.affetti.tspoon.tgraph.query.RandomQuerySupplier;
 import org.apache.flink.api.common.functions.RichMapFunction;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.configuration.Configuration;
@@ -179,17 +180,28 @@ public abstract class TunableSource<T extends UniquelyRepresentableForTracking> 
     }
 
     public static class TunableQuerySource extends TunableSource<Query> {
-        private final QuerySupplier supplier;
+        private transient QuerySupplier supplier;
+        private final int keyspaceSize, averageQuerySize;
+        private final String namespace;
+        private int stdDevQuerySize;
 
         public TunableQuerySource(
-                int baseRate, int resolution, int batchSize, String trackingServerName,
-                QuerySupplier querySupplier) {
+                int baseRate, int resolution, int batchSize, String trackingServerName, String namespace,
+                int keyspaceSize, int averageQuerySize, int stdDevQuerySize) {
             super(baseRate, resolution, batchSize, trackingServerName);
-            this.supplier = querySupplier;
+            this.keyspaceSize = keyspaceSize;
+            this.averageQuerySize = averageQuerySize;
+            this.stdDevQuerySize = stdDevQuerySize;
+            this.namespace = namespace;
         }
 
         @Override
         protected Query getNext(int count) {
+            if (supplier == null) {
+                supplier = new RandomQuerySupplier(
+                        namespace, taskNumber, Transfer.KEY_PREFIX, keyspaceSize, averageQuerySize, stdDevQuerySize);
+            }
+
             return supplier.getQuery(new QueryID(taskNumber, (long) count));
         }
     }
