@@ -109,12 +109,20 @@ def get_VSstrategy(aggr):
 # NOTE: For queries we should compare only isolation levels at a fixed strategy
 def get_curves(data):
     def merge_tags(row):
-        tag = '-'.join([row.strategy, row.isolationLevel])
-        tag += '-' + (row.tag1 if row.tag2 is None else '-'.join([row.tag1, row.tag2]))
+        strategy = '-'.join([row.strategy, row.isolationLevel])
+        var = row['var']
+
+        if row.tag1 == 'query' and row.tag2 == 'fixed':
+            var = strategy # display variation in strategy
+            tag = 'query-fixed'
+        else:
+            tag = strategy
+            tag += '-' + (row.tag1 if row.tag2 is None else '-'.join([row.tag1, row.tag2]))
+
         s = pd.Series({
             'inRate': row.inRate,
             'value': row.value,
-            'var': row['var'],
+            'var': var,
             'tag': tag,
         })
         return s
@@ -139,6 +147,7 @@ if __name__ == '__main__':
     out_fname = os.path.join(folder_name, 'parsed')
     tp = pd.read_json(out_fname + '_throughput.json')
     lat = pd.read_json(out_fname + '_latency.json')
+    lat_des = pd.read_json(out_fname + '_latency_description.json')
     aggr = pd.read_json(out_fname + '_aggregates.json')
 
     def savefig(label, figure):
@@ -148,10 +157,11 @@ if __name__ == '__main__':
     # -------- 1tgVSntg --------
     def plot_1tgVSntg(ax, data):
         for key, group in data.groupby('tag2'):
+            group = group.sort_values('var')
             ax = group.plot(ax=ax, kind='line', x='var', y='value', label=key)
             ax.set_xlabel('')
 
-    frames = get_1tgVSntg_frames(aggr)
+    frames = get_1tgVSntg_frames(aggr[aggr.tag1 != 'query'])
     for k, v in frames.iteritems():
         for sk, sv in v.iteritems():
             label, fig = plot_figure(k + '-' + sk, sv, plot_1tgVSntg, 4)
@@ -165,7 +175,7 @@ if __name__ == '__main__':
             ax = group.plot(ax=ax, kind='line', x='var', y='value', label=key)
             ax.set_xlabel('')
 
-    frames = get_VSstrategy(aggr)
+    frames = get_VSstrategy(aggr[aggr.tag1 != 'query'])
     for k, v in frames.iteritems():
         label, fig = plot_figure(k, v, plot_VSstrategy, 3)
         savefig(label, fig)

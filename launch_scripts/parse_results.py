@@ -31,24 +31,49 @@ class ExperimentResult(object):
             self.tp_max = self._results['max-throughput-and-latency']['max-throughput']
             self.latency_at_tp_max = self._results['max-throughput-and-latency']['latency-at-max-throughput']
 
-            # find the stability point
-            batch_number = -1
-            for point in self.latency_curve:
-                latency = point['value']
-                if latency > self.LATENCY_STABILITY_THRESHOLD:
-                    break;
+            lat_df = pd.DataFrame(self.latency_curve)
+            lat_df = lat_df[lat_df.actualRate > 0].reset_index(drop=True)
+            tp_df = pd.DataFrame(self.throughput_curve)
+            tp_df = tp_df[tp_df.actualRate > 0].reset_index(drop=True)
 
-                batch_number += 1
-
-            self.tp_stable = self.throughput_curve[batch_number]['value']
-
-            df = pd.DataFrame(self.latency_curve)
-            self.latency_at_tp_stable = \
-                df[df.value <= self.LATENCY_STABILITY_THRESHOLD]['value'].mean()
+            tp_stable_index, self.tp_stable = self._get_tp_stable(tp_df, 5, 0.1)
+            self.latency_at_tp_stable_description = lat_df.head(tp_stable_index + 1)['value'].describe([0.25, 0.5, 0.75, 0.9])
+            self.latency_at_tp_stable = self.latency_at_tp_stable_description['50%']
         except Exception as ex:
             self.valid = False
             self.problems = ['Malformed results: ' + str(ex)]
 
+    def _get_tp_stable(self, tp_curve_df, w, t):
+        map_fn = lambda row: float(row.actualRate - row.value) / row.actualRate
+        error = tp_curve_df.apply(map_fn, axis=1)
+
+        index = -1
+        for i in error.index:
+            next_w = error.loc[i:i+w] # the next w rows
+            val = next_w.mean()
+            if val > t:
+                index = i
+                break
+
+        # if the condition wasn't met, then, we report the last one
+        if index == -1:
+            index = len(error) - 1
+
+        return index, tp_curve_df.loc[index,:].value
+
+    def _get_lat_stable(self, lat_curve_df, w, t):
+        index = 0
+        prev_window_mean = -1
+        for i in lat_curve_df.index:
+            window = lat_curve_df.loc[i:i+w,"value"] # the next w rows
+            val = window.mean()
+            error = float(val - prev_window_mean) / prev_window_mean
+            if error > t:
+                index = i
+                break
+            prev_window_mean = val
+
+        return index, lat_curve_df.loc[index,:].value
 
     def _check_result(self, result):
         reasons = []
@@ -79,19 +104,21 @@ class ExperimentResult(object):
 
         if 'query' in label:
             experiment_type = 'query'
-            x = config['inputRate']
+            # TODO this should change with new query experiments...
+            if not '1000' in label:
+                x = float(config['queryPerc'])
 
         if 'keyspace' in label:
             experiment_type = 'ks'
-            x = config['ks']
+            x = int(config['ks'])
 
         if experiment_type is None:
             if '1tg' in label:
                 experiment_type = '1tg'
-                x = config['noStates']
+                x = int(config['noStates'])
             else:
                 experiment_type = 'ntg'
-                x = config['noTG']
+                x = int(config['noTG'])
 
             series_or_parallel = 'series' if config['series'] == 'true' else 'parallel'
 
@@ -100,7 +127,7 @@ class ExperimentResult(object):
             strategy=strategy,
             isolation_level=isolation_level,
             experiment_type=experiment_type,
-            x=int(x)
+            x=x
         )
 
         if series_or_parallel:
@@ -131,9 +158,14 @@ def load_results(folder_name):
         'value', 'strategy', 'isolationLevel', 'var',
         'tag1', 'tag2', 'tag3'
     ]
+    lat_des_columns = [
+        'count', 'mean', 'std', 'min', '25%', '50%', '75%', '90%', 'max',
+        'strategy', 'isolationLevel', 'var', 'tag1', 'tag2',
+    ]
     throughput_df = []
     latency_df = []
     aggregates_df = []
+    latency_description_df = []
     problems = []
     number_of_experiments = 0
 
@@ -144,6 +176,9 @@ def load_results(folder_name):
         if tag1 not in ('query', 'ks'):
             tag2 = str(tag1)
             tag1 = result.series_or_parallel
+
+        if tag1 == 'query' and param is None:
+            tag2 = 'fixed'
 
         return [
             result.strategy,
@@ -157,6 +192,7 @@ def load_results(folder_name):
         aggregates_df.append([result.latency_at_tp_stable] + tags + ['lat_stable'])
         aggregates_df.append([result.tp_max] + tags + ['tp_max'])
         aggregates_df.append([result.tp_stable] + tags + ['tp_stable'])
+        latency_description_df.append(list(result.latency_at_tp_stable_description) + tags)
 
         mappings = [
             (result.throughput_curve, throughput_df),
@@ -187,6 +223,7 @@ def load_results(folder_name):
                     result = json.load(fp)
 
                 parsed = ExperimentResult(result)
+
                 if parsed.problems != None:
                     problems.append(dict(label=fname, reasons=parsed.problems))
 
@@ -199,7 +236,8 @@ def load_results(folder_name):
     tp = pd.DataFrame(throughput_df, columns=curves_columns)
     lat = pd.DataFrame(latency_df, columns=curves_columns)
     aggr = pd.DataFrame(aggregates_df, columns=aggregates_columns)
-    return tp, lat, aggr, problems
+    lat_des = pd.DataFrame(latency_description_df, columns=lat_des_columns)
+    return tp, lat, aggr, lat_des, problems
 
 
 
@@ -211,13 +249,14 @@ if __name__ == '__main__':
 
     folder_name = sys.argv[1]
 
-    tp, lat, aggr, problems = load_results(folder_name)
+    tp, lat, aggr, lat_des, problems = load_results(folder_name)
 
     out_fname = os.path.join(folder_name, 'parsed')
     suffix = lambda s: '{}_{}.json'.format(out_fname, s)
 
     tp.to_json(suffix('throughput'))
     lat.to_json(suffix('latency'))
+    lat_des.to_json(suffix('latency_description'))
     aggr.to_json(suffix('aggregates'))
     with open(suffix('problems'), 'w') as fp:
         json.dump(problems, fp, indent=4, sort_keys=True)
