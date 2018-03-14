@@ -64,7 +64,9 @@ public class BatchCompletionChecker {
         public void ackNode(BatchID batchID) {
             Iterator<Tuple2<Integer, Integer>> iterator = batchID.iterator();
             iterator.next(); // discard the first one
-            ackNodeRecursive(iterator);
+            if (iterator.hasNext()) {
+                ackNodeRecursive(iterator);
+            }
         }
 
         private boolean ackNodeRecursive(Iterator<Tuple2<Integer, Integer>> iterator) {
@@ -93,6 +95,7 @@ public class BatchCompletionChecker {
 
 
         boolean isComplete() {
+            // if array is empty this is true
             return IntStream.range(0, childrenCompleteness.length)
                     .mapToObj(i -> childrenCompleteness[i])
                     .allMatch(el -> el);
