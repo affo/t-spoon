@@ -47,6 +47,11 @@ public class PartitionOrBcastPartitioner<T extends PartitionOrBcastPartitioner.P
     }
 
     @Override
+    public String toString() {
+        return "PartitionOrBcast";
+    }
+
+    @Override
     @SuppressWarnings("unchecked")
     public int[] selectChannels(SerializationDelegate<StreamRecord<T>> sr, int numberOfOutputs) {
         updateArrays(numberOfOutputs);

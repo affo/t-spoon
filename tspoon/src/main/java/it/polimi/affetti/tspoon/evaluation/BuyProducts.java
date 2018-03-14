@@ -137,7 +137,7 @@ public class BuyProducts {
 
                         System.out.printf(">>> COMMITS: %d, ABORTS: %d\n", commits, aborts);
                     }
-                });
+                }).name("Transaction STATS");
 
         DataStream<Purchase> successfulPurchases = transactionResults.map(tr -> tr.f2).returns(Purchase.class);
 
@@ -152,7 +152,7 @@ public class BuyProducts {
                     protected Product fromPurchase(Purchase purchase) {
                         return purchase.product;
                     }
-                })
+                }).name("Top 10 requested products per category")
                 .print();
 
         // The most active user per category in the last 10 minutes
@@ -164,7 +164,7 @@ public class BuyProducts {
                     protected Customer fromPurchase(Purchase purchase) {
                         return purchase.customer;
                     }
-                })
+                }).name("Most active user per category")
                 .print();
 
 
