@@ -28,4 +28,6 @@ public interface TStream<T> {
             StateFunction<T, V> stateFunction, int partitioning);
 
     DataStream<Enriched<T>> getEnclosingStream();
+
+    int getTGraphID();
 }

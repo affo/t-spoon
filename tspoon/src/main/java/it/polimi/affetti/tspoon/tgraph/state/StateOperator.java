@@ -3,10 +3,7 @@ package it.polimi.affetti.tspoon.tgraph.state;
 import it.polimi.affetti.tspoon.common.Address;
 import it.polimi.affetti.tspoon.common.SafeCollector;
 import it.polimi.affetti.tspoon.runtime.NetUtils;
-import it.polimi.affetti.tspoon.tgraph.Enriched;
-import it.polimi.affetti.tspoon.tgraph.IsolationLevel;
-import it.polimi.affetti.tspoon.tgraph.Metadata;
-import it.polimi.affetti.tspoon.tgraph.Vote;
+import it.polimi.affetti.tspoon.tgraph.*;
 import it.polimi.affetti.tspoon.tgraph.db.Object;
 import it.polimi.affetti.tspoon.tgraph.db.*;
 import it.polimi.affetti.tspoon.tgraph.query.Query;
@@ -30,12 +27,14 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public abstract class StateOperator<T, V>
         extends AbstractStreamOperator<Enriched<T>>
-        implements TwoInputStreamOperator<Enriched<T>, Query, Enriched<T>>,
+        implements TwoInputStreamOperator<Enriched<T>, NoConsensusOperation, Enriched<T>>,
         StateOperatorTransactionCloseListener, Object.DeferredReadListener {
     protected final int tGraphID;
     private long counter = 0;
     protected final String nameSpace;
     public final OutputTag<QueryResult> queryResultTag = new OutputTag<QueryResult>("queryResult") {
+    };
+    public final OutputTag<TransactionResult> singlePartitionTag = new OutputTag<TransactionResult>("singlePartition") {
     };
     protected transient Shard<V> shard;
     protected final StateFunction<T, V> stateFunction;
@@ -131,10 +130,24 @@ public abstract class StateOperator<T, V>
     }
 
     @Override
-    public void processElement2(StreamRecord<Query> streamRecord) throws Exception {
-        Query query = streamRecord.getValue();
+    public void processElement2(StreamRecord<NoConsensusOperation> streamRecord) throws Exception {
+        NoConsensusOperation noConsensusOperation = streamRecord.getValue();
+
+        if (noConsensusOperation.isReadOnly()) {
+            processQuery(noConsensusOperation.getReadOnly());
+        } else {
+            processSinglePartitionUpdate(noConsensusOperation.getUpdate());
+        }
+    }
+
+    private void processQuery(Query query) {
         QueryResult result = shard.runQuery(query);
         collector.safeCollect(queryResultTag, result);
+    }
+
+    private void processSinglePartitionUpdate(SinglePartitionUpdate update) {
+        TransactionResult result = shard.runSinglePartitionUpdate(update);
+        collector.safeCollect(singlePartitionTag, result);
     }
 
     @Override
@@ -159,7 +172,7 @@ public abstract class StateOperator<T, V>
 
     @Override
     public void onTransactionClosedSuccess(CloseTransactionNotification notification) {
-        Transaction<V> transaction = shard.getTransaction(notification.timestamp);
+        Transaction<V> transaction = shard.removeTransaction(notification.timestamp);
         transaction.mergeVote(notification.vote);
         transaction.applyChanges();
 
@@ -169,7 +182,7 @@ public abstract class StateOperator<T, V>
     @Override
     public void onTransactionClosedError(
             CloseTransactionNotification notification, Throwable error) {
-        Transaction<V> transaction = shard.getTransaction(notification.timestamp);
+        Transaction<V> transaction = shard.removeTransaction(notification.timestamp);
         String errorMessage = "StateOperator - transaction [" + transaction.tid +
                 "] - error on transaction close: " + error.getMessage();
         LOG.error(errorMessage);

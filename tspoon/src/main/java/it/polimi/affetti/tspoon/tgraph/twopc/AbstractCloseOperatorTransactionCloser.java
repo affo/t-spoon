@@ -40,7 +40,18 @@ public abstract class AbstractCloseOperatorTransactionCloser {
         wal.close();
     }
 
-    protected void writeToWAL(int timestamp, Vote vote, Updates updates) {
+    /**
+     * No effect if durability is not enabled
+     *
+     * @param timestamp
+     * @param vote
+     * @param updates
+     */
+    public void writeToWAL(int timestamp, Vote vote, Updates updates) {
+        if (!isDurabilityEnabled) {
+            return;
+        }
+
         try {
             switch (vote) {
                 case REPLAY:
@@ -60,10 +71,7 @@ public abstract class AbstractCloseOperatorTransactionCloser {
 
     public void onMetadata(Metadata metadata) throws Exception {
         applyProtocolOnMetadata(metadata);
-
-        if (isDurabilityEnabled) {
-            writeToWAL(metadata.timestamp, metadata.vote, metadata.updates);
-        }
+        writeToWAL(metadata.timestamp, metadata.vote, metadata.updates);
     }
 
     /**

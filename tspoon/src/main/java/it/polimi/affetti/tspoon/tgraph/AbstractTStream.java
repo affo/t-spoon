@@ -5,9 +5,7 @@ import it.polimi.affetti.tspoon.common.PartitionOrBcastPartitioner;
 import it.polimi.affetti.tspoon.common.TWindowFunction;
 import it.polimi.affetti.tspoon.tgraph.functions.*;
 import it.polimi.affetti.tspoon.tgraph.query.*;
-import it.polimi.affetti.tspoon.tgraph.state.StateFunction;
-import it.polimi.affetti.tspoon.tgraph.state.StateOperator;
-import it.polimi.affetti.tspoon.tgraph.state.StateStream;
+import it.polimi.affetti.tspoon.tgraph.state.*;
 import it.polimi.affetti.tspoon.tgraph.twopc.OpenOperator;
 import org.apache.flink.api.common.functions.FilterFunction;
 import org.apache.flink.api.common.functions.MapFunction;
@@ -18,7 +16,6 @@ import org.apache.flink.streaming.api.datastream.ConnectedStreams;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.datastream.SplitStream;
-
 
 import java.util.Collections;
 import java.util.List;
@@ -51,6 +48,11 @@ public abstract class AbstractTStream<T> implements TStream<T> {
 
     public static TransactionEnvironment getTransactionEnvironment() {
         return transactionEnvironment;
+    }
+
+    @Override
+    public int getTGraphID() {
+        return tGraphID;
     }
 
     protected abstract <U> AbstractTStream<U> replace(DataStream<Enriched<U>> newStream);
@@ -146,16 +148,28 @@ public abstract class AbstractTStream<T> implements TStream<T> {
         keyBy(ks);
 
         StateOperator<T, V> stateOperator = getStateOperator(nameSpace, stateFunction, ks);
-        // broadcasting queries to every replica
-        DataStream<Query> selected = queryStream.select(nameSpace);
-        selected = PartitionOrBcastPartitioner.apply(selected);
-        ConnectedStreams<Enriched<T>, Query> connected = dataStream.connect(selected);
+
+        DataStream<Query> queries = queryStream.select(nameSpace);
+        DataStream<SinglePartitionUpdate> spus = transactionEnvironment.getSpuStream().select(nameSpace);
+
+        queries = PartitionOrBcastPartitioner.apply(queries);
+        spus = PartitionOrBcastPartitioner.apply(spus);
+
+        // forwarding partitioning
+        DataStream<NoConsensusOperation> wrappedQueries = queries.map(NoConsensusOperation::new);
+        DataStream<NoConsensusOperation> wrappedSpus = spus.map(NoConsensusOperation::new);
+        DataStream<NoConsensusOperation> partitionedOps = wrappedQueries.union(wrappedSpus);
+
+        ConnectedStreams<Enriched<T>, NoConsensusOperation> connected = dataStream.connect(partitionedOps);
         SingleOutputStreamOperator<Enriched<T>> mainStream =
                 connected.transform(
                         "StateOperator: " + nameSpace, dataStream.getType(), stateOperator)
                         .name(nameSpace).setParallelism(partitioning);
 
         DataStream<QueryResult> queryResults = mainStream.getSideOutput(stateOperator.queryResultTag);
+        DataStream<TransactionResult> spuResults = mainStream.getSideOutput(stateOperator.singlePartitionTag);
+
+        transactionEnvironment.addSPUResults(tGraphID, spuResults);
 
         queryResults = queryResults
                 .keyBy(queryResult -> queryResult.queryID)
@@ -163,7 +177,7 @@ public abstract class AbstractTStream<T> implements TStream<T> {
                 .name("QueryResultMerger");
 
         // TODO should merge every result to rebuild the multiStateQuery...
-        return new StateStream<>(replace(mainStream), queryResults);
+        return new StateStream<>(replace(mainStream), queryResults, spuResults);
     }
 
     @Override

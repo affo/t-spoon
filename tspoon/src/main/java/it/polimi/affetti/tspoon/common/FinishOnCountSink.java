@@ -17,6 +17,7 @@ public class FinishOnCountSink<T> extends RichSinkFunction<T> {
     private transient Logger LOG;
     public static final int DEFAULT_LOG_EVERY = 10000;
     private final int logEvery;
+    private boolean severe = true;
 
     private final int threshold;
 
@@ -60,12 +61,16 @@ public class FinishOnCountSink<T> extends RichSinkFunction<T> {
             LOG.info((threshold - count) + " records remaining");
         }
 
-        if (count > threshold) {
+        if (severe && count > threshold) {
             throw new RuntimeException("Counted too much: " + count + ", record: " + t);
         }
 
         if (count == threshold) {
             jobControlClient.getJobControlClient().publishFinishMessage();
         }
+    }
+
+    public void notSevere() {
+        this.severe = false;
     }
 }

@@ -68,17 +68,21 @@ public class PessimisticTransactionExecutor implements
             // no further processing for REPLAYed or ABORTed transactions
             if (transaction.vote == Vote.COMMIT) {
                 Object<V> object = transaction.getObject(key);
-                ObjectVersion<V> version = object.getLastCommittedVersion();
-                ObjectHandler<V> handler = version.createHandler();
+                object.lock(false);
+                try {
+                    ObjectHandler<V> handler = object.readLastCommittedVersion();
 
-                transaction.getOperation(key).accept(handler);
-                Vote vote = handler.applyInvariant() ? Vote.COMMIT : Vote.ABORT;
-                transaction.mergeVote(vote);
-                ObjectVersion<V> objectVersion = object.addVersion(transaction.tid, transaction.timestamp, handler.object);
-                transaction.addVersion(key, objectVersion);
+                    transaction.getOperation(key).accept(handler);
+                    Vote vote = handler.applyInvariant() ? Vote.COMMIT : Vote.ABORT;
+                    transaction.mergeVote(vote);
+                    ObjectVersion<V> objectVersion = object.addVersion(transaction.tid, transaction.timestamp, handler.object);
+                    transaction.addVersion(key, objectVersion);
 
-                if (!handler.write) {
-                    transaction.setReadOnly(true);
+                    if (!handler.write) {
+                        transaction.setReadOnly(true);
+                    }
+                } finally {
+                    object.unlock();
                 }
             }
 

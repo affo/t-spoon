@@ -4,14 +4,14 @@ import it.polimi.affetti.tspoon.tgraph.Metadata;
 import it.polimi.affetti.tspoon.tgraph.TransactionResult;
 import it.polimi.affetti.tspoon.tgraph.Vote;
 import org.apache.flink.api.common.accumulators.IntCounter;
-import org.apache.flink.api.common.functions.RichFlatMapFunction;
 import org.apache.flink.configuration.Configuration;
+import org.apache.flink.streaming.api.functions.co.RichCoFlatMapFunction;
 import org.apache.flink.util.Collector;
 
 /**
  * Created by affo on 18/07/17.
  */
-public class CloseFunction extends RichFlatMapFunction<Metadata, TransactionResult> {
+public class CloseFunction extends RichCoFlatMapFunction<Metadata, TransactionResult, TransactionResult> {
     private TRuntimeContext tRuntimeContext;
     private transient AbstractCloseOperatorTransactionCloser transactionCloser;
 
@@ -38,7 +38,7 @@ public class CloseFunction extends RichFlatMapFunction<Metadata, TransactionResu
     }
 
     @Override
-    public void flatMap(Metadata metadata, Collector<TransactionResult> collector) throws Exception {
+    public void flatMap1(Metadata metadata, Collector<TransactionResult> collector) throws Exception {
         if (metadata.vote == Vote.REPLAY) {
             replays.add(1);
         }
@@ -53,5 +53,12 @@ public class CloseFunction extends RichFlatMapFunction<Metadata, TransactionResu
                         metadata.vote,
                         metadata.updates)
         );
+    }
+
+    // coming from SPUpdates
+    @Override
+    public void flatMap2(TransactionResult transactionResult, Collector<TransactionResult> collector) throws Exception {
+        transactionCloser.writeToWAL(transactionResult.f1, transactionResult.f3, transactionResult.f4);
+        collector.collect(transactionResult);
     }
 }

@@ -41,7 +41,8 @@ public class OrderedElements<E> implements Iterable<E>, Serializable {
 
         while (it.hasNext() && !added) {
             long nextTimestamp = timestampExtractor.apply(it.next());
-            if (nextTimestamp >= timestamp) {
+            // if the timestamp is the same, then append in queue
+            if (nextTimestamp > timestamp) {
                 it.previous();
                 it.add(element);
                 added = true;

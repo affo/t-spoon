@@ -2,18 +2,17 @@ package it.polimi.affetti.tspoon.tgraph;
 
 import it.polimi.affetti.tspoon.common.Address;
 import it.polimi.affetti.tspoon.tgraph.query.*;
+import it.polimi.affetti.tspoon.tgraph.state.SinglePartitionUpdate;
 import it.polimi.affetti.tspoon.tgraph.twopc.*;
 import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.api.java.typeutils.runtime.kryo.JavaSerializer;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.SplitStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.apache.flink.streaming.api.functions.source.SourceFunction;
 import org.apache.flink.util.Preconditions;
 
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -31,6 +30,7 @@ public class TransactionEnvironment {
     private final StreamExecutionEnvironment streamExecutionEnvironment;
     private boolean isDurabilityEnabled;
     private DataStream<MultiStateQuery> queryStream;
+    private SplitStream<SinglePartitionUpdate> spuStream;
     private QueryResultMerger.OnQueryResult onQueryResult = new QueryResultMerger.NOPOnQueryResult();
     private TwoPCFactory factory;
     private IsolationLevel isolationLevel = PL3; // max level by default
@@ -44,6 +44,7 @@ public class TransactionEnvironment {
     private boolean baselineMode;
 
     private int tGraphId = 0;
+    private Map<Integer, DataStream<TransactionResult>> spuResultsPerTGraph = new HashMap<>();
 
     private TransactionEnvironment(StreamExecutionEnvironment env) {
         this.streamExecutionEnvironment = env;
@@ -77,6 +78,12 @@ public class TransactionEnvironment {
         QuerySource querySource = new QuerySource();
         querySource.setQuerySupplier(querySupplier);
         this.queryStream = streamExecutionEnvironment.addSource(querySource).name("QuerySource");
+    }
+
+    public void enableSPUpdates(DataStream<SinglePartitionUpdate> spuStream) {
+        Preconditions.checkState(this.spuStream == null, "Cannot enable querying more than once");
+
+        this.spuStream = spuStream.split(spu -> Collections.singleton(spu.nameSpace));
     }
 
     public void enableCustomQuerying(DataStream<MultiStateQuery> queryStream) {
@@ -193,11 +200,37 @@ public class TransactionEnvironment {
         return runtimeContext;
     }
 
+    public SplitStream<SinglePartitionUpdate> getSpuStream() {
+        Preconditions.checkState(this.spuStream != null,
+                "Cannot get SPUStream if not set: " + this.spuStream);
+
+        return spuStream;
+    }
+
+    public void addSPUResults(int tGraphID, DataStream<TransactionResult> spuResults) {
+        DataStream<TransactionResult> results = spuResultsPerTGraph.get(tGraphID);
+        if (results == null) {
+            results = spuResults;
+        } else {
+            results = results.union(spuResults);
+        }
+        spuResultsPerTGraph.put(tGraphID, results);
+    }
+
+    // ------------------- Open/Close
+
     public <T> OpenStream<T> open(DataStream<T> ds) {
         AbstractTStream.setTransactionEnvironment(this);
 
         if (queryStream == null) {
             enableStandardQuerying(new NullQuerySupplier());
+        }
+
+        if (spuStream == null) {
+            DataStream<SinglePartitionUpdate> spuStream = streamExecutionEnvironment
+                    .addSource(new EmptySPUSource())
+                    .name("SPUSource");
+            enableSPUpdates(spuStream);
         }
 
         return factory.open(ds, queryStream, tGraphId++);
@@ -206,6 +239,11 @@ public class TransactionEnvironment {
     public DataStream<TransactionResult> close(TStream<?>... exitPoints) {
         int n = exitPoints.length;
         assert n >= 1;
+
+        int tGraphID = exitPoints[0].getTGraphID();
+        for (TStream<?> exitPoint : exitPoints) {
+            assert exitPoint.getTGraphID() == tGraphID;
+        }
 
         List<DataStream<Metadata>> firstStepMerged = new ArrayList<>(n);
         for (TStream<?> exitPoint : exitPoints) {
@@ -238,7 +276,9 @@ public class TransactionEnvironment {
                 .name("SecondStepReduceVotes");
         // close transactions
         secondMerged = factory.onClosingSink(secondMerged, this);
-        DataStream<TransactionResult> results = secondMerged
+
+        DataStream<TransactionResult> fromSPU = spuResultsPerTGraph.get(tGraphID);
+        DataStream<TransactionResult> results = secondMerged.connect(fromSPU)
                 .flatMap(new CloseFunction(createTransactionalRuntimeContext()))
                 .name("CloseFunction");
 
@@ -271,6 +311,19 @@ public class TransactionEnvironment {
         @Override
         public Metadata map(T enriched) throws Exception {
             return enriched.metadata;
+        }
+    }
+
+    private static class EmptySPUSource implements SourceFunction<SinglePartitionUpdate> {
+
+        @Override
+        public void run(SourceContext<SinglePartitionUpdate> sourceContext) throws Exception {
+            // does nothing
+        }
+
+        @Override
+        public void cancel() {
+
         }
     }
 }

@@ -1,6 +1,7 @@
 package it.polimi.affetti.tspoon.tgraph.state;
 
 import it.polimi.affetti.tspoon.tgraph.db.Object;
+import it.polimi.affetti.tspoon.tgraph.db.ObjectHandler;
 import it.polimi.affetti.tspoon.tgraph.db.ObjectVersion;
 
 /**
@@ -8,8 +9,8 @@ import it.polimi.affetti.tspoon.tgraph.db.ObjectVersion;
  */
 public class PL0Strategy implements VersioningStrategy {
     @Override
-    public <V> ObjectVersion<V> readVersion(int tid, int timestamp, int watermark, Object<V> versions) {
-        return versions.getLastVersionBefore(timestamp);
+    public <V> ObjectHandler<V> readVersion(int tid, int timestamp, int watermark, Object<V> versions) {
+        return versions.readLastVersionBefore(timestamp);
     }
 
     @Override

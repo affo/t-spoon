@@ -7,7 +7,6 @@ import java.io.Serializable;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.ListIterator;
-import java.util.function.Predicate;
 
 /**
  * Created by affo on 20/07/17.
@@ -37,6 +36,19 @@ import java.util.function.Predicate;
  *  - both read-only and update transactions in the case of OPTIMISTIC strategy, ASYNCHRONOUS protocol and isolation >= PL3.
  *  - only for read-only transactions when PESSIMISTIC; updates use the locking mechanism, indeed, and read
  *  the last available committed version.
+ *
+ *
+ * The lock/unlock methods are meant to be used by an operation before/after interacting with this object
+ * The lock is especially meant for interleaving of multi-partition and single-partition updates.
+ *
+ * In the case of multi-partition updates, the lock must NOT be used for the entire life-span of the transaction,
+ * but only for the life span of the operation to avoid conflicts with running single-partition queries.
+ *
+ * Single partition queries that try to lock, will both wait for the lock to be free and for "version stability"
+ * (there is no version that is not committed or aborted; alternatively, every version created by multi-partition
+ * transaction has been deleted/installed after an agreement has been reached).
+ *
+ * NOTE that single/single and multi/multi conflicts on the same key are guaranteed not to happen by construction.
  */
 public class Object<T> implements Serializable {
     private transient Logger LOG;
@@ -48,6 +60,7 @@ public class Object<T> implements Serializable {
     private OrderedElements<ObjectVersion<T>> versions;
     private ObjectVersion<T> lastVersion;
     private ObjectVersion<T> lastCommittedVersion;
+    private boolean locked = false;
 
     // for external event logging
     private List<DeferredReadListener> deferredReadListeners = new LinkedList<>();
@@ -59,6 +72,7 @@ public class Object<T> implements Serializable {
         this.versions = new OrderedElements<>(obj -> (long) obj.version);
         this.lastCommittedVersion = initObject();
         this.lastVersion = initObject();
+        this.versions.addInOrder(lastVersion);
 
         this.LOG = Logger.getLogger("Object<" + lastVersion.object.getClass().getSimpleName()
                 + ">@" + nameSpace + "." + key);
@@ -68,20 +82,58 @@ public class Object<T> implements Serializable {
         forceSerializableRead = true;
     }
 
-    public synchronized void listenToDeferredReads(DeferredReadListener listener) {
+    public void listenToDeferredReads(DeferredReadListener listener) {
         deferredReadListeners.add(listener);
     }
 
     private ObjectVersion<T> initObject() {
         ObjectVersion<T> initObject = ObjectVersion.of(
-                0, 0, objectFunction.defaultValue(), objectFunction);
+                0, 0, objectFunction.defaultValue());
         initObject.commit();
         return initObject;
     }
 
-    public synchronized int getVersionCount() {
+    synchronized int getVersionCount() {
         return versions.size();
     }
+
+    /**
+     * See class description
+     * @param singlePartition if the update is single or multi partition
+     */
+    public void lock(boolean singlePartition) {
+        try {
+            if (singlePartition) {
+                // single-partition queries should wait for stability of versions
+                // and then lock the object to make other multi-partition wait for them
+                synchronized (this) {
+                    while (!getLastAvailableVersion().isCommitted() || locked) {
+                        wait();
+                    }
+                    locked = true;
+                    return;
+                }
+            }
+
+            // multi-partition queries should wait for single-partition ones to finish
+            synchronized (this) {
+                while (locked) {
+                    wait();
+                }
+                locked = true;
+            }
+        } catch (InterruptedException ie) {
+            LOG.error("[INTERRUPTED] Something, somewhere went horribly wrong: " + ie.getMessage());
+            throw new RuntimeException("Interrupted while waiting for version stability");
+        }
+    }
+
+    public synchronized void unlock() {
+        locked = false;
+        notifyAll();
+    }
+
+    // ------------------------ Methods for managing versions
 
     public synchronized ObjectVersion<T> getVersion(int timestamp) {
         for (ObjectVersion<T> obj : versions) {
@@ -133,53 +185,8 @@ public class Object<T> implements Serializable {
         return getVersionsWithin(startExclusive, Integer.MAX_VALUE);
     }
 
-    /**
-     * WARNING: iterates over every available version
-     *
-     * @param threshold
-     * @return the versions younger (with a bigger createdBy id) threshold.
-     * No guarantees on the createdBy id ordering wrt the timestamp.
-     * The versions will be in timestamp order.
-     */
-    public synchronized Iterable<ObjectVersion<T>> getVersionsByNewerTransactions(int threshold) {
-        List<ObjectVersion<T>> versions = new LinkedList<>();
-
-        for (ObjectVersion<T> obj : this.versions) {
-            if (obj.createdBy > threshold) {
-                versions.add(obj);
-            }
-        }
-
-        return versions;
-    }
-
-    /**
-     * @param predicate
-     * @return true if there is any version matching the predicate.
-     */
-    public synchronized boolean anyVersionMatch(Predicate<ObjectVersion<T>> predicate) {
-        for (ObjectVersion<T> obj : this.versions) {
-            if (predicate.test(obj)) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    public synchronized boolean noneVersionMatch(Predicate<ObjectVersion<T>> predicate) {
-        for (ObjectVersion<T> obj : this.versions) {
-            if (predicate.test(obj)) {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-
     public synchronized ObjectVersion<T> addVersion(int tid, int version, T object) {
-        ObjectVersion<T> objectVersion = ObjectVersion.of(version, tid, object, objectFunction);
+        ObjectVersion<T> objectVersion = ObjectVersion.of(version, tid, object);
         versions.addInOrder(objectVersion);
 
         if (version > lastVersion.version) {
@@ -199,7 +206,9 @@ public class Object<T> implements Serializable {
         }
 
         // if somebody is waiting for versions to change their status
-        notifyAll();
+        synchronized (this) {
+            notifyAll();
+        }
     }
 
     public synchronized void deleteVersion(int version) {
@@ -224,7 +233,9 @@ public class Object<T> implements Serializable {
         }
 
         // if somebody is waiting for versions to change their status
-        notifyAll();
+        synchronized (this) {
+            notifyAll();
+        }
     }
 
     public synchronized int performVersionCleanup(int version) {
@@ -254,8 +265,22 @@ public class Object<T> implements Serializable {
         return removedCount;
     }
 
-    public synchronized ObjectVersion<T> getLastCommittedVersion() {
-        return lastCommittedVersion;
+    // ------------------------ Methods for reading versions (must be called within lock/unlock calls)
+
+    private ObjectHandler<T> createHandler(ObjectVersion<T> version) {
+        return new ObjectHandler<>(version.object, version.version, version.createdBy, objectFunction::invariant);
+    }
+
+    public synchronized ObjectHandler<T> readLastVersionBefore(int timestamp) {
+        return createHandler(getLastVersionBefore(timestamp));
+    }
+
+    public synchronized ObjectHandler<T> readLastAvailableVersion() {
+        return createHandler(getLastAvailableVersion());
+    }
+
+    public synchronized ObjectHandler<T> readLastCommittedVersion() {
+        return createHandler(lastCommittedVersion);
     }
 
     /**
@@ -263,20 +288,20 @@ public class Object<T> implements Serializable {
      * @param version
      * @return
      */
-    public synchronized ObjectVersion<T> readCommittedBefore(int version) {
+    public synchronized ObjectHandler<T> readCommittedBefore(int version) {
         if (forceSerializableRead) {
             try {
-                return serializableLastCommittedVersion(version);
+                return createHandler(serializableLastCommittedVersion(version));
             } catch (InterruptedException e) {
                 throw new RuntimeException("ForceSerializableMode: interrupted while reading version "
                         + version + ": " + e.getMessage());
             }
         }
 
-        return simpleLastCommittedVersion(version);
+        return createHandler(simpleLastCommittedVersion(version));
     }
 
-    private synchronized ObjectVersion<T> simpleLastCommittedVersion(int version) {
+    private ObjectVersion<T> simpleLastCommittedVersion(int version) {
         ObjectVersion<T> lastCommittedBefore = null;
 
         for (ObjectVersion<T> objectVersion : versions) {
@@ -296,7 +321,7 @@ public class Object<T> implements Serializable {
         return lastCommittedBefore;
     }
 
-    private synchronized ObjectVersion<T> serializableLastCommittedVersion(int version) throws InterruptedException {
+    private ObjectVersion<T> serializableLastCommittedVersion(int version) throws InterruptedException {
         ObjectVersion<T> lastCommittedBefore;
         boolean inconsistencyPrevented = false;
         do {

@@ -16,7 +16,8 @@ public interface DependencyTrackingStrategy {
      *
      * @param transaction the transaction that needs an update for dependencies
      * @param object the object that is updated by the current operation
-     * @param readVersion the version read by this operation
+     * @param version the version read by this operation
+     * @param createdBy the tid that created the version updated by this operation
      */
-    <T> void updateDependencies(Transaction<T> transaction, Object<T> object, ObjectVersion<T> readVersion);
+    <T> void updateDependencies(Transaction<T> transaction, Object<T> object, int version, int createdBy);
 }

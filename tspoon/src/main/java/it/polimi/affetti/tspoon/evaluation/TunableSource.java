@@ -10,12 +10,17 @@ import it.polimi.affetti.tspoon.tgraph.query.Query;
 import it.polimi.affetti.tspoon.tgraph.query.QueryID;
 import it.polimi.affetti.tspoon.tgraph.query.QuerySupplier;
 import it.polimi.affetti.tspoon.tgraph.query.RandomQuerySupplier;
+import it.polimi.affetti.tspoon.tgraph.state.RandomSPUSupplier;
+import it.polimi.affetti.tspoon.tgraph.state.SinglePartitionUpdate;
+import it.polimi.affetti.tspoon.tgraph.state.SinglePartitionUpdateID;
 import org.apache.flink.api.common.functions.RichMapFunction;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.functions.source.RichParallelSourceFunction;
 import org.apache.log4j.Logger;
 
+import java.util.LinkedList;
+import java.util.List;
 import java.util.Optional;
 import java.util.Random;
 import java.util.concurrent.BlockingQueue;
@@ -28,12 +33,16 @@ import java.util.concurrent.TimeUnit;
  * <p>
  * Sends the ping to keep a rate at source.
  */
-public abstract class TunableSource<T extends UniquelyRepresentableForTracking> extends RichParallelSourceFunction<T> implements JobControlListener {
+public abstract class TunableSource<T extends UniquelyRepresentableForTracking>
+        extends RichParallelSourceFunction<T>
+        implements JobControlListener {
     protected transient Logger LOG;
 
+    private boolean busyWait = false;
     protected final int baseRate, resolution, batchSize;
     protected int count, numberOfRecordsPerTask;
     protected double resolutionPerTask, currentRate;
+    protected long waitPeriodMicro;
     private final String trackingServerNameForDiscovery;
 
     protected int taskNumber;
@@ -59,6 +68,10 @@ public abstract class TunableSource<T extends UniquelyRepresentableForTracking> 
         this.newBatchSemaphore = new Semaphore(1);
     }
 
+    public void enableBusyWait() {
+        this.busyWait = true;
+    }
+
     @Override
     public void open(Configuration parameters) throws Exception {
         super.open(parameters);
@@ -77,6 +90,7 @@ public abstract class TunableSource<T extends UniquelyRepresentableForTracking> 
         }
 
         currentRate = baseRatePerTask;
+        updateWaitPeriod();
 
         ParameterTool parameterTool = (ParameterTool)
                 getRuntimeContext().getExecutionConfig().getGlobalJobParameters();
@@ -101,8 +115,8 @@ public abstract class TunableSource<T extends UniquelyRepresentableForTracking> 
         trackerThread.join();
     }
 
-    private long getWaitPeriodInMicroseconds() {
-        return (long) (Math.pow(10, 6) / currentRate);
+    private void updateWaitPeriod() {
+        this.waitPeriodMicro = (long) (Math.pow(10, 6) / currentRate);
     }
 
     @Override
@@ -132,6 +146,7 @@ public abstract class TunableSource<T extends UniquelyRepresentableForTracking> 
     @Override
     public void onBatchEnd() {
         currentRate += resolutionPerTask;
+        updateWaitPeriod();
         newBatchSemaphore.release();
     }
 
@@ -155,7 +170,8 @@ public abstract class TunableSource<T extends UniquelyRepresentableForTracking> 
                         elements.add(Optional.of(next));
                         requestTrackerClient.send(next.getUniqueRepresentation());
                         count++;
-                        TimeUnit.MICROSECONDS.sleep(getWaitPeriodInMicroseconds());
+
+                        sleep();
                     } while (!stop && count % numberOfRecordsPerTask != 0);
                     LOG.info(prefix + "Finished with batch: " + batchDescription);
                 }
@@ -163,6 +179,17 @@ public abstract class TunableSource<T extends UniquelyRepresentableForTracking> 
                 LOG.error("Interrupted: " + e.getMessage());
             } finally {
                 elements.add(Optional.empty());
+            }
+        }
+
+        private void sleep() throws InterruptedException {
+            if (busyWait) {
+                long start = System.nanoTime();
+                while (System.nanoTime() - start < waitPeriodMicro * 1000) {
+                    // busy loop
+                }
+            } else {
+                TimeUnit.MICROSECONDS.sleep(waitPeriodMicro);
             }
         }
     }
@@ -203,6 +230,40 @@ public abstract class TunableSource<T extends UniquelyRepresentableForTracking> 
             }
 
             return supplier.getQuery(new QueryID(taskNumber, (long) count));
+        }
+    }
+
+    public static class TunableSPUSource extends TunableSource<SinglePartitionUpdate> {
+        private transient RandomSPUSupplier supplier;
+        private final String namespace;
+        private final int keyspaceSize;
+        private final List<SinglePartitionUpdate.Command<?>> commands;
+
+        public TunableSPUSource(
+                int baseRate, int resolution, int batchSize, String trackingServerNameForDiscovery,
+                String namespace, int keyspaceSize) {
+            super(baseRate, resolution, batchSize, trackingServerNameForDiscovery);
+            this.namespace = namespace;
+            this.keyspaceSize = keyspaceSize;
+            this.commands = new LinkedList<>();
+        }
+
+        public void addCommand(SinglePartitionUpdate.Command<?> command) {
+            commands.add(command);
+        }
+
+        @Override
+        protected SinglePartitionUpdate getNext(int count) {
+            if (commands.isEmpty()) {
+                throw new RuntimeException("Provide commands please");
+            }
+
+            if (supplier == null) {
+                supplier = new RandomSPUSupplier(namespace, taskNumber, Transfer.KEY_PREFIX,
+                        keyspaceSize, commands);
+            }
+
+            return supplier.next(new SinglePartitionUpdateID(taskNumber, (long) count));
         }
     }
 

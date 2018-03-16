@@ -73,28 +73,33 @@ public class OptimisticTransactionExecutor {
             int watermark = transaction.watermark;
 
             Object<V> object = transaction.getObject(key);
-            // the read could be deferred depending on the protocol and isolationLevel used
-            ObjectVersion<V> version = versioningStrategy.readVersion(
-                    tid, timestamp, watermark, object);
-            ObjectHandler<V> handler = version.createHandler();
 
-            // execute operation
-            transaction.getOperation(key).accept(handler);
-            Vote vote = handler.applyInvariant() ? Vote.COMMIT : Vote.ABORT;
+            object.lock(false);
+            try {
+                // the read could be deferred depending on the protocol and isolationLevel used
+                ObjectHandler<V> handler = versioningStrategy.readVersion(
+                        tid, timestamp, watermark, object);
 
-            if (handler.write && !versioningStrategy.canWrite(tid, timestamp, watermark, object)) {
-                vote = Vote.REPLAY;
-            }
+                // execute operation
+                transaction.getOperation(key).accept(handler);
+                Vote vote = handler.applyInvariant() ? Vote.COMMIT : Vote.ABORT;
 
-            transaction.mergeVote(vote);
+                if (handler.write && !versioningStrategy.canWrite(tid, timestamp, watermark, object)) {
+                    vote = Vote.REPLAY;
+                }
 
-            // add dependencies
-            dependencyTrackingStrategy.updateDependencies(transaction, object, version);
+                transaction.mergeVote(vote);
 
-            // avoid wasting memory in case we generated an invalid version
-            if (vote != Vote.REPLAY) {
-                ObjectVersion<V> objectVersion = versioningStrategy.installVersion(tid, timestamp, object, handler.object);
-                transaction.addVersion(key, objectVersion);
+                // add dependencies
+                dependencyTrackingStrategy.updateDependencies(transaction, object, handler.version, handler.createdBy);
+
+                // avoid wasting memory in case we generated an invalid version
+                if (vote != Vote.REPLAY) {
+                    ObjectVersion<V> objectVersion = versioningStrategy.installVersion(tid, timestamp, object, handler.object);
+                    transaction.addVersion(key, objectVersion);
+                }
+            } finally {
+                object.unlock();
             }
         };
 

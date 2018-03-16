@@ -114,7 +114,7 @@ public class ConsistencyCheck {
         env.execute("Consistency check at " + strategy + " - " + isolationLevel);
     }
 
-    private static class CheckOnQueryResult implements SinkFunction<QueryResult> {
+    public static class CheckOnQueryResult implements SinkFunction<QueryResult> {
         private final double startAmount;
 
         public CheckOnQueryResult(double startAmount) {
@@ -136,7 +136,7 @@ public class ConsistencyCheck {
                 throw new RuntimeException(
                         "Invariant violated: " + totalAmount[0]);
             } else {
-                System.out.println("Invariant verified on " + size[0] + " keys");
+                System.out.println(">>> Invariant verified on " + size[0] + " keys");
             }
         }
     }

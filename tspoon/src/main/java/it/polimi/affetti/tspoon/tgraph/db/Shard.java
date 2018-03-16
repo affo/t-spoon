@@ -1,10 +1,14 @@
 package it.polimi.affetti.tspoon.tgraph.db;
 
 import it.polimi.affetti.tspoon.tgraph.Metadata;
+import it.polimi.affetti.tspoon.tgraph.TransactionResult;
+import it.polimi.affetti.tspoon.tgraph.Updates;
+import it.polimi.affetti.tspoon.tgraph.Vote;
 import it.polimi.affetti.tspoon.tgraph.query.PredicateQuery;
 import it.polimi.affetti.tspoon.tgraph.query.Query;
 import it.polimi.affetti.tspoon.tgraph.query.QueryResult;
 import it.polimi.affetti.tspoon.tgraph.query.QueryVisitor;
+import it.polimi.affetti.tspoon.tgraph.state.SinglePartitionUpdate;
 import org.apache.log4j.Logger;
 
 import java.util.ArrayList;
@@ -94,6 +98,40 @@ public class Shard<V> implements
     public QueryResult runQuery(Query query) {
         query.accept(this);
         return query.getResult();
+    }
+
+    public TransactionResult runSinglePartitionUpdate(SinglePartitionUpdate update) {
+        String key = update.getKey();
+        Object<V> object = getObject(key);
+
+        object.lock(true);
+        try {
+            ObjectHandler<V> handler = object.readLastCommittedVersion();
+            int tid = -1; // single-partition updated have no transaction id
+            // TODO represent sub-versioning in versions (for durability)
+            int version = handler.version; // append the version as a new version of the last timestamp
+
+            SinglePartitionUpdate.Command<java.lang.Object> command = update.getCommand();
+            V read = handler.read();
+            // hope to get the right command for the right state (as it is for predicate queries)
+            V written = (V) command.apply(read);
+            if (written != read) {
+                handler.write(written);
+            }
+
+            Vote vote = handler.applyInvariant() ? Vote.COMMIT : Vote.ABORT;
+            if (vote == Vote.COMMIT) {
+                object.addVersion(version, tid, handler.object);
+                object.commitVersion(version);
+            }
+
+            Updates updates = new Updates();
+            updates.addUpdate(nameSpace, key, handler.object);
+
+            return new TransactionResult(tid, version, update, vote, updates);
+        } finally {
+            object.unlock();
+        }
     }
 
     public boolean transactionExist(int timestamp) {

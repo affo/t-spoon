@@ -10,29 +10,23 @@ public class ObjectVersion<T> implements Serializable {
     public final int createdBy;
     private Status status = Status.UNKNOWN;
     public final T object;
-    private final ObjectFunction<T> objectFunction;
 
-    private ObjectVersion(int version, int createdBy, T object, ObjectFunction<T> objectFunction) {
+    private ObjectVersion(int version, int createdBy, T object) {
         this.version = version;
         this.createdBy = createdBy;
         this.object = object;
-        this.objectFunction = objectFunction;
     }
 
-    public static <T> ObjectVersion<T> of(int version, int createdBy, T object, ObjectFunction<T> objectFunction) {
+    public static <T> ObjectVersion<T> of(int version, int createdBy, T object) {
         if (object == null) {
             throw new NullPointerException();
         }
 
-        return new ObjectVersion<>(version, createdBy, object, objectFunction);
+        return new ObjectVersion<>(version, createdBy, object);
     }
 
     public static <T> ObjectVersion<T> of(int version, int createdBy, ObjectFunction<T> objectFunction) {
-        return new ObjectVersion<>(version, createdBy, objectFunction.defaultValue(), objectFunction);
-    }
-
-    public ObjectHandler<T> createHandler() {
-        return new ObjectHandler<>(objectFunction.copyValue(object), objectFunction::invariant);
+        return new ObjectVersion<>(version, createdBy, objectFunction.defaultValue());
     }
 
     public void commit() {
