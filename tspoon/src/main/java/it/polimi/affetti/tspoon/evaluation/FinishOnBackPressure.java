@@ -118,10 +118,7 @@ public class FinishOnBackPressure<T extends UniquelyRepresentableForTracking> ex
             currentInputRate.close(batchSize);
         }
 
-        if ((countEnd + countStart) % (batchSize * 2) == 0) {
-            currentThroughput.close(batchSize);
-            closeBatch();
-        }
+        tryClose();
     }
 
     private synchronized void end(T id) {
@@ -133,7 +130,11 @@ public class FinishOnBackPressure<T extends UniquelyRepresentableForTracking> ex
 
         countEnd++;
 
-        if ((countEnd + countStart) % (batchSize * 2) == 0) {
+        tryClose();
+    }
+
+    private void tryClose() {
+        if (countStart == batchSize && countEnd == batchSize) {
             currentThroughput.close(batchSize);
             closeBatch();
         }
