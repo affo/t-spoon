@@ -96,7 +96,10 @@ public class BankUseCase {
 
         tunableSPUSource.addCommand(new Balances.Deposit());
         tunableSPUSource.addCommand(new Balances.Withdrawal());
-        tunableSPUSource.enableBusyWait();
+
+        if (!consistencyCheck) {
+            tunableSPUSource.enableBusyWait();
+        }
 
         DataStream<SinglePartitionUpdate> spuStream = env.addSource(tunableSPUSource)
                 .name("TunableSPUSource")
