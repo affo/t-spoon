@@ -1,5 +1,5 @@
 #!/bin/bash
-export FLINK_HOME=/opt/flink-1.1.4
+export FLINK_HOME=/opt/flink-1.3.2
 export TARGET_JAR=../tspoon/target/tspoon-research-artifact.jar
 export PACKAGE_BASE=it.polimi.affetti.tspoon
 
@@ -8,6 +8,7 @@ export PACKAGE_BASE=it.polimi.affetti.tspoon
 export EVAL_CLASS=evaluation.Evaluation
 export QUERY_EVAL_CLASS=evaluation.QueryEvaluation
 export CONSISTENCY_CHECK_CLASS=evaluation.ConsistencyCheck
+export BANK_EXAMPLE_CLASS=evaluation.BankUseCase
 
 # Base Directory for results
 export RESULTS_DIR=./results
@@ -22,7 +23,7 @@ export IS_OPTIMISTIC=true
 # Defaults
 # parameters appended as default options for every job
 # (could be empty)
-export DEFAULT="--nRec 100000 --sled 20000"
+export DEFAULT="--durable false --startInputRate 100 --resolution 100 --par 42"
 
 # Refreshes the cluster at every job launch
 export REFRESH_CLUSTER=true
@@ -30,4 +31,3 @@ export REFRESH_CLUSTER=true
 # Push Bullet access token for notifications
 # (if you don't want notifications comment this line)
 export PUSH_BULLET_ACCESS_TOKEN=42.quarantadue42
-
