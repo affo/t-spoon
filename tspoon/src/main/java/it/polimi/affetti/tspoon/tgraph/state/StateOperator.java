@@ -30,7 +30,6 @@ public abstract class StateOperator<T, V>
         implements TwoInputStreamOperator<Enriched<T>, NoConsensusOperation, Enriched<T>>,
         StateOperatorTransactionCloseListener, Object.DeferredReadListener {
     protected final int tGraphID;
-    private long counter = 0;
     protected final String nameSpace;
     public final OutputTag<QueryResult> queryResultTag = new OutputTag<QueryResult>("queryResult") {
     };
@@ -40,13 +39,12 @@ public abstract class StateOperator<T, V>
     protected final StateFunction<T, V> stateFunction;
     protected final KeySelector<T, String> keySelector;
     protected final TRuntimeContext tRuntimeContext;
-    // timestamp -> localId
-    private final Map<Integer, Long> localIds;
 
     private IntCounter inconsistenciesPrevented = new IntCounter();
 
     protected transient SafeCollector<T> collector;
     private transient AbstractStateOperatorTransactionCloser transactionCloser;
+    private transient WAL wal;
 
     public StateOperator(
             int tGraphID,
@@ -59,8 +57,6 @@ public abstract class StateOperator<T, V>
         this.stateFunction = stateFunction;
         this.keySelector = ks;
         this.tRuntimeContext = tRuntimeContext;
-
-        this.localIds = new ConcurrentHashMap<>();
     }
 
     @Override
@@ -73,9 +69,13 @@ public abstract class StateOperator<T, V>
 
         int taskNumber = getRuntimeContext().getIndexOfThisSubtask();
         int numberOfTasks = getRuntimeContext().getNumberOfParallelSubtasks();
+
+        wal = tRuntimeContext.getWALFactory().getWAL();
+        wal.open();
+
         shard = new Shard<>(
                 nameSpace, taskNumber, numberOfTasks, maxNumberOfVersions,
-                tRuntimeContext.getIsolationLevel().gte(IsolationLevel.PL2),
+                tRuntimeContext.getIsolationLevel().gte(IsolationLevel.PL2), wal,
                 ObjectFunction.fromStateFunction(stateFunction));
 
         if (tRuntimeContext.needWaitOnRead()) {
@@ -101,6 +101,7 @@ public abstract class StateOperator<T, V>
     public void close() throws Exception {
         super.close();
         transactionCloser.close();
+        wal.close();
         NetUtils.closeServerPool(NetUtils.ServerType.QUERY);
     }
 
@@ -118,8 +119,6 @@ public abstract class StateOperator<T, V>
         boolean newTransaction = shard.addOperation(key, metadata, Operation.from(element, stateFunction));
 
         if (newTransaction) {
-            counter++;
-            localIds.put(timestamp, counter);
             if (tRuntimeContext.getSubscriptionMode() == AbstractTwoPCParticipant.SubscriptionMode.SPECIFIC) {
                 transactionCloser.subscribeTo(timestamp, this);
             }

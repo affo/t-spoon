@@ -9,6 +9,7 @@ import it.polimi.affetti.tspoon.tgraph.query.Query;
 import it.polimi.affetti.tspoon.tgraph.query.QueryResult;
 import it.polimi.affetti.tspoon.tgraph.query.QueryVisitor;
 import it.polimi.affetti.tspoon.tgraph.state.SinglePartitionUpdate;
+import it.polimi.affetti.tspoon.tgraph.twopc.WAL;
 import org.apache.log4j.Logger;
 
 import java.util.ArrayList;
@@ -34,17 +35,21 @@ public class Shard<V> implements
     private final Map<Integer, Transaction<V>> transactions;
     private Object.DeferredReadListener deferredReadListener;
 
+    private final transient WAL wal;
+
     public Shard(
             String nameSpace,
             int shardNumber,
             int numberOfShards,
             int maxNumberOfVersions,
             boolean externalReadCommitted,
+            WAL wal,
             ObjectFunction<V> objectFunction) {
         this.nameSpace = nameSpace;
         this.shardNumber = shardNumber;
         this.numberOfShards = numberOfShards;
         this.externalReadCommitted = externalReadCommitted;
+        this.wal = wal;
         this.objectFunction = objectFunction;
         Object.maxNumberOfVersions = maxNumberOfVersions;
 
@@ -120,13 +125,14 @@ public class Shard<V> implements
             }
 
             Vote vote = handler.applyInvariant() ? Vote.COMMIT : Vote.ABORT;
+            Updates updates = new Updates();
+
             if (vote == Vote.COMMIT) {
                 object.addVersion(version, tid, handler.object);
+                updates.addUpdate(nameSpace, key, handler.object);
+                wal.addEntry(vote, version, updates);
                 object.commitVersion(version);
             }
-
-            Updates updates = new Updates();
-            updates.addUpdate(nameSpace, key, handler.object);
 
             return new TransactionResult(tid, version, update, vote, updates);
         } finally {

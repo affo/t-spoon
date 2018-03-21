@@ -8,9 +8,8 @@ import java.util.Collections;
  * Created by affo on 10/11/17.
  */
 public class AsynchronousSinkTransactionCloser extends AbstractCloseOperatorTransactionCloser {
-
-    public AsynchronousSinkTransactionCloser(boolean isDurabilityEnabled) {
-        super(isDurabilityEnabled);
+    protected AsynchronousSinkTransactionCloser(WALFactory walFactory) {
+        super(walFactory);
     }
 
     @Override

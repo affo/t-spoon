@@ -1,6 +1,7 @@
 package it.polimi.affetti.tspoon.tgraph.twopc;
 
 import it.polimi.affetti.tspoon.tgraph.Updates;
+import it.polimi.affetti.tspoon.tgraph.Vote;
 
 import java.io.IOException;
 
@@ -21,17 +22,22 @@ public class NoWAL implements WAL {
     }
 
     @Override
-    public void replay(int tid) throws IOException {
+    public void addEntry(Vote vote, int timestamp, Updates updates) {
 
     }
 
     @Override
-    public void abort(int tid) throws IOException {
+    public void replay(int timestamp) throws IOException {
 
     }
 
     @Override
-    public void commit(int tid, Updates updates) throws IOException {
+    public void abort(int timestamp) throws IOException {
+
+    }
+
+    @Override
+    public void commit(int timestamp, Updates updates) throws IOException {
 
     }
 }

@@ -1,6 +1,7 @@
 package it.polimi.affetti.tspoon.tgraph.twopc;
 
 import it.polimi.affetti.tspoon.tgraph.Updates;
+import it.polimi.affetti.tspoon.tgraph.Vote;
 
 import java.io.File;
 import java.io.FileWriter;
@@ -29,20 +30,39 @@ public class DummyWAL implements WAL {
     }
 
     @Override
-    public void replay(int tid) throws IOException {
-        out.write("R" + tid + ";");
+    public void addEntry(Vote vote, int timestamp, Updates updates) {
+        try {
+            switch (vote) {
+                case REPLAY:
+                    replay(timestamp);
+                    break;
+                case ABORT:
+                    abort(timestamp);
+                    break;
+                default:
+                    commit(timestamp, updates);
+            }
+        } catch (IOException e) {
+            // make it crash, we cannot avoid persisting the WAL
+            throw new RuntimeException("Cannot persist to WAL");
+        }
+    }
+
+    @Override
+    public void replay(int timestamp) throws IOException {
+        out.write("R" + timestamp + ";");
         out.flush();
     }
 
     @Override
-    public void abort(int tid) throws IOException {
-        out.write("A" + tid + ";");
+    public void abort(int timestamp) throws IOException {
+        out.write("A" + timestamp + ";");
         out.flush();
     }
 
     @Override
-    public void commit(int tid, Updates updates) throws IOException {
-        out.write("C" + tid + "-" + updates + ";");
+    public void commit(int timestamp, Updates updates) throws IOException {
+        out.write("C" + timestamp + "-" + updates + ";");
         out.flush();
     }
 }

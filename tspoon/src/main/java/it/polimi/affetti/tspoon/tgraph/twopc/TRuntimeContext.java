@@ -38,6 +38,10 @@ public class TRuntimeContext implements Serializable {
         return durable;
     }
 
+    public WALFactory getWALFactory() {
+        return new WALFactory(isDurabilityEnabled());
+    }
+
     public void setIsolationLevel(IsolationLevel isolationLevel) {
         this.isolationLevel = isolationLevel;
     }
@@ -174,9 +178,9 @@ public class TRuntimeContext implements Serializable {
     // no singleton
     public AbstractCloseOperatorTransactionCloser getSinkTransactionCloser() {
         if (isSynchronous()) {
-            return new SynchronousSinkTransactionCloser(isDurabilityEnabled());
+            return new SynchronousSinkTransactionCloser(getWALFactory());
         }
 
-        return new AsynchronousSinkTransactionCloser(isDurabilityEnabled());
+        return new AsynchronousSinkTransactionCloser(getWALFactory());
     }
 }

@@ -1,6 +1,7 @@
 package it.polimi.affetti.tspoon.tgraph.twopc;
 
 import it.polimi.affetti.tspoon.tgraph.Updates;
+import it.polimi.affetti.tspoon.tgraph.Vote;
 
 import java.io.IOException;
 
@@ -12,9 +13,17 @@ public interface WAL {
 
     void close() throws IOException;
 
-    void replay(int tid) throws IOException;
+    /**
+     *
+     * @param vote
+     * @param timestamp
+     * @param updates ignored if vote != COMMIT
+     */
+    void addEntry(Vote vote, int timestamp, Updates updates);
 
-    void abort(int tid) throws IOException;
+    void replay(int timestamp) throws IOException;
 
-    void commit(int tid, Updates updates) throws IOException;
+    void abort(int timestamp) throws IOException;
+
+    void commit(int timestamp, Updates updates) throws IOException;
 }

@@ -14,24 +14,16 @@ import java.util.Collections;
  */
 public abstract class AbstractCloseOperatorTransactionCloser {
     protected transient StringClientsCache clients;
-    protected final boolean isDurabilityEnabled;
+    protected final WALFactory walFactory;
     private transient WAL wal;
 
-    protected AbstractCloseOperatorTransactionCloser(boolean isDurabilityEnabled) {
-        this.isDurabilityEnabled = isDurabilityEnabled;
+    protected AbstractCloseOperatorTransactionCloser(WALFactory walFactory) {
+        this.walFactory = walFactory;
     }
 
     public void open() throws Exception {
         clients = new StringClientsCache();
-
-        if (isDurabilityEnabled) {
-            // TODO send to kafka
-            // up to now, we only introduce overhead by writing to disk
-            wal = new DummyWAL("wal.log");
-        } else {
-            wal = new NoWAL();
-        }
-
+        wal = walFactory.getWAL();
         wal.open();
     }
 
@@ -48,25 +40,7 @@ public abstract class AbstractCloseOperatorTransactionCloser {
      * @param updates
      */
     public void writeToWAL(int timestamp, Vote vote, Updates updates) {
-        if (!isDurabilityEnabled) {
-            return;
-        }
-
-        try {
-            switch (vote) {
-                case REPLAY:
-                    wal.replay(timestamp);
-                    break;
-                case ABORT:
-                    wal.abort(timestamp);
-                    break;
-                default:
-                    wal.commit(timestamp, updates);
-            }
-        } catch (IOException e) {
-            // make it crash, we cannot avoid persisting the WAL
-            throw new RuntimeException("Cannot persist to WAL");
-        }
+        wal.addEntry(vote, timestamp, updates);
     }
 
     public void onMetadata(Metadata metadata) throws Exception {
