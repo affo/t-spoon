@@ -137,7 +137,15 @@ public class BankUseCase {
                     .setParallelism(1);
         }
 
-        env.execute("Query evaluation at " + strategy + " - " + isolationLevel);
+        String label = strategy + " - " + isolationLevel + ": ";
+
+        if (consistencyCheck) {
+            label += "Bank example consistency check";
+        } else {
+            label += "Bank example SPU evaluation";
+        }
+
+        env.execute(label);
     }
 
     private static class Balances implements StateFunction<Movement, Double> {
