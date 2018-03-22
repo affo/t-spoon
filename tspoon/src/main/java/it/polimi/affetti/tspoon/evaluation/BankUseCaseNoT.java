@@ -1,10 +1,8 @@
 package it.polimi.affetti.tspoon.evaluation;
 
+import it.polimi.affetti.tspoon.common.FinishOnCountSink;
 import it.polimi.affetti.tspoon.runtime.NetUtils;
-import it.polimi.affetti.tspoon.tgraph.backed.Movement;
-import it.polimi.affetti.tspoon.tgraph.backed.Transfer;
-import it.polimi.affetti.tspoon.tgraph.backed.TransferID;
-import it.polimi.affetti.tspoon.tgraph.backed.TransferSource;
+import it.polimi.affetti.tspoon.tgraph.backed.*;
 import it.polimi.affetti.tspoon.tgraph.state.SinglePartitionUpdate;
 import it.polimi.affetti.tspoon.tgraph.state.SinglePartitionUpdateID;
 import org.apache.flink.api.common.functions.FlatMapFunction;
@@ -45,6 +43,7 @@ public class BankUseCaseNoT {
         final int batchSize = parameters.getInt("batchSize", 10000);
         final int resolution = parameters.getInt("resolution", 100);
         final int startInputRate = parameters.getInt("startInputRate", 100);
+        final boolean tunable = parameters.getBoolean("tunable", true);
 
         env.setBufferTimeout(bufferTimeout);
 
@@ -55,19 +54,34 @@ public class BankUseCaseNoT {
         TransferSource transferSource = new TransferSource(Integer.MAX_VALUE, keySpaceSize, startAmount);
         transferSource.setMicroSleep(inputWaitPeriodMicro);
 
-        TunableSource.TunableSPUSource tunableSPUSource = new TunableSource.TunableSPUSource(
-                startInputRate, resolution, batchSize, SPU_TRACKING_SERVER_NAME, "",
-                keySpaceSize
-        );
+        // commands
+        SinglePartitionUpdate.Command<Double> deposit = new Balances.Deposit();
+        SinglePartitionUpdate.Command<Double> withdrawal = new Balances.Withdrawal();
 
-        tunableSPUSource.addCommand(new Balances.Deposit());
-        tunableSPUSource.addCommand(new Balances.Withdrawal());
-        tunableSPUSource.enableBusyWait();
+        DataStream<SinglePartitionUpdate> spuStream;
+        if (tunable) {
+            TunableSource.TunableSPUSource tunableSPUSource = new TunableSource.TunableSPUSource(
+                    startInputRate, resolution, batchSize, SPU_TRACKING_SERVER_NAME, "",
+                    keySpaceSize
+            );
 
-        DataStream<SinglePartitionUpdate> spuStream = env.addSource(tunableSPUSource)
-                .name("TunableSPUSource")
-                // parallelism is set to 1 to have a single threaded busy wait
-                .setParallelism(1);
+            tunableSPUSource.addCommand(deposit);
+            tunableSPUSource.addCommand(withdrawal);
+            tunableSPUSource.enableBusyWait();
+
+            spuStream = env.addSource(tunableSPUSource)
+                    .name("TunableSPUSource")
+                    // parallelism is set to 1 to have a single threaded busy wait
+                    .setParallelism(1);
+        } else {
+            SPUSource spuSource = new SPUSource("", keySpaceSize, batchSize);
+
+            spuSource.addCommand(deposit);
+            spuSource.addCommand(withdrawal);
+
+            spuStream = env.addSource(spuSource)
+                    .name("TunableSPUSource");
+        }
 
         DataStream<Transfer> transfers = env.addSource(transferSource).setParallelism(1);
 
@@ -104,13 +118,20 @@ public class BankUseCaseNoT {
                             }
                         }).returns(SinglePartitionUpdateID.class);
 
-        singleResults
-                .addSink(
-                        new FinishOnBackPressure<>(
-                                0.25, batchSize, startInputRate,
-                                resolution, -1, SPU_TRACKING_SERVER_NAME))
-                .name("FinishOnBackPressure")
-                .setParallelism(1);
+        if (tunable) {
+            singleResults
+                    .addSink(
+                            new FinishOnBackPressure<>(
+                                    0.25, batchSize, startInputRate,
+                                    resolution, -1, SPU_TRACKING_SERVER_NAME))
+                    .name("FinishOnBackPressure")
+                    .setParallelism(1);
+        } else {
+            singleResults
+                    .addSink(new FinishOnCountSink<>(batchSize))
+                    .name("FinishOnCount")
+                    .setParallelism(1);
+        }
 
         env.execute("Pure Flink bank example (no guarantees)");
     }
