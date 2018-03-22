@@ -127,7 +127,20 @@ function launch_consistency_check {
 }
 
 function launch_bank_example {
-    launch bank_example $BANK_EXAMPLE_CLASS "${@:1}"
+    if [[ "$#" -lt 1 ]]; then
+        echo "Input: <transactional_guarantees?(0/1)> <params...>"
+        return 1
+    fi
+
+    local guarantees=$1
+
+    local class=$BANK_EXAMPLE_NOT_CLASS
+
+    if [[ $guarantees -eq 0 ]]; then
+      class=$BANK_EXAMPLE_CLASS
+    fi
+
+    launch bank_example $class "${@:2}"
     sleep 1
 }
 
