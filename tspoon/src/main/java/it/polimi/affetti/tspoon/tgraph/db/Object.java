@@ -107,7 +107,7 @@ public class Object<T> implements Serializable {
                 // single-partition queries should wait for stability of versions
                 // and then lock the object to make other multi-partition wait for them
                 synchronized (this) {
-                    while (!getLastAvailableVersion().isCommitted() || locked) {
+                    while (locked || !getLastAvailableVersion().isCommitted()) {
                         wait();
                     }
                     locked = true;
@@ -206,9 +206,7 @@ public class Object<T> implements Serializable {
         }
 
         // if somebody is waiting for versions to change their status
-        synchronized (this) {
-            notifyAll();
-        }
+        notifyAll();
     }
 
     public synchronized void deleteVersion(int version) {
@@ -233,9 +231,7 @@ public class Object<T> implements Serializable {
         }
 
         // if somebody is waiting for versions to change their status
-        synchronized (this) {
-            notifyAll();
-        }
+        notifyAll();
     }
 
     public synchronized int performVersionCleanup(int version) {
