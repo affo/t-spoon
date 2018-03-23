@@ -10,6 +10,7 @@ export QUERY_EVAL_CLASS=evaluation.QueryEvaluation
 export CONSISTENCY_CHECK_CLASS=evaluation.ConsistencyCheck
 export BANK_EXAMPLE_CLASS=evaluation.BankUseCase
 export BANK_EXAMPLE_NOT_CLASS=evaluation.BankUseCaseNoT
+export PURE_FLINK_CLASS=evaluation.FlinkGoAsFastAsYouCan
 
 # Base Directory for results
 export RESULTS_DIR=./results
