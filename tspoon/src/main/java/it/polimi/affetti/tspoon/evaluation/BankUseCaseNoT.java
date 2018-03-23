@@ -6,9 +6,14 @@ import it.polimi.affetti.tspoon.tgraph.backed.*;
 import it.polimi.affetti.tspoon.tgraph.state.SinglePartitionUpdate;
 import it.polimi.affetti.tspoon.tgraph.state.SinglePartitionUpdateID;
 import org.apache.flink.api.common.functions.FlatMapFunction;
+import org.apache.flink.api.common.functions.ReduceFunction;
 import org.apache.flink.api.common.functions.RichMapFunction;
 import org.apache.flink.api.common.state.ValueState;
 import org.apache.flink.api.common.state.ValueStateDescriptor;
+import org.apache.flink.api.common.typeinfo.TypeHint;
+import org.apache.flink.api.common.typeinfo.TypeInformation;
+import org.apache.flink.api.java.functions.KeySelector;
+import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.TimeCharacteristic;
@@ -50,6 +55,7 @@ public class BankUseCaseNoT {
         final boolean tunable = parameters.getBoolean("tunable", true);
         final boolean managedState = parameters.getBoolean("managedState", false);
         final boolean singleSource = parameters.getBoolean("singleSource", false);
+        final boolean reducing = parameters.getBoolean("reducing", false);
 
         env.setBufferTimeout(bufferTimeout);
 
@@ -104,13 +110,30 @@ public class BankUseCaseNoT {
         }
 
 
-        spuStream = spuStream.keyBy(SinglePartitionUpdate::getKey);
-
         DataStream<SinglePartitionUpdateID> singleResults;
         if (singleSource) {
-            singleResults = spuStream.map(new Balances(managedState))
-                    .name("Balances")
-                    .setParallelism(partitioning);
+            if (reducing) {
+                singleResults = spuStream
+                        .map(spu -> Tuple2.of(0.0, spu))
+                        .returns(TypeInformation.of(new TypeHint<Tuple2<Double, SinglePartitionUpdate>>() {
+                        }))
+                        .keyBy(
+                                new KeySelector<Tuple2<Double, SinglePartitionUpdate>, String>() {
+                                    @Override
+                                    public String getKey(Tuple2<Double, SinglePartitionUpdate> t) throws Exception {
+                                        return t.f1.getKey();
+                                    }
+                                })
+                        .reduce(new ReducingBalance()).name("Reducing Balances")
+                        .map(t -> t.f1.id)
+                        .returns(SinglePartitionUpdateID.class);
+            } else {
+                singleResults = spuStream
+                        .keyBy(SinglePartitionUpdate::getKey)
+                        .map(new Balances(managedState))
+                        .name("Balances")
+                        .setParallelism(partitioning);
+            }
         } else {
             DataStream<Either<TransferID, SinglePartitionUpdateID>> output = halves.connect(spuStream)
                     .map(new CoBalances(managedState))
@@ -265,6 +288,21 @@ public class BankUseCaseNoT {
             }
 
             return spu.id;
+        }
+    }
+
+    private static class ReducingBalance implements ReduceFunction<Tuple2<Double, SinglePartitionUpdate>> {
+
+        @Override
+        public Tuple2<Double, SinglePartitionUpdate> reduce(
+                Tuple2<Double, SinglePartitionUpdate> acc, Tuple2<Double, SinglePartitionUpdate> newVal) throws Exception {
+            // newVal.f0 is useless as acc.f1!
+            SinglePartitionUpdate spu = newVal.f1;
+            Double balance = acc.f0;
+
+            SinglePartitionUpdate.Command<Double> command = spu.command;
+            Double updatedValue = command.apply(balance);
+            return Tuple2.of(updatedValue, spu);
         }
     }
 
