@@ -6,6 +6,7 @@ import it.polimi.affetti.tspoon.tgraph.backed.*;
 import it.polimi.affetti.tspoon.tgraph.state.SinglePartitionUpdate;
 import it.polimi.affetti.tspoon.tgraph.state.SinglePartitionUpdateID;
 import org.apache.flink.api.common.functions.FlatMapFunction;
+import org.apache.flink.api.common.functions.RichMapFunction;
 import org.apache.flink.api.common.state.ValueState;
 import org.apache.flink.api.common.state.ValueStateDescriptor;
 import org.apache.flink.api.java.utils.ParameterTool;
@@ -48,6 +49,7 @@ public class BankUseCaseNoT {
         final int startInputRate = parameters.getInt("startInputRate", 100);
         final boolean tunable = parameters.getBoolean("tunable", true);
         final boolean managedState = parameters.getBoolean("managedState", false);
+        final boolean singleSource = parameters.getBoolean("singleSource", false);
 
         env.setBufferTimeout(bufferTimeout);
 
@@ -59,8 +61,8 @@ public class BankUseCaseNoT {
         transferSource.setMicroSleep(inputWaitPeriodMicro);
 
         // commands
-        SinglePartitionUpdate.Command<Double> deposit = new Balances.Deposit();
-        SinglePartitionUpdate.Command<Double> withdrawal = new Balances.Withdrawal();
+        SinglePartitionUpdate.Command<Double> deposit = new Deposit();
+        SinglePartitionUpdate.Command<Double> withdrawal = new Withdrawal();
 
         DataStream<SinglePartitionUpdate> spuStream;
         if (tunable) {
@@ -102,25 +104,32 @@ public class BankUseCaseNoT {
         halves = halves.keyBy(movement -> movement.f1);
         spuStream = spuStream.keyBy(SinglePartitionUpdate::getKey);
 
-        DataStream<Either<TransferID, SinglePartitionUpdateID>> output = halves.connect(spuStream)
-                .map(new Balances(managedState))
-                .name("Balances")
-                .setParallelism(partitioning);
+        DataStream<SinglePartitionUpdateID> singleResults;
+        if (singleSource) {
+            singleResults = spuStream.map(new Balances(managedState))
+                    .name("Balances")
+                    .setParallelism(partitioning);
+        } else {
+            DataStream<Either<TransferID, SinglePartitionUpdateID>> output = halves.connect(spuStream)
+                    .map(new CoBalances(managedState))
+                    .name("CoBalances")
+                    .setParallelism(partitioning);
 
-        DataStream<TransferID> multiResults = output
-                .flatMap((FlatMapFunction<Either<TransferID, SinglePartitionUpdateID>, TransferID>)
-                        (o, collector) -> {
-                            if (o.isLeft()) {
-                                collector.collect(o.left());
-                            }
-                        }).returns(TransferID.class);
-        DataStream<SinglePartitionUpdateID> singleResults = output
-                .flatMap((FlatMapFunction<Either<TransferID, SinglePartitionUpdateID>, SinglePartitionUpdateID>)
-                        (o, collector) -> {
-                            if (o.isRight()) {
-                                collector.collect(o.right());
-                            }
-                        }).returns(SinglePartitionUpdateID.class);
+            DataStream<TransferID> multiResults = output
+                    .flatMap((FlatMapFunction<Either<TransferID, SinglePartitionUpdateID>, TransferID>)
+                            (o, collector) -> {
+                                if (o.isLeft()) {
+                                    collector.collect(o.left());
+                                }
+                            }).returns(TransferID.class);
+            singleResults = output
+                    .flatMap((FlatMapFunction<Either<TransferID, SinglePartitionUpdateID>, SinglePartitionUpdateID>)
+                            (o, collector) -> {
+                                if (o.isRight()) {
+                                    collector.collect(o.right());
+                                }
+                            }).returns(SinglePartitionUpdateID.class);
+        }
 
         if (tunable) {
             singleResults
@@ -140,14 +149,14 @@ public class BankUseCaseNoT {
         env.execute("Pure Flink bank example (no guarantees)");
     }
 
-    private static class Balances extends
+    private static class CoBalances extends
             RichCoMapFunction<Movement, SinglePartitionUpdate, Either<TransferID, SinglePartitionUpdateID>> {
 
         private final Map<String, Double> balances = new HashMap<>();
         private ValueState<Double> managedBalances;
         private final boolean managed;
 
-        public Balances(boolean managed) {
+        public CoBalances(boolean managed) {
             this.managed = managed;
         }
 
@@ -209,31 +218,77 @@ public class BankUseCaseNoT {
 
             return Either.Right(spu.id);
         }
+    }
 
-        static class Deposit implements SinglePartitionUpdate.Command<Double> {
-            private Random random = new Random();
+    private static class Balances extends
+            RichMapFunction<SinglePartitionUpdate, SinglePartitionUpdateID> {
 
-            private double getAmount() {
-                return Math.ceil(random.nextDouble() * startAmount);
-            }
+        private final Map<String, Double> balances = new HashMap<>();
+        private ValueState<Double> managedBalances;
+        private final boolean managed;
 
-            @Override
-            public Double apply(Double balance) {
-                return balance + getAmount();
-            }
+        public Balances(boolean managed) {
+            this.managed = managed;
         }
 
-        static class Withdrawal implements SinglePartitionUpdate.Command<Double> {
-            private Random random = new Random();
+        @Override
+        public void open(Configuration parameters) throws Exception {
+            super.open(parameters);
 
-            private double getAmount() {
-                return Math.ceil(random.nextDouble() * startAmount);
+            ValueStateDescriptor<Double> sd = new ValueStateDescriptor<>("balances", Double.class);
+            managedBalances = getRuntimeContext().getState(sd);
+        }
+
+        @Override
+        public SinglePartitionUpdateID map(SinglePartitionUpdate spu) throws Exception {
+            String key = spu.getKey();
+            Double amount;
+
+            if (managed) {
+                amount = managedBalances.value();
+                if (amount == null) {
+                    amount = 0.0;
+                }
+            } else {
+                amount = balances.getOrDefault(key, 0.0);
             }
 
-            @Override
-            public Double apply(Double balance) {
-                return balance - getAmount();
+            SinglePartitionUpdate.Command<Double> command = spu.command;
+            Double updatedValue = command.apply(amount);
+
+            if (managed) {
+                managedBalances.update(updatedValue);
+            } else {
+                balances.put(key, updatedValue);
             }
+
+            return spu.id;
+        }
+    }
+
+    private static class Deposit implements SinglePartitionUpdate.Command<Double> {
+        private Random random = new Random();
+
+        private double getAmount() {
+            return Math.ceil(random.nextDouble() * startAmount);
+        }
+
+        @Override
+        public Double apply(Double balance) {
+            return balance + getAmount();
+        }
+    }
+
+    private static class Withdrawal implements SinglePartitionUpdate.Command<Double> {
+        private Random random = new Random();
+
+        private double getAmount() {
+            return Math.ceil(random.nextDouble() * startAmount);
+        }
+
+        @Override
+        public Double apply(Double balance) {
+            return balance - getAmount();
         }
     }
 }
