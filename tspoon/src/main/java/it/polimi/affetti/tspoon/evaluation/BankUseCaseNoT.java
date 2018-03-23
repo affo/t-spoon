@@ -6,11 +6,14 @@ import it.polimi.affetti.tspoon.tgraph.backed.*;
 import it.polimi.affetti.tspoon.tgraph.state.SinglePartitionUpdate;
 import it.polimi.affetti.tspoon.tgraph.state.SinglePartitionUpdateID;
 import org.apache.flink.api.common.functions.FlatMapFunction;
+import org.apache.flink.api.common.state.ValueState;
+import org.apache.flink.api.common.state.ValueStateDescriptor;
 import org.apache.flink.api.java.utils.ParameterTool;
+import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.TimeCharacteristic;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
-import org.apache.flink.streaming.api.functions.co.CoMapFunction;
+import org.apache.flink.streaming.api.functions.co.RichCoMapFunction;
 import org.apache.flink.types.Either;
 import org.apache.flink.util.Collector;
 
@@ -44,6 +47,7 @@ public class BankUseCaseNoT {
         final int resolution = parameters.getInt("resolution", 100);
         final int startInputRate = parameters.getInt("startInputRate", 100);
         final boolean tunable = parameters.getBoolean("tunable", true);
+        final boolean managedState = parameters.getBoolean("managedState", false);
 
         env.setBufferTimeout(bufferTimeout);
 
@@ -99,7 +103,7 @@ public class BankUseCaseNoT {
         spuStream = spuStream.keyBy(SinglePartitionUpdate::getKey);
 
         DataStream<Either<TransferID, SinglePartitionUpdateID>> output = halves.connect(spuStream)
-                .map(new Balances())
+                .map(new Balances(managedState))
                 .name("Balances")
                 .setParallelism(partitioning);
 
@@ -136,26 +140,73 @@ public class BankUseCaseNoT {
         env.execute("Pure Flink bank example (no guarantees)");
     }
 
-    private static class Balances implements CoMapFunction<Movement, SinglePartitionUpdate,
-            Either<TransferID, SinglePartitionUpdateID>> {
+    private static class Balances extends
+            RichCoMapFunction<Movement, SinglePartitionUpdate, Either<TransferID, SinglePartitionUpdateID>> {
+
         private final Map<String, Double> balances = new HashMap<>();
+        private ValueState<Double> managedBalances;
+        private final boolean managed;
+
+        public Balances(boolean managed) {
+            this.managed = managed;
+        }
+
+        @Override
+        public void open(Configuration parameters) throws Exception {
+            super.open(parameters);
+
+            ValueStateDescriptor<Double> sd = new ValueStateDescriptor<>("balances", Double.class);
+            managedBalances = getRuntimeContext().getState(sd);
+        }
 
         @Override
         public Either<TransferID, SinglePartitionUpdateID> map1(Movement movement) throws Exception {
+            Double amount;
             String key = movement.f1;
-            Double amount = balances.getOrDefault(key, 0.0);
+
+            if (managed) {
+                amount = managedBalances.value();
+                if (amount == null) {
+                    amount = 0.0;
+                }
+            } else {
+                amount = balances.getOrDefault(key, 0.0);
+            }
+
             amount += movement.f2;
-            balances.put(key, amount);
+
+            if (managed) {
+                managedBalances.update(amount);
+            } else {
+                balances.put(key, amount);
+            }
+
             return Either.Left(movement.f0);
         }
 
         @Override
         public Either<TransferID, SinglePartitionUpdateID> map2(SinglePartitionUpdate spu) throws Exception {
             String key = spu.getKey();
-            Double amount = balances.getOrDefault(key, 0.0);
+            Double amount;
+
+            if (managed) {
+                amount = managedBalances.value();
+                if (amount == null) {
+                    amount = 0.0;
+                }
+            } else {
+                amount = balances.getOrDefault(key, 0.0);
+            }
+
             SinglePartitionUpdate.Command<Double> command = spu.command;
             Double updatedValue = command.apply(amount);
-            balances.put(key, updatedValue);
+
+            if (managed) {
+                managedBalances.update(updatedValue);
+            } else {
+                balances.put(key, updatedValue);
+            }
+
             return Either.Right(spu.id);
         }
 
