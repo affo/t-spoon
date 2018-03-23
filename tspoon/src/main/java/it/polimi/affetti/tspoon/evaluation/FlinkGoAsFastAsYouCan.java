@@ -6,6 +6,7 @@ import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.apache.flink.streaming.api.functions.sink.SinkFunction;
 import org.apache.flink.streaming.api.functions.source.RichParallelSourceFunction;
 import org.apache.flink.util.Collector;
 
@@ -35,12 +36,12 @@ public class FlinkGoAsFastAsYouCan {
         DataStream<Tuple2<String, Integer>> counts =
                 text.flatMap(new Tokenizer())
                         .keyBy(0).sum(1);
-        counts.print();
+        counts.addSink(new PointlessSink<>());
 
         env.execute("Need4Speed");
     }
 
-    public static final class Tokenizer implements FlatMapFunction<String, Tuple2<String, Integer>> {
+    private static class Tokenizer implements FlatMapFunction<String, Tuple2<String, Integer>> {
         private static final long serialVersionUID = 1L;
 
         @Override
@@ -58,7 +59,7 @@ public class FlinkGoAsFastAsYouCan {
         }
     }
 
-    public static final class LineSource extends RichParallelSourceFunction<String> {
+    private static class LineSource extends RichParallelSourceFunction<String> {
         private int limit, globalLimit;
         private boolean stop = false;
         private Random random;
@@ -105,6 +106,14 @@ public class FlinkGoAsFastAsYouCan {
         @Override
         public void cancel() {
             stop = true;
+        }
+    }
+
+    private static class PointlessSink<T> implements SinkFunction<T> {
+
+        @Override
+        public void invoke(T o) throws Exception {
+            // does nothing
         }
     }
 }
