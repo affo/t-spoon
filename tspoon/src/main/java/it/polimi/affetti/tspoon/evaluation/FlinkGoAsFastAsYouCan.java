@@ -26,17 +26,19 @@ public class FlinkGoAsFastAsYouCan {
 
         final long bufferTimeout = parameters.getLong("bufferTO", 0);
         final int par = parameters.getInt("par", 4);
+        final int sourcePar = parameters.getInt("sourcePar", par);
+        final int sinkPar = parameters.getInt("sinkPar", par);
         final int batchSize = parameters.getInt("batchSize", 10000);
 
         env.setBufferTimeout(bufferTimeout);
         env.setParallelism(par);
 
-        DataStream<String> text = env.addSource(new LineSource(batchSize));
+        DataStream<String> text = env.addSource(new LineSource(batchSize)).setParallelism(sourcePar);
 
         DataStream<Tuple2<String, Integer>> counts =
                 text.flatMap(new Tokenizer())
                         .keyBy(0).sum(1);
-        counts.addSink(new PointlessSink<>());
+        counts.addSink(new PointlessSink<>()).setParallelism(sinkPar);
 
         env.execute("Need4Speed");
     }
@@ -110,10 +112,11 @@ public class FlinkGoAsFastAsYouCan {
     }
 
     private static class PointlessSink<T> implements SinkFunction<T> {
+        private int count = 0;
 
         @Override
         public void invoke(T o) throws Exception {
-            // does nothing
+            count++;
         }
     }
 }
