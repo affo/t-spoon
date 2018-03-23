@@ -38,7 +38,7 @@ public class TransferSource extends ControlledSource<Transfer> {
         this.limit = globalLimit / numberOfTasks;
 
         if (taskId == 0) {
-            this.limit += limit % numberOfTasks;
+            this.limit += globalLimit % numberOfTasks;
         }
     }
 

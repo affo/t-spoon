@@ -21,7 +21,7 @@ public class SPUSource extends ControlledSource<SinglePartitionUpdate> {
     private final List<SinglePartitionUpdate.Command<?>> commands;
 
     private int count, limit;
-    private final int gloablLimit;
+    private final int globalLimit;
 
     public SPUSource(String namespace, int keyspaceSize, int limit) {
         this.namespace = namespace;
@@ -29,7 +29,7 @@ public class SPUSource extends ControlledSource<SinglePartitionUpdate> {
         this.commands = new LinkedList<>();
 
         this.count = 0;
-        this.gloablLimit = limit;
+        this.globalLimit = limit;
     }
 
     public void addCommand(SinglePartitionUpdate.Command<?> command) {
@@ -39,10 +39,10 @@ public class SPUSource extends ControlledSource<SinglePartitionUpdate> {
     @Override
     public void open(Configuration parameters) throws Exception {
         super.open(parameters);
-        this.limit = gloablLimit / numberOfTasks;
+        this.limit = globalLimit / numberOfTasks;
 
         if (taskId == 0) {
-            this.limit += limit % numberOfTasks;
+            this.limit += globalLimit % numberOfTasks;
         }
 
         supplier = new RandomSPUSupplier(namespace, 0, Transfer.KEY_PREFIX,
