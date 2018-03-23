@@ -1,33 +1,40 @@
 package it.polimi.affetti.tspoon.tgraph.state;
 
 import it.polimi.affetti.tspoon.common.PartitionOrBcastPartitioner;
+import it.polimi.affetti.tspoon.common.RPC;
 import it.polimi.affetti.tspoon.evaluation.UniquelyRepresentableForTracking;
 
 import java.io.Serializable;
 import java.util.Collections;
 import java.util.Set;
-import java.util.function.Function;
 
-public abstract class SinglePartitionUpdate implements PartitionOrBcastPartitioner.Partitionable<String>,
+public class SinglePartitionUpdate implements PartitionOrBcastPartitioner.Partitionable<String>,
         UniquelyRepresentableForTracking, Serializable {
-    public String nameSpace;
+    public String nameSpace, key;
     public SinglePartitionUpdateID id;
-    public final Command command;
+    public RPC command;
 
-    public SinglePartitionUpdate(String namespace, SinglePartitionUpdateID id, Command command) {
+    public SinglePartitionUpdate() {
+    }
+
+    public SinglePartitionUpdate(SinglePartitionUpdateID id, String namespace, String key, RPC command) {
         this.nameSpace = namespace;
+        this.key = key;
         this.id = id;
         this.command = command;
     }
 
-    public abstract <S> Command<S> getCommand();
-
-    public abstract String getKey();
-
-
     @Override
     public Set<String> getKeys() {
         return Collections.singleton(getKey());
+    }
+
+    public String getKey() {
+        return key;
+    }
+
+    public RPC getCommand() {
+        return command;
     }
 
     @Override
@@ -43,9 +50,5 @@ public abstract class SinglePartitionUpdate implements PartitionOrBcastPartition
     @Override
     public String toString() {
         return command.getClass().getSimpleName() + "[" + nameSpace + ", " + id + "]";
-    }
-
-    public interface Command<T> extends Function<T, T>, Serializable {
-
     }
 }

@@ -1,8 +1,12 @@
 package it.polimi.affetti.tspoon.evaluation;
 
 import it.polimi.affetti.tspoon.common.FinishOnCountSink;
+import it.polimi.affetti.tspoon.common.RPC;
+import it.polimi.affetti.tspoon.common.SinglePartitionCommand;
 import it.polimi.affetti.tspoon.runtime.NetUtils;
 import it.polimi.affetti.tspoon.tgraph.backed.*;
+import it.polimi.affetti.tspoon.tgraph.state.DepositsAndWithdrawalsGenerator;
+import it.polimi.affetti.tspoon.tgraph.state.RandomSPUSupplier;
 import it.polimi.affetti.tspoon.tgraph.state.SinglePartitionUpdate;
 import it.polimi.affetti.tspoon.tgraph.state.SinglePartitionUpdateID;
 import org.apache.flink.api.common.functions.FlatMapFunction;
@@ -25,7 +29,6 @@ import org.apache.flink.util.Collector;
 
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Random;
 
 /**
  * Created by affo on 29/07/17.
@@ -80,19 +83,16 @@ public class BankUseCaseNoT {
             halves = halves.keyBy(movement -> movement.f1);
         }
 
-        // commands
-        SinglePartitionUpdate.Command<Double> deposit = new Deposit();
-        SinglePartitionUpdate.Command<Double> withdrawal = new Withdrawal();
+        RandomSPUSupplier spuSupplier = new DepositsAndWithdrawalsGenerator(
+                "balances", Transfer.KEY_PREFIX, keySpaceSize, startAmount
+        );
 
         DataStream<SinglePartitionUpdate> spuStream;
         if (tunable) {
-            TunableSource.TunableSPUSource tunableSPUSource = new TunableSource.TunableSPUSource(
-                    startInputRate, resolution, batchSize, SPU_TRACKING_SERVER_NAME, "",
-                    keySpaceSize
-            );
 
-            tunableSPUSource.addCommand(deposit);
-            tunableSPUSource.addCommand(withdrawal);
+            TunableSource.TunableSPUSource tunableSPUSource = new TunableSource.TunableSPUSource(
+                    startInputRate, resolution, batchSize, SPU_TRACKING_SERVER_NAME, spuSupplier
+            );
             tunableSPUSource.enableBusyWait();
 
             spuStream = env.addSource(tunableSPUSource)
@@ -100,10 +100,7 @@ public class BankUseCaseNoT {
                     // parallelism is set to 1 to have a single threaded busy wait
                     .setParallelism(1);
         } else {
-            SPUSource spuSource = new SPUSource("", keySpaceSize, batchSize);
-
-            spuSource.addCommand(deposit);
-            spuSource.addCommand(withdrawal);
+            SPUSource spuSource = new SPUSource("", keySpaceSize, batchSize, spuSupplier);
 
             spuStream = env.addSource(spuSource)
                     .name("ParallelSPUSource"); // runs with default parallelism
@@ -174,6 +171,20 @@ public class BankUseCaseNoT {
         env.execute("Pure Flink bank example (no guarantees)");
     }
 
+    private static class StateFunction {
+        @SinglePartitionCommand
+        public double deposit(double amount, double currentBalance) {
+            return currentBalance + amount;
+        }
+
+        @SinglePartitionCommand
+        public double withdrawal(double amount, double currentBalance) {
+            return currentBalance - amount;
+        }
+    }
+
+    private static StateFunction stateFunction = new StateFunction();
+
     private static class CoBalances extends
             RichCoMapFunction<Movement, SinglePartitionUpdate, Either<TransferID, SinglePartitionUpdateID>> {
 
@@ -232,8 +243,9 @@ public class BankUseCaseNoT {
                 amount = balances.getOrDefault(key, 0.0);
             }
 
-            SinglePartitionUpdate.Command<Double> command = spu.command;
-            Double updatedValue = command.apply(amount);
+            RPC command = spu.getCommand();
+            command.addParam(amount);
+            Double updatedValue = (Double) command.call(stateFunction);
 
             if (managed) {
                 managedBalances.update(updatedValue);
@@ -278,8 +290,9 @@ public class BankUseCaseNoT {
                 amount = balances.getOrDefault(key, 0.0);
             }
 
-            SinglePartitionUpdate.Command<Double> command = spu.command;
-            Double updatedValue = command.apply(amount);
+            RPC command = spu.getCommand();
+            command.addParam(amount);
+            Double updatedValue = (Double) command.call(stateFunction);
 
             if (managed) {
                 managedBalances.update(updatedValue);
@@ -300,35 +313,10 @@ public class BankUseCaseNoT {
             SinglePartitionUpdate spu = newVal.f1;
             Double balance = acc.f0;
 
-            SinglePartitionUpdate.Command<Double> command = spu.command;
-            Double updatedValue = command.apply(balance);
+            RPC command = spu.getCommand();
+            command.addParam(balance);
+            Double updatedValue = (Double) command.call(stateFunction);
             return Tuple2.of(updatedValue, spu);
-        }
-    }
-
-    private static class Deposit implements SinglePartitionUpdate.Command<Double> {
-        private Random random = new Random();
-
-        private double getAmount() {
-            return Math.ceil(random.nextDouble() * startAmount);
-        }
-
-        @Override
-        public Double apply(Double balance) {
-            return balance + getAmount();
-        }
-    }
-
-    private static class Withdrawal implements SinglePartitionUpdate.Command<Double> {
-        private Random random = new Random();
-
-        private double getAmount() {
-            return Math.ceil(random.nextDouble() * startAmount);
-        }
-
-        @Override
-        public Double apply(Double balance) {
-            return balance - getAmount();
         }
     }
 }

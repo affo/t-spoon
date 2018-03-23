@@ -12,6 +12,8 @@ public interface ObjectFunction<V> {
 
     boolean invariant(V value);
 
+    StateFunction<?, V> getStateFunction();
+
     static <T> ObjectFunction<T> fromStateFunction(StateFunction<?, T> stateFunction) {
         return new ObjectFunction<T>() {
             @Override
@@ -27,6 +29,11 @@ public interface ObjectFunction<V> {
             @Override
             public boolean invariant(T value) {
                 return stateFunction.invariant(value);
+            }
+
+            @Override
+            public StateFunction<?, T> getStateFunction() {
+                return stateFunction;
             }
         };
     }

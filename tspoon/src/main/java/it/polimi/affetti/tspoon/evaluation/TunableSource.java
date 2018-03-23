@@ -19,8 +19,6 @@ import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.functions.source.RichParallelSourceFunction;
 import org.apache.log4j.Logger;
 
-import java.util.LinkedList;
-import java.util.List;
 import java.util.Optional;
 import java.util.Random;
 import java.util.concurrent.BlockingQueue;
@@ -234,36 +232,25 @@ public abstract class TunableSource<T extends UniquelyRepresentableForTracking>
     }
 
     public static class TunableSPUSource extends TunableSource<SinglePartitionUpdate> {
-        private transient RandomSPUSupplier supplier;
-        private final String namespace;
-        private final int keyspaceSize;
-        private final List<SinglePartitionUpdate.Command<?>> commands;
+        private RandomSPUSupplier supplier;
+        private Random random;
 
         public TunableSPUSource(
-                int baseRate, int resolution, int batchSize, String trackingServerNameForDiscovery,
-                String namespace, int keyspaceSize) {
+                int baseRate, int resolution, int batchSize,
+                String trackingServerNameForDiscovery, RandomSPUSupplier supplier) {
             super(baseRate, resolution, batchSize, trackingServerNameForDiscovery);
-            this.namespace = namespace;
-            this.keyspaceSize = keyspaceSize;
-            this.commands = new LinkedList<>();
+            this.supplier = supplier;
         }
 
-        public void addCommand(SinglePartitionUpdate.Command<?> command) {
-            commands.add(command);
+        @Override
+        public void open(Configuration parameters) throws Exception {
+            super.open(parameters);
+            random = new Random(taskNumber);
         }
 
         @Override
         protected SinglePartitionUpdate getNext(int count) {
-            if (commands.isEmpty()) {
-                throw new RuntimeException("Provide commands please");
-            }
-
-            if (supplier == null) {
-                supplier = new RandomSPUSupplier(namespace, taskNumber, Transfer.KEY_PREFIX,
-                        keyspaceSize, commands);
-            }
-
-            return supplier.next(new SinglePartitionUpdateID(taskNumber, (long) count));
+            return supplier.next(new SinglePartitionUpdateID(taskNumber, (long) count), random);
         }
     }
 

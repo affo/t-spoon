@@ -2,6 +2,7 @@ package it.polimi.affetti.tspoon.evaluation;
 
 import it.polimi.affetti.tspoon.common.FinishOnCountSink;
 import it.polimi.affetti.tspoon.common.FlatMapFunction;
+import it.polimi.affetti.tspoon.common.SinglePartitionCommand;
 import it.polimi.affetti.tspoon.runtime.NetUtils;
 import it.polimi.affetti.tspoon.tgraph.*;
 import it.polimi.affetti.tspoon.tgraph.backed.Movement;
@@ -11,10 +12,7 @@ import it.polimi.affetti.tspoon.tgraph.db.ObjectHandler;
 import it.polimi.affetti.tspoon.tgraph.query.FrequencyQuerySupplier;
 import it.polimi.affetti.tspoon.tgraph.query.PredicateQuery;
 import it.polimi.affetti.tspoon.tgraph.query.RandomQuerySupplier;
-import it.polimi.affetti.tspoon.tgraph.state.SinglePartitionUpdate;
-import it.polimi.affetti.tspoon.tgraph.state.SinglePartitionUpdateID;
-import it.polimi.affetti.tspoon.tgraph.state.StateFunction;
-import it.polimi.affetti.tspoon.tgraph.state.StateStream;
+import it.polimi.affetti.tspoon.tgraph.state.*;
 import it.polimi.affetti.tspoon.tgraph.twopc.OpenStream;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.streaming.api.TimeCharacteristic;
@@ -22,7 +20,6 @@ import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 
 import java.util.Arrays;
-import java.util.Random;
 
 /**
  * Created by affo on 29/07/17.
@@ -88,14 +85,12 @@ public class BankUseCase {
             // tEnv.setOnQueryResult(new QueryResultMerger.PrintQueryResult());
         }
 
-        // TODO create standard sources for SPUdates
-        TunableSource.TunableSPUSource tunableSPUSource = new TunableSource.TunableSPUSource(
-                startInputRate, resolution, batchSize, SPU_TRACKING_SERVER_NAME, nameSpace,
-                keySpaceSize
+        RandomSPUSupplier spuSupplier = new DepositsAndWithdrawalsGenerator(
+                nameSpace, Transfer.KEY_PREFIX, keySpaceSize, startAmount
         );
-
-        tunableSPUSource.addCommand(new Balances.Deposit());
-        tunableSPUSource.addCommand(new Balances.Withdrawal());
+        TunableSource.TunableSPUSource tunableSPUSource = new TunableSource.TunableSPUSource(
+                startInputRate, resolution, batchSize, SPU_TRACKING_SERVER_NAME, spuSupplier
+        );
 
         if (!consistencyCheck) {
             tunableSPUSource.enableBusyWait();
@@ -174,30 +169,14 @@ public class BankUseCase {
             handler.write(handler.read() + element.f2);
         }
 
-        static class Deposit implements SinglePartitionUpdate.Command<Double> {
-            private Random random = new Random();
-
-            private double getAmount() {
-                return Math.ceil(random.nextDouble() * startAmount);
-            }
-
-            @Override
-            public Double apply(Double balance) {
-                return balance + getAmount();
-            }
+        @SinglePartitionCommand
+        public double deposit(double amount, double currentBalance) {
+            return currentBalance + amount;
         }
 
-        static class Withdrawal implements SinglePartitionUpdate.Command<Double> {
-            private Random random = new Random();
-
-            private double getAmount() {
-                return Math.ceil(random.nextDouble() * startAmount);
-            }
-
-            @Override
-            public Double apply(Double balance) {
-                return balance - getAmount();
-            }
+        @SinglePartitionCommand
+        public double withdrawal(double amount, double currentBalance) {
+            return currentBalance - amount;
         }
     }
 }

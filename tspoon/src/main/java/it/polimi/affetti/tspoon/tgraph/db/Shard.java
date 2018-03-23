@@ -1,5 +1,6 @@
 package it.polimi.affetti.tspoon.tgraph.db;
 
+import it.polimi.affetti.tspoon.common.RPC;
 import it.polimi.affetti.tspoon.tgraph.Metadata;
 import it.polimi.affetti.tspoon.tgraph.TransactionResult;
 import it.polimi.affetti.tspoon.tgraph.Updates;
@@ -12,6 +13,7 @@ import it.polimi.affetti.tspoon.tgraph.state.SinglePartitionUpdate;
 import it.polimi.affetti.tspoon.tgraph.twopc.WAL;
 import org.apache.log4j.Logger;
 
+import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -105,7 +107,8 @@ public class Shard<V> implements
         return query.getResult();
     }
 
-    public TransactionResult runSinglePartitionUpdate(SinglePartitionUpdate update) {
+    public TransactionResult runSinglePartitionUpdate(SinglePartitionUpdate update) throws
+            InvocationTargetException, IllegalAccessException {
         String key = update.getKey();
         Object<V> object = getObject(key);
 
@@ -116,10 +119,11 @@ public class Shard<V> implements
             // TODO represent sub-versioning in versions (for durability)
             int version = handler.version; // append the version as a new version of the last timestamp
 
-            SinglePartitionUpdate.Command<java.lang.Object> command = update.getCommand();
+            RPC rpc = update.getCommand();
             V read = handler.read();
+            rpc.addParam(read);
             // hope to get the right command for the right state (as it is for predicate queries)
-            V written = (V) command.apply(read);
+            V written = (V) rpc.call(objectFunction.getStateFunction());
             if (written != read) {
                 handler.write(written);
             }

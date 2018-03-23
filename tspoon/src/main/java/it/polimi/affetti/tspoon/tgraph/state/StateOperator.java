@@ -19,8 +19,7 @@ import org.apache.flink.streaming.api.operators.TwoInputStreamOperator;
 import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
 import org.apache.flink.util.OutputTag;
 
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import java.lang.reflect.InvocationTargetException;
 
 /**
  * Created by affo on 14/07/17.
@@ -144,7 +143,8 @@ public abstract class StateOperator<T, V>
         collector.safeCollect(queryResultTag, result);
     }
 
-    private void processSinglePartitionUpdate(SinglePartitionUpdate update) {
+    private void processSinglePartitionUpdate(SinglePartitionUpdate update)
+            throws InvocationTargetException, IllegalAccessException {
         TransactionResult result = shard.runSinglePartitionUpdate(update);
         collector.safeCollect(singlePartitionTag, result);
     }

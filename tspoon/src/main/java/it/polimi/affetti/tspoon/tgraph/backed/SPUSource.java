@@ -6,8 +6,7 @@ import it.polimi.affetti.tspoon.tgraph.state.SinglePartitionUpdate;
 import it.polimi.affetti.tspoon.tgraph.state.SinglePartitionUpdateID;
 import org.apache.flink.configuration.Configuration;
 
-import java.util.LinkedList;
-import java.util.List;
+import java.util.Random;
 
 /**
  * Created by affo on 22/03/18.
@@ -15,25 +14,21 @@ import java.util.List;
  * Goes as fast as back-pressure allows
  */
 public class SPUSource extends ControlledSource<SinglePartitionUpdate> {
-    private transient RandomSPUSupplier supplier;
+    private Random random;
+    private RandomSPUSupplier supplier;
     private final String namespace;
     private final int keyspaceSize;
-    private final List<SinglePartitionUpdate.Command<?>> commands;
 
     private int count, limit;
     private final int globalLimit;
 
-    public SPUSource(String namespace, int keyspaceSize, int limit) {
+    public SPUSource(String namespace, int keyspaceSize, int limit, RandomSPUSupplier supplier) {
         this.namespace = namespace;
         this.keyspaceSize = keyspaceSize;
-        this.commands = new LinkedList<>();
 
         this.count = 0;
         this.globalLimit = limit;
-    }
-
-    public void addCommand(SinglePartitionUpdate.Command<?> command) {
-        commands.add(command);
+        this.supplier = supplier;
     }
 
     @Override
@@ -45,18 +40,14 @@ public class SPUSource extends ControlledSource<SinglePartitionUpdate> {
             this.limit += globalLimit % numberOfTasks;
         }
 
-        supplier = new RandomSPUSupplier(namespace, 0, Transfer.KEY_PREFIX,
-                keyspaceSize, commands);
+        random = new Random(taskId);
     }
 
     @Override
     public void run(SourceContext<SinglePartitionUpdate> sourceContext) throws Exception {
-        if (commands.isEmpty()) {
-            throw new RuntimeException("Provide commands please");
-        }
 
         while (count < limit) {
-            SinglePartitionUpdate next = supplier.next(new SinglePartitionUpdateID(0, (long) count));
+            SinglePartitionUpdate next = supplier.next(new SinglePartitionUpdateID(0, (long) count), random);
             sourceContext.collect(next);
             count++;
         }
