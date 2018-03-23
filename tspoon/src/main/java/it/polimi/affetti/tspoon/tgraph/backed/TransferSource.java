@@ -1,6 +1,7 @@
 package it.polimi.affetti.tspoon.tgraph.backed;
 
 import it.polimi.affetti.tspoon.common.ControlledSource;
+import org.apache.flink.configuration.Configuration;
 
 import java.util.Arrays;
 import java.util.List;
@@ -10,26 +11,35 @@ import java.util.concurrent.TimeUnit;
  * Created by affo on 26/07/17.
  */
 public class TransferSource extends ControlledSource<Transfer> {
+    private final int globalLimit;
     private int limit, noAccounts;
     private double startAmount;
     private List<Transfer> elements;
     private long microSleep = 0L;
-    public final int noElements;
 
     public TransferSource(int limit, int noAccounts, double startAmount) {
-        this.limit = limit;
-        this.noElements = limit;
+        this.globalLimit = limit;
         this.noAccounts = noAccounts;
         this.startAmount = startAmount;
     }
 
     public TransferSource(Transfer... elements) {
         this.elements = Arrays.asList(elements);
-        this.noElements = elements.length;
+        this.globalLimit = elements.length;
     }
 
     public void setMicroSleep(long microSleep) {
         this.microSleep = microSleep;
+    }
+
+    @Override
+    public void open(Configuration parameters) throws Exception {
+        super.open(parameters);
+        this.limit = globalLimit / numberOfTasks;
+
+        if (taskId == 0) {
+            this.limit += limit % numberOfTasks;
+        }
     }
 
     @Override

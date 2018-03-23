@@ -80,7 +80,7 @@ public class BankUseCaseNoT {
             spuSource.addCommand(withdrawal);
 
             spuStream = env.addSource(spuSource)
-                    .name("TunableSPUSource");
+                    .name("ParallelSPUSource"); // runs with default parallelism
         }
 
         DataStream<Transfer> transfers = env.addSource(transferSource).setParallelism(1);
