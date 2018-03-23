@@ -57,8 +57,22 @@ public class BankUseCaseNoT {
         env.getConfig().setGlobalJobParameters(parameters);
         env.setParallelism(par);
 
-        TransferSource transferSource = new TransferSource(Integer.MAX_VALUE, keySpaceSize, startAmount);
-        transferSource.setMicroSleep(inputWaitPeriodMicro);
+        DataStream<Movement> halves = null;
+        if (!singleSource) {
+            TransferSource transferSource = new TransferSource(Integer.MAX_VALUE, keySpaceSize, startAmount);
+            transferSource.setMicroSleep(inputWaitPeriodMicro);
+            DataStream<Transfer> transfers = env.addSource(transferSource).setParallelism(1);
+            halves = transfers.flatMap(
+                    new FlatMapFunction<Transfer, Movement>() {
+                        @Override
+                        public void flatMap(Transfer transfer, Collector<Movement> collector) throws Exception {
+                            collector.collect(transfer.getDeposit());
+                            collector.collect(transfer.getWithdrawal());
+                        }
+                    }
+            );
+            halves = halves.keyBy(movement -> movement.f1);
+        }
 
         // commands
         SinglePartitionUpdate.Command<Double> deposit = new Deposit();
@@ -89,19 +103,7 @@ public class BankUseCaseNoT {
                     .name("ParallelSPUSource"); // runs with default parallelism
         }
 
-        DataStream<Transfer> transfers = env.addSource(transferSource).setParallelism(1);
 
-        DataStream<Movement> halves = transfers.flatMap(
-                new FlatMapFunction<Transfer, Movement>() {
-                    @Override
-                    public void flatMap(Transfer transfer, Collector<Movement> collector) throws Exception {
-                        collector.collect(transfer.getDeposit());
-                        collector.collect(transfer.getWithdrawal());
-                    }
-                }
-        );
-
-        halves = halves.keyBy(movement -> movement.f1);
         spuStream = spuStream.keyBy(SinglePartitionUpdate::getKey);
 
         DataStream<SinglePartitionUpdateID> singleResults;
