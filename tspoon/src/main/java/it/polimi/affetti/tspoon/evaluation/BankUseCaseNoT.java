@@ -95,8 +95,8 @@ public class BankUseCaseNoT {
                 }
         );
 
-        halves.keyBy(movement -> movement.f1);
-        spuStream.keyBy(SinglePartitionUpdate::getKey);
+        halves = halves.keyBy(movement -> movement.f1);
+        spuStream = spuStream.keyBy(SinglePartitionUpdate::getKey);
 
         DataStream<Either<TransferID, SinglePartitionUpdateID>> output = halves.connect(spuStream)
                 .map(new Balances())
