@@ -2,6 +2,7 @@ package it.polimi.affetti.tspoon.tgraph.state;
 
 import it.polimi.affetti.tspoon.common.Address;
 import it.polimi.affetti.tspoon.common.SafeCollector;
+import it.polimi.affetti.tspoon.common.TaskExecutor;
 import it.polimi.affetti.tspoon.runtime.NetUtils;
 import it.polimi.affetti.tspoon.tgraph.*;
 import it.polimi.affetti.tspoon.tgraph.db.Object;
@@ -43,6 +44,7 @@ public abstract class StateOperator<T, V>
 
     protected transient SafeCollector<T> collector;
     private transient AbstractStateOperatorTransactionCloser transactionCloser;
+    private transient TaskExecutor singlePartitionOperationExecutor;
     private transient WAL wal;
 
     public StateOperator(
@@ -91,6 +93,9 @@ public abstract class StateOperator<T, V>
             transactionCloser.subscribe(this);
         }
 
+        singlePartitionOperationExecutor = new TaskExecutor();
+        singlePartitionOperationExecutor.start();
+
         if (tRuntimeContext.needWaitOnRead()) {
             getRuntimeContext().addAccumulator("inconsistencies-prevented", inconsistenciesPrevented);
         }
@@ -100,6 +105,7 @@ public abstract class StateOperator<T, V>
     public void close() throws Exception {
         super.close();
         transactionCloser.close();
+        singlePartitionOperationExecutor.interrupt();
         wal.close();
         NetUtils.closeServerPool(NetUtils.ServerType.QUERY);
     }
@@ -124,18 +130,21 @@ public abstract class StateOperator<T, V>
         }
 
         Transaction<V> transaction = shard.getTransaction(timestamp);
+
         execute(key, sr.getValue(), transaction);
     }
 
     @Override
     public void processElement2(StreamRecord<NoConsensusOperation> streamRecord) throws Exception {
-        NoConsensusOperation noConsensusOperation = streamRecord.getValue();
+        singlePartitionOperationExecutor.addTask(() -> {
+            NoConsensusOperation noConsensusOperation = streamRecord.getValue();
 
-        if (noConsensusOperation.isReadOnly()) {
-            processQuery(noConsensusOperation.getReadOnly());
-        } else {
-            processSinglePartitionUpdate(noConsensusOperation.getUpdate());
-        }
+            if (noConsensusOperation.isReadOnly()) {
+                processQuery(noConsensusOperation.getReadOnly());
+            } else {
+                processSinglePartitionUpdate(noConsensusOperation.getUpdate());
+            }
+        });
     }
 
     private void processQuery(Query query) {

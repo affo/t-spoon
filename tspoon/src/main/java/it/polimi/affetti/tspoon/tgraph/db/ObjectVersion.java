@@ -10,31 +10,60 @@ public class ObjectVersion<T> implements Serializable {
     public final int createdBy;
     private Status status = Status.UNKNOWN;
     public final T object;
+    private final Object<T> parent;
 
-    private ObjectVersion(int version, int createdBy, T object) {
+    private ObjectVersion(Object<T> parent, int version, int createdBy, T object) {
+        this.parent = parent;
         this.version = version;
         this.createdBy = createdBy;
         this.object = object;
     }
 
-    public static <T> ObjectVersion<T> of(int version, int createdBy, T object) {
+    public static <T> ObjectVersion<T> of(Object<T> parent, int version, int createdBy, T object) {
         if (object == null) {
             throw new NullPointerException();
         }
 
-        return new ObjectVersion<>(version, createdBy, object);
+        return new ObjectVersion<>(parent, version, createdBy, object);
     }
 
-    public static <T> ObjectVersion<T> of(int version, int createdBy, ObjectFunction<T> objectFunction) {
-        return new ObjectVersion<>(version, createdBy, objectFunction.defaultValue());
+    public static <T> ObjectVersion<T> of(Object<T> parent, int version, int createdBy, ObjectFunction<T> objectFunction) {
+        return new ObjectVersion<>(parent, version, createdBy, objectFunction.defaultValue());
     }
 
     public void commit() {
-        this.status = Status.COMMITTED;
+        setStatus(Status.COMMITTED);
+        parent.signalCommit(this);
+    }
+
+    public void abort() {
+        setStatus(Status.ABORTED);
+        parent.signalAbort(this);
     }
 
     public boolean isCommitted() {
         return status == Status.COMMITTED;
+    }
+
+    public boolean isAborted() {
+        return status == Status.ABORTED;
+    }
+
+    public boolean isUnknown() {
+        return !isCommitted() && !isAborted();
+    }
+
+    public Status getStatus() {
+        return status;
+    }
+
+    /**
+     * NOTE that setStatus(COMMITTED) is not the same as objectVersion.commit()
+     * The second one notifies also the parent and triggers its "signal" callback.
+     * @param status
+     */
+    public void setStatus(Status status) {
+        this.status = status;
     }
 
     @Override
@@ -47,6 +76,6 @@ public class ObjectVersion<T> implements Serializable {
     }
 
     public enum Status {
-        COMMITTED, UNKNOWN
+        COMMITTED, ABORTED, UNKNOWN
     }
 }

@@ -124,30 +124,23 @@ public class Transaction<V> {
     }
 
     // NOTE that commit/abort on multiple objects is not atomic wrt external queries and internal operations
-    public void commit() {
+    private void commit() {
         if (vote != Vote.COMMIT) {
             throw new IllegalStateException("Cannot commit transaction with vote: " + vote);
         }
 
-        for (Map.Entry<String, ObjectVersion<V>> entry : objectVersions.entrySet()) {
-            String key = entry.getKey();
-            int version = entry.getValue().version;
-            Object<V> object = touchedObjects.get(key);
-            object.commitVersion(version);
-            object.performVersionCleanup(version);
+        for (ObjectVersion<V> objectVersion : objectVersions.values()) {
+            objectVersion.commit();
         }
     }
 
-    public void abort() {
+    private void abort() {
         if (vote == Vote.COMMIT) {
             throw new IllegalStateException("Cannot abort a committed transaction");
         }
 
-        for (Map.Entry<String, ObjectVersion<V>> entry : objectVersions.entrySet()) {
-            String key = entry.getKey();
-            int version = entry.getValue().version;
-            Object<V> object = touchedObjects.get(key);
-            object.deleteVersion(version);
+        for (ObjectVersion<V> objectVersion : objectVersions.values()) {
+            objectVersion.abort();
         }
     }
 }

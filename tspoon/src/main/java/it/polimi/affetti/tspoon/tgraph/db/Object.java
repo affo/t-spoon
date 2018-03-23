@@ -1,6 +1,7 @@
 package it.polimi.affetti.tspoon.tgraph.db;
 
 import it.polimi.affetti.tspoon.common.OrderedElements;
+import org.apache.flink.util.Preconditions;
 import org.apache.log4j.Logger;
 
 import java.io.Serializable;
@@ -61,6 +62,8 @@ public class Object<T> implements Serializable {
     private ObjectVersion<T> lastVersion;
     private ObjectVersion<T> lastCommittedVersion;
     private boolean locked = false;
+    // counter for number of versions in UNKNOWN status
+    private int numberOfUnknowns = 0;
 
     // for external event logging
     private List<DeferredReadListener> deferredReadListeners = new LinkedList<>();
@@ -87,14 +90,18 @@ public class Object<T> implements Serializable {
     }
 
     private ObjectVersion<T> initObject() {
-        ObjectVersion<T> initObject = ObjectVersion.of(
+        ObjectVersion<T> initObject = ObjectVersion.of(this,
                 0, 0, objectFunction.defaultValue());
-        initObject.commit();
+        initObject.setStatus(ObjectVersion.Status.COMMITTED);
         return initObject;
     }
 
     synchronized int getVersionCount() {
         return versions.size();
+    }
+
+    private synchronized boolean isStable() {
+        return numberOfUnknowns == 0;
     }
 
     /**
@@ -107,7 +114,7 @@ public class Object<T> implements Serializable {
                 // single-partition queries should wait for stability of versions
                 // and then lock the object to make other multi-partition wait for them
                 synchronized (this) {
-                    while (locked || !getLastAvailableVersion().isCommitted()) {
+                    while (locked || !isStable()) {
                         wait();
                     }
                     locked = true;
@@ -186,49 +193,48 @@ public class Object<T> implements Serializable {
     }
 
     public synchronized ObjectVersion<T> addVersion(int tid, int version, T object) {
-        ObjectVersion<T> objectVersion = ObjectVersion.of(version, tid, object);
+        ObjectVersion<T> objectVersion = ObjectVersion.of(this, version, tid, object);
         versions.addInOrder(objectVersion);
 
         if (version > lastVersion.version) {
             lastVersion = objectVersion;
         }
 
+        numberOfUnknowns++;
+
         return objectVersion;
     }
 
-    public synchronized void commitVersion(int timestamp) {
-        ObjectVersion<T> version = getVersion(timestamp);
-        // change version status
-        version.commit();
+    // adds and commits atomically
+    public synchronized ObjectVersion<T> installVersion(int tid, int version, T object) {
+        ObjectVersion<T> objectVersion = addVersion(tid, version, object);
+        objectVersion.commit();
+        return objectVersion;
+    }
 
-        if (timestamp > lastCommittedVersion.version) {
-            lastCommittedVersion = version;
+    public synchronized void signalCommit(ObjectVersion<T> objectVersion) {
+        Preconditions.checkArgument(objectVersion.isCommitted(),
+                "Signalled the commit of a transaction that hasn't committed");
+
+        if (lastCommittedVersion == null || objectVersion.version > lastCommittedVersion.version) {
+            lastCommittedVersion = objectVersion;
         }
+
+        numberOfUnknowns--;
+
+        performVersionCleanup(objectVersion.version);
 
         // if somebody is waiting for versions to change their status
         notifyAll();
     }
 
-    public synchronized void deleteVersion(int version) {
-        ListIterator<ObjectVersion<T>> iterator = versions.iterator();
+    public synchronized void signalAbort(ObjectVersion<T> objectVersion) {
+        Preconditions.checkArgument(objectVersion.isAborted(),
+                "Signalled the abort of a transaction that hasn't aborted");
 
-        ObjectVersion<T> previous = null;
-        while (iterator.hasNext()) {
-            ObjectVersion<T> current = iterator.next();
-            if (current.version == version) {
-                iterator.remove();
-                break;
-            }
-            previous = current;
-        }
+        numberOfUnknowns--;
 
-        if (previous == null) {
-            previous = initObject();
-        }
-
-        if (version == lastVersion.version) {
-            lastVersion = previous;
-        }
+        performVersionCleanup(objectVersion.version);
 
         // if somebody is waiting for versions to change their status
         notifyAll();
@@ -244,7 +250,7 @@ public class Object<T> implements Serializable {
         int removedCount = 0;
         while (iterator.hasNext()) {
             ObjectVersion<T> current = iterator.next();
-            if (current.version >= version) {
+            if (current.version >= version || current.isUnknown()) {
                 break;
             }
             iterator.remove();
@@ -318,23 +324,27 @@ public class Object<T> implements Serializable {
     }
 
     private ObjectVersion<T> serializableLastCommittedVersion(int version) throws InterruptedException {
-        ObjectVersion<T> lastCommittedBefore;
+        ObjectVersion<T> lastVersionBefore;
         boolean inconsistencyPrevented = false;
+
         do {
-            lastCommittedBefore = getLastVersionBefore(version);
-            if (!lastCommittedBefore.isCommitted()) {
+            lastVersionBefore = getLastVersionBefore(version);
+
+            while (lastVersionBefore.isUnknown()) {
                 inconsistencyPrevented = true;
                 LOG.info("Waiting for stable versions up to " + version + "...");
                 wait();
             }
-        } while (!lastCommittedBefore.isCommitted());
+
+            version--;
+        } while (!lastVersionBefore.isCommitted());
 
         if (inconsistencyPrevented) {
             LOG.info("Stability reached");
             notifyDeferredRead();
         }
 
-        return lastCommittedBefore;
+        return lastVersionBefore;
     }
 
     private void notifyDeferredRead() {

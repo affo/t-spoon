@@ -132,10 +132,9 @@ public class Shard<V> implements
             Updates updates = new Updates();
 
             if (vote == Vote.COMMIT) {
-                object.addVersion(version, tid, handler.object);
                 updates.addUpdate(nameSpace, key, handler.object);
                 wal.addEntry(vote, version, updates);
-                object.commitVersion(version);
+                object.installVersion(tid, version, handler.object);
             }
 
             return new TransactionResult(tid, version, update, vote, updates);

@@ -35,10 +35,11 @@ public abstract class AbstractStateOperatorTransactionCloser
                                     Consumer<Throwable> error);
 
     private class StateServer extends ProcessRequestServer {
+        int count = 0;
 
         @Override
         protected void parseRequest(String request) {
-            // LOG.info(srv.getMyAddress() + " " + request);
+            // LOG.info(getServerAddress() + " " + request);
             CloseTransactionNotification notification = CloseTransactionNotification.deserialize(request);
             long timestamp = notification.timestamp;
 

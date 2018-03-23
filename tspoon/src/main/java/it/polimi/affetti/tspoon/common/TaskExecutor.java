@@ -13,17 +13,17 @@ import java.util.concurrent.LinkedBlockingQueue;
  */
 public class TaskExecutor extends Thread {
     private Logger LOG = Logger.getLogger(TaskExecutor.class.getSimpleName());
-    private final BlockingQueue<Tuple2<Runnable, TaskErrorListener>> tasks;
+    private final BlockingQueue<Tuple2<ExceptionalRunnable, TaskErrorListener>> tasks;
 
     public TaskExecutor() {
         tasks = new LinkedBlockingQueue<>();
     }
 
-    public void addTask(Runnable task) {
+    public void addTask(ExceptionalRunnable task) {
         this.addTask(task, null);
     }
 
-    public void addTask(Runnable task, TaskErrorListener listener) {
+    public void addTask(ExceptionalRunnable task, TaskErrorListener listener) {
         tasks.add(Tuple2.of(task, listener));
     }
 
@@ -33,16 +33,17 @@ public class TaskExecutor extends Thread {
             while (true) {
                 TaskErrorListener listener = null;
                 try {
-                    Tuple2<Runnable, TaskErrorListener> taken = tasks.take();
+                    Tuple2<ExceptionalRunnable, TaskErrorListener> taken = tasks.take();
                     listener = taken.f1;
                     taken.f0.run();
                 } catch (InterruptedException e) {
                     throw e;
-                } catch (Throwable t) {
+                } catch (Exception e) {
                     if (listener != null) {
-                        listener.onTaskError(t);
+                        listener.onTaskError(e);
                     } else {
-                        throw t;
+                        LOG.error("Exception not caught: " + e.getMessage());
+                        break;
                     }
                 }
             }
@@ -52,6 +53,11 @@ public class TaskExecutor extends Thread {
     }
 
     public interface TaskErrorListener {
-        void onTaskError(Throwable t);
+        void onTaskError(Exception e);
+    }
+
+    @FunctionalInterface
+    public interface ExceptionalRunnable {
+        void run() throws Exception;
     }
 }

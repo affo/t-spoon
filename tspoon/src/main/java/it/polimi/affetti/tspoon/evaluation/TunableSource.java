@@ -243,13 +243,11 @@ public abstract class TunableSource<T extends UniquelyRepresentableForTracking>
         }
 
         @Override
-        public void open(Configuration parameters) throws Exception {
-            super.open(parameters);
-            random = new Random(taskNumber);
-        }
-
-        @Override
         protected SinglePartitionUpdate getNext(int count) {
+            if (random == null) {
+                random = new Random(taskNumber);
+            }
+            
             return supplier.next(new SinglePartitionUpdateID(taskNumber, (long) count), random);
         }
     }

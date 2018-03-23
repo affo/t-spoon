@@ -70,7 +70,6 @@ public class BankUseCase {
         TransferSource transferSource = new TransferSource(Integer.MAX_VALUE, keySpaceSize, startAmount);
         transferSource.setMicroSleep(inputWaitPeriodMicro);
 
-
         if (consistencyCheck) {
             tEnv.enableStandardQuerying(
                     new FrequencyQuerySupplier(
@@ -92,14 +91,8 @@ public class BankUseCase {
                 startInputRate, resolution, batchSize, SPU_TRACKING_SERVER_NAME, spuSupplier
         );
 
-        if (!consistencyCheck) {
-            tunableSPUSource.enableBusyWait();
-        }
-
         DataStream<SinglePartitionUpdate> spuStream = env.addSource(tunableSPUSource)
-                .name("TunableSPUSource")
-                // parallelism is set to 1 to have a single threaded busy wait
-                .setParallelism(1);
+                .name("TunableSPUSource");
 
         tEnv.enableSPUpdates(spuStream);
 
