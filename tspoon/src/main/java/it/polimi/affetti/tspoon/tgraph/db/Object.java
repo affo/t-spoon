@@ -336,7 +336,7 @@ public class Object<T> implements Serializable {
                 wait();
             }
 
-            version--;
+            version = lastVersionBefore.version;
         } while (!lastVersionBefore.isCommitted());
 
         if (inconsistencyPrevented) {
