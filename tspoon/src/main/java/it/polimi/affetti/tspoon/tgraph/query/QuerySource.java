@@ -21,7 +21,7 @@ public class QuerySource extends ControlledSource<MultiStateQuery> {
         MultiStateQuery multiStateQuery = new MultiStateQuery();
         Query query;
         do {
-            query = querySupplier.getQuery(new QueryID(0, count));
+            query = querySupplier.getQuery(new QueryID(taskId, count));
             if (query != null) {
                 multiStateQuery.addQuery(query);
                 sourceContext.collect(multiStateQuery);
