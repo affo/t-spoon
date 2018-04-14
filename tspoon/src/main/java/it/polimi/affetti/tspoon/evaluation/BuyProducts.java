@@ -61,7 +61,6 @@ public class BuyProducts {
         TransactionEnvironment tEnv = TransactionEnvironment.get(env);
         tEnv.configIsolation(strategy, isolationLevel);
         tEnv.setSynchronous(false);
-        tEnv.setDurable(false);
         tEnv.setStateServerPoolSize(Runtime.getRuntime().availableProcessors());
 
         PurchaseSource purchaseSource = new PurchaseSource(

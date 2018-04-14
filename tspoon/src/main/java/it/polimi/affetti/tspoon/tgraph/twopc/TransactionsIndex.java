@@ -10,7 +10,7 @@ import java.util.*;
  * Created by affo on 04/08/17.
  */
 public abstract class TransactionsIndex<T> implements Serializable {
-    private int uniqueID = 0;
+    private int uniqueID;
     // I need a timestamp because a transaction can possibly be executed
     // more than once. However, I need to keep it separate from the transaction ID
     // (i.e. not overwrite it), because I want to track the dependencies among
@@ -18,11 +18,21 @@ public abstract class TransactionsIndex<T> implements Serializable {
     // transaction has to be replayed or not; on the other hand, I use the transaction ID
     // to track the dependencies among transactions (a dependency is specified only if the
     // conflicting transaction has a timestamp greater than the last version saved).
-    private int currentTimestamp = 0;
-    private int watermark = 0;
+    private int currentTimestamp;
+    private int watermark;
     protected final OrderedTimestamps timestamps = new OrderedTimestamps();
     // tid -> tContext
     protected Map<Integer, LocalTransactionContext> executions = new HashMap<>();
+
+    public TransactionsIndex(int startingPoint) {
+        this.uniqueID = startingPoint;
+        this.currentTimestamp = startingPoint;
+        this.watermark = startingPoint;
+    }
+
+    public int getCurrentTid() {
+        return uniqueID;
+    }
 
     public int getCurrentWatermark() {
         return watermark;

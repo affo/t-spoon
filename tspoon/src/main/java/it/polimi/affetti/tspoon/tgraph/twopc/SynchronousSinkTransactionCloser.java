@@ -8,10 +8,6 @@ import java.util.Collections;
  * Created by affo on 10/11/17.
  */
 public class SynchronousSinkTransactionCloser extends AbstractCloseOperatorTransactionCloser {
-    protected SynchronousSinkTransactionCloser(WALFactory walFactory) {
-        super(walFactory);
-    }
-
     @Override
     public void applyProtocolOnMetadata(Metadata metadata) throws Exception {
         int dependency;

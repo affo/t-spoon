@@ -13,11 +13,14 @@ import it.polimi.affetti.tspoon.tgraph.state.SinglePartitionUpdate;
 import it.polimi.affetti.tspoon.tgraph.twopc.WAL;
 import org.apache.log4j.Logger;
 
+import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Semaphore;
 
 /**
  * Created by affo on 19/12/17.
@@ -38,6 +41,7 @@ public class Shard<V> implements
     private Object.DeferredReadListener deferredReadListener;
 
     private final transient WAL wal;
+    private final Semaphore recoverySemaphore = new Semaphore(0);
 
     public Shard(
             String nameSpace,
@@ -87,6 +91,8 @@ public class Shard<V> implements
      */
     public boolean addOperation(
             String key, Metadata metadata, Operation<V> operation) throws Exception {
+        waitForRecoveryCompletion(); // cannot apply operations if the shard is recovering
+
         Object<V> object = getObject(key);
 
         final boolean[] newTransaction = {false};
@@ -103,12 +109,16 @@ public class Shard<V> implements
     }
 
     public QueryResult runQuery(Query query) {
+        waitForRecoveryCompletion(); // cannot query if the shard is recovering
+
         query.accept(this);
         return query.getResult();
     }
 
     public TransactionResult runSinglePartitionUpdate(SinglePartitionUpdate update) throws
             InvocationTargetException, IllegalAccessException {
+        waitForRecoveryCompletion(); // cannot apply operations if the shard is recovering
+
         String key = update.getKey();
         Object<V> object = getObject(key);
 
@@ -133,11 +143,13 @@ public class Shard<V> implements
 
             if (vote == Vote.COMMIT) {
                 updates.addUpdate(nameSpace, key, handler.object);
-                wal.addEntry(vote, version, updates);
+                wal.addEntry(new WAL.Entry(vote, tid, version, updates));
                 object.installVersion(tid, version, handler.object);
             }
 
             return new TransactionResult(tid, version, update, vote, updates);
+        } catch (IOException e) {
+            throw new RuntimeException("Problem in adding an SPU entry to the WAL: " + e.getMessage());
         } finally {
             object.unlock();
         }
@@ -204,4 +216,49 @@ public class Shard<V> implements
             }
         }
     }
+
+    // --------------------------------------- Recovery & Snapshotting ---------------------------------------
+
+    public Map<String, V> getConsistentSnapshot(int wm) {
+        Map<String, V> snapshot = new HashMap<>();
+
+        for (Map.Entry<String, Object<V>> entry : state.entrySet()) {
+            String key = entry.getKey();
+            Object<V> object = entry.getValue();
+            V value = object.getLastVersionBefore(wm).object;
+            snapshot.put(key, value);
+        }
+        return snapshot;
+    }
+
+    public void installSnapshot(Map<String, V> snapshot) {
+        for (Map.Entry<String, V> entry : snapshot.entrySet()) {
+            String key = entry.getKey();
+            V value = entry.getValue();
+            Object<V> object = getObject(key);
+            object.addVersion(-1, 0, value);
+        }
+    }
+
+    public void recover(String key, V value) {
+        boolean green = recoverySemaphore.tryAcquire();
+
+        if (green) {
+            throw new IllegalStateException("Cannot recover if not in recovery mode");
+        }
+
+        Object<V> object = getObject(key);
+        object.addVersion(-1, 0, value);
+    }
+
+    public void signalRecoveryComplete() {
+        recoverySemaphore.release();
+    }
+
+    private void waitForRecoveryCompletion() {
+        recoverySemaphore.acquireUninterruptibly();
+        recoverySemaphore.release();
+    }
+
+
 }

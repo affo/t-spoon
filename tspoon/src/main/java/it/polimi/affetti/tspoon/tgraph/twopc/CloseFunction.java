@@ -5,28 +5,57 @@ import it.polimi.affetti.tspoon.tgraph.TransactionResult;
 import it.polimi.affetti.tspoon.tgraph.Vote;
 import org.apache.flink.api.common.accumulators.IntCounter;
 import org.apache.flink.api.common.functions.RichFlatMapFunction;
+import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.configuration.Configuration;
+import org.apache.flink.runtime.state.FunctionInitializationContext;
+import org.apache.flink.runtime.state.FunctionSnapshotContext;
+import org.apache.flink.streaming.api.checkpoint.CheckpointedFunction;
 import org.apache.flink.util.Collector;
+
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
 
 /**
  * Created by affo on 18/07/17.
  */
-public class CloseFunction extends RichFlatMapFunction<Metadata, TransactionResult> {
+public class CloseFunction extends RichFlatMapFunction<Metadata, TransactionResult>
+        implements CheckpointedFunction {
     private TRuntimeContext tRuntimeContext;
+    private transient WAL wal;
     private transient AbstractCloseOperatorTransactionCloser transactionCloser;
+
+    private List<TransactionResult> toReplay;
 
     // stats
     private IntCounter replays = new IntCounter();
 
     public CloseFunction(TRuntimeContext tRuntimeContext) {
         this.tRuntimeContext = tRuntimeContext;
+        this.toReplay = new ArrayList<>();
     }
 
     @Override
     public void open(Configuration parameters) throws Exception {
         super.open(parameters);
+        ParameterTool parameterTool = (ParameterTool)
+                getRuntimeContext().getExecutionConfig().getGlobalJobParameters();
+
         transactionCloser = tRuntimeContext.getSinkTransactionCloser();
-        transactionCloser.open();
+        wal = tRuntimeContext.getWALFactory().getWAL(parameterTool);
+        transactionCloser.open(wal);
+
+        // only the first task collects everything that is in the WAL,
+        // because it doen't know if it was processed downstream...
+        if (getRuntimeContext().getIndexOfThisSubtask() == 0) {
+            Iterator<WAL.Entry> replay = wal.replay("*");
+            while (replay.hasNext()) {
+                WAL.Entry next = replay.next();
+                TransactionResult result = new TransactionResult(
+                        next.tid, next.timestamp, null, next.vote, next.updates);
+                toReplay.add(result);
+            }
+        }
 
         getRuntimeContext().addAccumulator("replays-at-sink", replays);
     }
@@ -39,6 +68,8 @@ public class CloseFunction extends RichFlatMapFunction<Metadata, TransactionResu
 
     @Override
     public void flatMap(Metadata metadata, Collector<TransactionResult> collector) throws Exception {
+        collectReplays(collector);
+
         if (metadata.vote == Vote.REPLAY) {
             replays.add(1);
         }
@@ -53,5 +84,26 @@ public class CloseFunction extends RichFlatMapFunction<Metadata, TransactionResu
                         metadata.vote,
                         metadata.updates)
         );
+    }
+
+    private void collectReplays(Collector<TransactionResult> collector) {
+        if (!toReplay.isEmpty()) {
+            for (TransactionResult result : toReplay) {
+                collector.collect(result);
+            }
+            toReplay.clear();
+        }
+    }
+
+    // --------------------------------------- Snapshotting
+
+    @Override
+    public void snapshotState(FunctionSnapshotContext functionSnapshotContext) throws Exception {
+        wal.commitSnapshot();
+    }
+
+    @Override
+    public void initializeState(FunctionInitializationContext functionInitializationContext) throws Exception {
+        // does nothing
     }
 }

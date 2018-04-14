@@ -103,7 +103,6 @@ public class Evaluation {
         tEnv.configIsolation(strategy, isolationLevel);
         tEnv.setUseDependencyTracking(useDependencyTracking);
         tEnv.setSynchronous(synchronous);
-        tEnv.setDurable(durable);
         tEnv.setVerbose(false);
         tEnv.setOpenServerPoolSize(openServerPoolSize);
         tEnv.setStateServerPoolSize(stateServerPoolSize);

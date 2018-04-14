@@ -1,5 +1,8 @@
 package it.polimi.affetti.tspoon.tgraph.twopc;
 
+import org.apache.flink.api.java.utils.ParameterTool;
+
+import java.io.IOException;
 import java.io.Serializable;
 
 /**
@@ -12,11 +15,9 @@ public class WALFactory implements Serializable {
         this.isDurabilityEnabled = isDurabilityEnabled;
     }
 
-    public WAL getWAL() {
+    public WAL getWAL(ParameterTool params) throws IOException {
         if (isDurabilityEnabled) {
-            // TODO connect to kafka topic
-            // up to now, we only introduce overhead by writing to disk
-            return new DummyWAL("wal.log");
+            return WALClient.get(params);
         }
 
         return new NoWAL();

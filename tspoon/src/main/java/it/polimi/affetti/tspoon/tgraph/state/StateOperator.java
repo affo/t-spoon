@@ -11,6 +11,10 @@ import it.polimi.affetti.tspoon.tgraph.query.Query;
 import it.polimi.affetti.tspoon.tgraph.query.QueryResult;
 import it.polimi.affetti.tspoon.tgraph.twopc.*;
 import org.apache.flink.api.common.accumulators.IntCounter;
+import org.apache.flink.api.common.state.ListState;
+import org.apache.flink.api.common.state.ListStateDescriptor;
+import org.apache.flink.api.common.typeinfo.TypeHint;
+import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.java.functions.KeySelector;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.runtime.state.StateInitializationContext;
@@ -21,6 +25,8 @@ import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
 import org.apache.flink.util.OutputTag;
 
 import java.lang.reflect.InvocationTargetException;
+import java.util.Iterator;
+import java.util.Map;
 
 /**
  * Created by affo on 14/07/17.
@@ -71,7 +77,7 @@ public abstract class StateOperator<T, V>
         int taskNumber = getRuntimeContext().getIndexOfThisSubtask();
         int numberOfTasks = getRuntimeContext().getNumberOfParallelSubtasks();
 
-        wal = tRuntimeContext.getWALFactory().getWAL();
+        wal = tRuntimeContext.getWALFactory().getWAL(parameterTool);
         wal.open();
 
         shard = new Shard<>(
@@ -83,6 +89,8 @@ public abstract class StateOperator<T, V>
             shard.forceSerializableRead();
             shard.setDeferredReadsListener(this);
         }
+
+        initState();
 
         collector = new SafeCollector<>(output);
 
@@ -229,19 +237,24 @@ public abstract class StateOperator<T, V>
         }
     }
 
-    // --------------------------------------- State Recovery ---------------------------------------
+    // --------------------------------------- State Recovery & Snapshotting ---------------------------------------
 
-    // TODO checkpoint consistent snapshot
-    // use Object.getLastCommittedVersion
+    private ListState<Map<String, V>> snapshot;
 
     /**
      * Stream operators with state, which want to participate in a snapshot need to override this hook method.
      *
+     * (affo: This operation should be performed in isolation wrt processElement1 and processElement2)
      * @param context context that provides information and means required for taking a snapshot
      */
     @Override
     public void snapshotState(StateSnapshotContext context) throws Exception {
         super.snapshotState(context);
+
+        int wm = wal.getSnapshotInProgressWatermark();
+        Map<String, V> snapshot = shard.getConsistentSnapshot(wm);
+        this.snapshot.clear();
+        this.snapshot.add(snapshot);
     }
 
     /**
@@ -252,5 +265,44 @@ public abstract class StateOperator<T, V>
     @Override
     public void initializeState(StateInitializationContext context) throws Exception {
         super.initializeState(context);
+
+        TypeInformation<Map<String, V>> stateType = TypeInformation.of(new TypeHint<Map<String, V>>() {
+        });
+
+        // recover snapshot
+        snapshot = context.getOperatorStateStore().getListState(
+                new ListStateDescriptor<>("snapshot", stateType));
+    }
+
+    /**
+     * Called on `open`, after that `wal` and `shard` are created.
+     * If not restoring, then the snapshot and the WAL are empty.
+     *
+     * @throws Exception
+     */
+    private void initState() throws Exception {
+        Map<String, V> snapshot = null;
+
+        for (Map<String, V> snap : this.snapshot.get()) {
+            snapshot = snap;
+        }
+
+        if (snapshot != null) {
+            shard.installSnapshot(snapshot);
+        }
+
+        // replay WAL
+        Iterator<WAL.Entry> walIterator = wal.replay(nameSpace);
+        while (walIterator.hasNext()) {
+            WAL.Entry entry = walIterator.next();
+            if (entry.vote == Vote.COMMIT) {
+                Map<String, java.lang.Object> myUpdates = entry.updates.getUpdatesFor(nameSpace);
+                for (Map.Entry<String, java.lang.Object> update : myUpdates.entrySet()) {
+                    shard.recover(update.getKey(), (V) update.getValue());
+                }
+            }
+        }
+
+        shard.signalRecoveryComplete();
     }
 }

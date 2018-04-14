@@ -1,5 +1,6 @@
 package it.polimi.affetti.tspoon.runtime;
 
+import it.polimi.affetti.tspoon.tgraph.twopc.WALServer;
 import org.apache.flink.api.java.utils.ParameterTool;
 
 import java.io.IOException;
@@ -14,6 +15,7 @@ import java.util.function.Supplier;
  */
 public class NetUtils {
     public static final int JOB_CONTROL_PORT = 3000;
+    public static final int WAL_SERVER_PORT = 4000;
     public static final int MIN_PORT = 9000;
     public static final int MAX_PORT = 10000;
 
@@ -72,6 +74,13 @@ public class NetUtils {
         parameters.toMap().put("jobControlServerIP", getMyIp());
         parameters.toMap().put("jobControlServerPort", String.valueOf(JOB_CONTROL_PORT));
         return getServer(JOB_CONTROL_PORT, new JobControlServer());
+    }
+
+    public static WALServer launchWALServer(ParameterTool parameters) throws IOException {
+        parameters.toMap().put("WALServerIP", getMyIp());
+        parameters.toMap().put("WALServerPort", String.valueOf(WAL_SERVER_PORT));
+        int parallelism = parameters.getInt("par", 4);
+        return getServer(WAL_SERVER_PORT, new WALServer(parallelism));
     }
 
     public synchronized static <T extends AbstractServer> T openAsSingleton(

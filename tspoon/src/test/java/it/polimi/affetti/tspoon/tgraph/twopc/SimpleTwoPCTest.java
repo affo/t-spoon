@@ -35,7 +35,7 @@ public abstract class SimpleTwoPCTest {
         stateOperatorTransactionCloser = tRuntimeContext.getAtStateTransactionCloser(0);
         stateOperatorTransactionCloser.open();
         sinkTransactionCloser = tRuntimeContext.getSinkTransactionCloser();
-        sinkTransactionCloser.open();
+        sinkTransactionCloser.open(new NoWAL());
     }
 
     protected abstract void configureTransactionalEnvironment(TransactionEnvironment tEnv);

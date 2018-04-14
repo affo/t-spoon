@@ -64,7 +64,6 @@ public class BankUseCase {
         TransactionEnvironment tEnv = TransactionEnvironment.get(env);
         tEnv.configIsolation(strategy, isolationLevel);
         tEnv.setSynchronous(false);
-        tEnv.setDurable(false);
         tEnv.setStateServerPoolSize(Runtime.getRuntime().availableProcessors());
 
         TransferSource transferSource = new TransferSource(Integer.MAX_VALUE, keySpaceSize, startAmount);

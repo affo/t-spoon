@@ -6,17 +6,18 @@ import it.polimi.affetti.tspoon.runtime.JobControlClient;
 import it.polimi.affetti.tspoon.runtime.JobControlListener;
 import it.polimi.affetti.tspoon.tgraph.*;
 import org.apache.flink.api.common.accumulators.IntCounter;
+import org.apache.flink.api.common.state.ListState;
+import org.apache.flink.api.common.state.ListStateDescriptor;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.api.java.utils.ParameterTool;
+import org.apache.flink.runtime.state.StateInitializationContext;
+import org.apache.flink.runtime.state.StateSnapshotContext;
 import org.apache.flink.streaming.api.operators.AbstractStreamOperator;
 import org.apache.flink.streaming.api.operators.OneInputStreamOperator;
 import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
 import org.apache.flink.util.OutputTag;
 
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
 /**
  * Created by affo on 14/07/17.
@@ -45,6 +46,8 @@ public class OpenOperator<T>
 
     private final int tGraphID;
     private int lastCommittedWatermark = 0;
+    private int restoredTid = -1;
+    private Set<Integer> intraEpochTids = new HashSet<>(); // to discard WALled tnxs
     // TODO temporarly avoiding log ordering
     //protected transient InOrderSideCollector<T, Tuple2<Long, Vote>> collector;
     protected transient SafeCollector<T> collector;
@@ -55,10 +58,11 @@ public class OpenOperator<T>
     private Set<Integer> laterReplay = new HashSet<>();
 
     protected final TRuntimeContext tRuntimeContext;
-    protected final TransactionsIndex<T> transactionsIndex;
+    protected TransactionsIndex<T> transactionsIndex;
     private transient AbstractOpenOperatorTransactionCloser openOperatorTransactionCloser;
 
     private transient JobControlClient jobControlClient;
+    private transient WAL wal;
 
     // stats
     private IntCounter commits = new IntCounter();
@@ -82,7 +86,6 @@ public class OpenOperator<T>
     public OpenOperator(TRuntimeContext tRuntimeContext, int tGraphID) {
         this.tGraphID = tGraphID;
         this.tRuntimeContext = tRuntimeContext;
-        this.transactionsIndex = tRuntimeContext.getTransactionsIndex();
 
         Report.registerAccumulator(COMMIT_COUNT);
         Report.registerAccumulator(ABORT_COUNT);
@@ -98,6 +101,9 @@ public class OpenOperator<T>
     @Override
     public void open() throws Exception {
         super.open();
+        // NOTE: this happens __after__ initializeState
+        transactionsIndex = tRuntimeContext.getTransactionsIndex(restoredTid);
+
         collector = new SafeCollector<>(output);
         // everybody shares the same OpenServer by specifying the same taskNumber
         openOperatorTransactionCloser = tRuntimeContext.getSourceTransactionCloser(0);
@@ -107,15 +113,25 @@ public class OpenOperator<T>
             openOperatorTransactionCloser.subscribe(this);
         }
 
+        ParameterTool parameterTool = (ParameterTool)
+                getRuntimeContext().getExecutionConfig().getGlobalJobParameters();
+
         try {
-            ParameterTool parameterTool = (ParameterTool)
-                    getRuntimeContext().getExecutionConfig().getGlobalJobParameters();
             jobControlClient = JobControlClient.get(parameterTool);
             jobControlClient.observe(this);
         } catch (IllegalArgumentException iae) {
             LOG.warn("Starting without listening to JobControl events" +
                     "because cannot connect to JobControl: " + iae.getMessage());
             jobControlClient = null;
+        }
+
+        wal = tRuntimeContext.getWALFactory().getWAL(parameterTool);
+        wal.open();
+
+        // restore completedTids in the lastSnapshot
+        Iterator<WAL.Entry> replay = wal.replay("*");// every entry, no matter the namespace
+        while (replay.hasNext()) {
+            intraEpochTids.add(replay.next().tid);
         }
 
         // register accumulators
@@ -147,7 +163,15 @@ public class OpenOperator<T>
     public synchronized void processElement(StreamRecord<T> sr) throws Exception {
         T element = sr.getValue();
         TransactionsIndex<T>.LocalTransactionContext tContext = transactionsIndex.newTransaction(element);
-        collect(tContext);
+
+        // if in recovery mode we discard the transaction and update directly
+        // if it was logged on the WAL
+        if (intraEpochTids.remove(tContext.tid)) {
+            transactionsIndex.updateWatermark(tContext.timestamp, Vote.COMMIT);
+            transactionsIndex.deleteTransaction(tContext.tid);
+        } else {
+            collect(tContext);
+        }
     }
 
     private void collect(TransactionsIndex<T>.LocalTransactionContext transactionContext) {
@@ -321,5 +345,35 @@ public class OpenOperator<T>
     public synchronized void onBatchEnd() {
         accumulators.addPoint();
         currentLatency.reset();
+    }
+
+    // --------------------------------------- Recovery & Snapshotting
+
+    private ListState<Integer> startTid;
+
+    @Override
+    public void snapshotState(StateSnapshotContext context) throws Exception {
+        super.snapshotState(context);
+
+        synchronized (this) {
+            // save start Tid for this snapshot
+            startTid.clear();
+            startTid.add(transactionsIndex.getCurrentTid());
+
+            // save watermark for snapshotting at state operators
+            wal.startSnapshot(transactionsIndex.getCurrentWatermark());
+        }
+    }
+
+    @Override
+    public void initializeState(StateInitializationContext context) throws Exception {
+        super.initializeState(context);
+
+        startTid = context.getOperatorStateStore().getListState(
+                new ListStateDescriptor<>("watermark", Integer.class));
+
+        for (Integer tid : startTid.get()) {
+            restoredTid = tid;
+        }
     }
 }

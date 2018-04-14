@@ -1,9 +1,7 @@
 package it.polimi.affetti.tspoon.tgraph.twopc;
 
-import it.polimi.affetti.tspoon.tgraph.Updates;
-import it.polimi.affetti.tspoon.tgraph.Vote;
-
 import java.io.IOException;
+import java.util.Iterator;
 
 /**
  * Created by affo on 17/01/18.
@@ -22,22 +20,37 @@ public class NoWAL implements WAL {
     }
 
     @Override
-    public void addEntry(Vote vote, int timestamp, Updates updates) {
+    public void addEntry(Entry entry) {
 
     }
 
     @Override
-    public void replay(int timestamp) throws IOException {
+    public Iterator<Entry> replay(String namespace) {
+        return new Iterator<Entry>() {
+            @Override
+            public boolean hasNext() {
+                return false;
+            }
+
+            @Override
+            public Entry next() {
+                return null;
+            }
+        };
+    }
+
+    @Override
+    public void startSnapshot(int newWM) throws IOException {
 
     }
 
     @Override
-    public void abort(int timestamp) throws IOException {
+    public void commitSnapshot() throws IOException {
 
     }
 
     @Override
-    public void commit(int timestamp, Updates updates) throws IOException {
-
+    public int getSnapshotInProgressWatermark() throws IOException {
+        return 0;
     }
 }

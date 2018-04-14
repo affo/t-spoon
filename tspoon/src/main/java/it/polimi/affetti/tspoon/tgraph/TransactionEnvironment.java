@@ -5,14 +5,19 @@ import it.polimi.affetti.tspoon.tgraph.query.*;
 import it.polimi.affetti.tspoon.tgraph.state.SinglePartitionUpdate;
 import it.polimi.affetti.tspoon.tgraph.twopc.*;
 import org.apache.flink.api.common.functions.MapFunction;
+import org.apache.flink.api.common.restartstrategy.RestartStrategies;
+import org.apache.flink.api.common.time.Time;
 import org.apache.flink.api.java.typeutils.runtime.kryo.JavaSerializer;
+import org.apache.flink.runtime.state.filesystem.FsStateBackend;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.SplitStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.source.SourceFunction;
 import org.apache.flink.util.Preconditions;
 
+import java.io.IOException;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -28,7 +33,7 @@ public class TransactionEnvironment {
     private static TransactionEnvironment instance;
 
     private final StreamExecutionEnvironment streamExecutionEnvironment;
-    private boolean isDurabilityEnabled;
+    private boolean isDurabilityEnabled = false;
     private DataStream<MultiStateQuery> queryStream;
     private SplitStream<SinglePartitionUpdate> spuStream;
     private QueryResultMerger.OnQueryResult onQueryResult = new QueryResultMerger.NOPOnQueryResult();
@@ -138,8 +143,12 @@ public class TransactionEnvironment {
         return useDependencyTracking;
     }
 
-    public void setDurable(boolean durable) {
-        isDurabilityEnabled = durable;
+    public void enableDurability() throws IOException {
+        isDurabilityEnabled = true;
+        streamExecutionEnvironment.enableCheckpointing(10000);
+        streamExecutionEnvironment.setRestartStrategy(RestartStrategies.fixedDelayRestart(
+                60, Time.of(10, TimeUnit.SECONDS)));
+        streamExecutionEnvironment.setStateBackend(new FsStateBackend("file:///tmp/checkpoints"));
     }
 
     public void setSynchronous(boolean synchronous) {

@@ -59,7 +59,6 @@ public class TransferTestDrive {
         tEnv.configIsolation(strategy, isolationLevel);
         tEnv.setUseDependencyTracking(useDependencyTracking);
         tEnv.setSynchronous(synchronous);
-        tEnv.setDurable(durable);
 
         // NEW setting pool size
         tEnv.setStateServerPoolSize(4);

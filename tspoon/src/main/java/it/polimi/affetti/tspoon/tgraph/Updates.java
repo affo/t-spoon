@@ -4,7 +4,9 @@ import org.apache.flink.api.java.tuple.Tuple2;
 
 import java.io.Serializable;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -14,10 +16,17 @@ import java.util.stream.Collectors;
  */
 public class Updates implements Serializable, Cloneable {
     private final Map<Key, Object> updates = new HashMap<>();
+    // view of the namespaces in this update
+    private final Set<String> namespacesInvolved = new HashSet<>();
 
     public void addUpdate(String namespace, String key, Object update) {
         Key k = new Key(namespace, key);
         updates.put(k, update);
+        namespacesInvolved.add(namespace);
+    }
+
+    public boolean isInvolved(String namespace) {
+        return namespacesInvolved.contains(namespace);
     }
 
     @SuppressWarnings("unchecked")
@@ -86,5 +95,20 @@ public class Updates implements Serializable, Cloneable {
         public String toString() {
             return namespace + "." + key;
         }
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+
+        Updates updates1 = (Updates) o;
+
+        return updates != null ? updates.equals(updates1.updates) : updates1.updates == null;
+    }
+
+    @Override
+    public int hashCode() {
+        return updates != null ? updates.hashCode() : 0;
     }
 }

@@ -14,17 +14,12 @@ import java.util.Collections;
  */
 public abstract class AbstractCloseOperatorTransactionCloser {
     protected transient StringClientsCache clients;
-    protected final WALFactory walFactory;
     private transient WAL wal;
 
-    protected AbstractCloseOperatorTransactionCloser(WALFactory walFactory) {
-        this.walFactory = walFactory;
-    }
-
-    public void open() throws Exception {
+    public void open(WAL wal) throws Exception {
         clients = new StringClientsCache();
-        wal = walFactory.getWAL();
-        wal.open();
+        this.wal = wal;
+        this.wal.open();
     }
 
     public void close() throws Exception {
@@ -39,13 +34,13 @@ public abstract class AbstractCloseOperatorTransactionCloser {
      * @param vote
      * @param updates
      */
-    public void writeToWAL(int timestamp, Vote vote, Updates updates) {
-        wal.addEntry(vote, timestamp, updates);
+    public void writeToWAL(int tid, int timestamp, Vote vote, Updates updates) throws IOException {
+        wal.addEntry(new WAL.Entry(vote, tid, timestamp, updates));
     }
 
     public void onMetadata(Metadata metadata) throws Exception {
         applyProtocolOnMetadata(metadata);
-        writeToWAL(metadata.timestamp, metadata.vote, metadata.updates);
+        writeToWAL(metadata.tid, metadata.timestamp, metadata.vote, metadata.updates);
     }
 
     /**

@@ -63,7 +63,7 @@ public abstract class AbstractServer implements Runnable {
     /**
      * Hook on init. Override for custom behaviour.
      */
-    protected void open() {
+    protected void open() throws IOException {
     }
 
     public void init(int listenPort) throws IOException {

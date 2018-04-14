@@ -58,7 +58,6 @@ public class ConsistencyCheck {
         TransactionEnvironment tEnv = TransactionEnvironment.get(env);
         tEnv.configIsolation(strategy, isolationLevel);
         tEnv.setSynchronous(synchronous);
-        tEnv.setDurable(false);
         tEnv.setStateServerPoolSize(Runtime.getRuntime().availableProcessors());
 
         TransferSource transferSource = new TransferSource(numRecords, keySpaceSize, startAmount);

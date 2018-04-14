@@ -34,7 +34,11 @@ public class ObjectClient extends AbstractClient {
         }
     }
 
-    public Object receive() throws IOException, ClassNotFoundException {
-        return in.readUnshared();
+    public Object receive() throws IOException {
+        try {
+            return in.readUnshared();
+        } catch (ClassNotFoundException e) {
+            throw new RuntimeException("Class not found while deserializing message: " + e.getMessage());
+        }
     }
 }

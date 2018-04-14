@@ -12,6 +12,10 @@ public class StandardTransactionsIndex<T> extends TransactionsIndex<T> {
     private Map<Integer, Integer> timestampTidMapping = new HashMap<>();
     private Map<Integer, Set<Integer>> tidTimestampMapping = new HashMap<>();
 
+    public StandardTransactionsIndex(int startIndex) {
+        super(startIndex);
+    }
+
     @Override
     public Integer getTransactionId(int timestamp) {
         return timestampTidMapping.get(timestamp);

@@ -74,12 +74,12 @@ public class TRuntimeContext implements Serializable {
         return subscriptionMode;
     }
 
-    public <T> TransactionsIndex<T> getTransactionsIndex() {
+    public <T> TransactionsIndex<T> getTransactionsIndex(int startIndex) {
         if (getStrategy() == Strategy.OPTIMISTIC && getIsolationLevel() == IsolationLevel.PL4) {
-            return new TidForWatermarkingTransactionsIndex<>();
+            return new TidForWatermarkingTransactionsIndex<>(startIndex);
         }
 
-        return new StandardTransactionsIndex<>();
+        return new StandardTransactionsIndex<>(startIndex);
     }
 
     public void setOpenServerPoolSize(int openServerPoolSize) {
@@ -178,9 +178,9 @@ public class TRuntimeContext implements Serializable {
     // no singleton
     public AbstractCloseOperatorTransactionCloser getSinkTransactionCloser() {
         if (isSynchronous()) {
-            return new SynchronousSinkTransactionCloser(getWALFactory());
+            return new SynchronousSinkTransactionCloser();
         }
 
-        return new AsynchronousSinkTransactionCloser(getWALFactory());
+        return new AsynchronousSinkTransactionCloser();
     }
 }
