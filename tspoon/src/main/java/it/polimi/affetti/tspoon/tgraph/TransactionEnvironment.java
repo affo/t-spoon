@@ -45,7 +45,7 @@ public class TransactionEnvironment {
     // Pool sizes are per TaskManager (e.g. stateServerPoolSize = 4 and 3 TMs => 12 StateServers)
     // Pool sizes defaults to singletons.
     private int stateServerPoolSize = 1, openServerPoolSize = 1, queryServerPoolSize = 1;
-    private boolean synchronous;
+    private boolean synchronous = false;
     private boolean baselineMode;
 
     private int tGraphId = 0;

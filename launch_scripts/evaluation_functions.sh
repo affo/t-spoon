@@ -149,6 +149,11 @@ function launch_flink_wordcount {
     sleep 1
 }
 
+function launch_recovery {
+    launch recovery $RECOVERY_CLASS "${@:1}"
+    sleep 1
+}
+
 ### Builtin suites
 function launch_suite_series_1tg {
     _launch_suite series_1tg noStates 5 --noTG 1 --series true
