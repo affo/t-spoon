@@ -29,6 +29,8 @@ public class QuerySource extends ControlledSource<MultiStateQuery> {
             }
             multiStateQuery.queries.clear();
         } while (!stop && query != null);
+
+        waitForFinish();
     }
 
     @Override

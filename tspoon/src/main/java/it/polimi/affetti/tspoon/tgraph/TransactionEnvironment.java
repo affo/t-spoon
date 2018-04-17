@@ -1,6 +1,7 @@
 package it.polimi.affetti.tspoon.tgraph;
 
 import it.polimi.affetti.tspoon.common.Address;
+import it.polimi.affetti.tspoon.common.ControlledSource;
 import it.polimi.affetti.tspoon.tgraph.query.*;
 import it.polimi.affetti.tspoon.tgraph.state.SinglePartitionUpdate;
 import it.polimi.affetti.tspoon.tgraph.twopc.*;
@@ -12,7 +13,6 @@ import org.apache.flink.runtime.state.filesystem.FsStateBackend;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.SplitStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
-import org.apache.flink.streaming.api.functions.source.SourceFunction;
 import org.apache.flink.util.Preconditions;
 
 import java.io.IOException;
@@ -45,7 +45,7 @@ public class TransactionEnvironment {
     // Pool sizes are per TaskManager (e.g. stateServerPoolSize = 4 and 3 TMs => 12 StateServers)
     // Pool sizes defaults to singletons.
     private int stateServerPoolSize = 1, openServerPoolSize = 1, queryServerPoolSize = 1;
-    private boolean synchronous = false;
+    private boolean synchronous;
     private boolean baselineMode;
 
     private int tGraphId = 0;
@@ -324,11 +324,12 @@ public class TransactionEnvironment {
         }
     }
 
-    private static class EmptySPUSource implements SourceFunction<SinglePartitionUpdate> {
+    private static class EmptySPUSource extends ControlledSource<SinglePartitionUpdate> {
 
         @Override
         public void run(SourceContext<SinglePartitionUpdate> sourceContext) throws Exception {
             // does nothing
+            waitForFinish();
         }
 
         @Override
