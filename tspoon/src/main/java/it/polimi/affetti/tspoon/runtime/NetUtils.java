@@ -22,7 +22,7 @@ public class NetUtils {
     // ensure that singleton servers' base port is at list at the specified distance
     // in order to have more than 1 server in the pool, or to make it possible
     // to have more than 1 TM per machine.
-    public static final int SERVER_POOL_PORT_DISTANCE = 20;
+    public static final int SERVER_POOL_PORT_DISTANCE = 100;
 
     public static final int OPEN_SERVER_PORT = 8000;
     public static final int STATE_SERVER_PORT = OPEN_SERVER_PORT + SERVER_POOL_PORT_DISTANCE;
