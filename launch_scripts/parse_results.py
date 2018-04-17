@@ -28,6 +28,7 @@ class ExperimentResult(object):
             self.throughput_curve = self._results['throughput-curve']
 
             self.latency_min = min([point['value'] for point in self.latency_curve])
+            self.latency_unloaded = self.latency_curve[3]['value'] # the thrid batch
             self.tp_max = self._results['max-throughput-and-latency']['max-throughput']
             self.latency_at_tp_max = self._results['max-throughput-and-latency']['latency-at-max-throughput']
 
@@ -191,6 +192,8 @@ def load_results(folder_name):
         tags = extract_columns(result)
 
         aggregates_df.append([result.latency_at_tp_stable] + tags + ['lat_stable'])
+        aggregates_df.append([result.latency_min] + tags + ['lat_min'])
+        aggregates_df.append([result.latency_unloaded] + tags + ['lat_unloaded'])
         aggregates_df.append([result.tp_max] + tags + ['tp_max'])
         aggregates_df.append([result.tp_stable] + tags + ['tp_stable'])
         if result.experiment_type == 'query':

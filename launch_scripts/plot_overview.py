@@ -25,7 +25,7 @@ if __name__ == '__main__':
         chain = 'CHAIN' if row.tag1 == 'series' else 'PARALLEL'
         single = 'SINGLE' if row.tag2 == '1tg' else 'MULTI'
         tag = chain + '-' + single
-        strategy = 'LB-' if row.strategy == 'PESS' else 'TO-'
+        strategy = 'LB-' if row.strategy == 'PESS' else 'TB-'
         strategy += row.isolationLevel
         s = pd.Series({
             'value': row.value,
@@ -36,57 +36,44 @@ if __name__ == '__main__':
         })
         return s
 
+    aggr = aggr[(aggr.isolationLevel != 'PL0')]
     aggr = aggr[(aggr.tag1 != 'query') & (aggr.tag1 != 'ks')]
     aggr = aggr.apply(fix_columns, axis=1)
 
     # -------- Throughput
     tp = aggr[aggr.tplat == 'tp_stable'].sort_values('var')
 
-    fig, axarr = plt.subplots(1, 4, sharey=True, sharex=True, figsize=(7.5, 7.5))
-    slot = 0
+    i = 0
     for typee, group in tp.groupby('type'):
-        ax = axarr[slot]
-        ax.set_title(str(typee))
+        fig, ax = plt.subplots()
 
         for strategy, grp in group.groupby('strategy'):
             grp.plot(ax=ax, kind='line', x='var', y='value', label=strategy)
 
-        #ax.set_ylim(min=0)
+        ax.set_ylim((0, 8000))
         ax.margins(y=0.1)
+        ax.set_xticks(range(1, 6))
         ax.set_ylabel('sustainable throughput [tr/s]')
-        ax.set_xlabel(' ')
-        #ax.set_xscale('log')
-        #plt.gca().invert_xaxis()
+        ax.set_xlabel('number of states/t-graphs')
 
-        if slot > 0:
-            ax.get_legend().set_visible(False)
-
-        slot += 1
-
-    savefig('topologies_overview_tp', fig)
+        i += 1
+        savefig('topologies_' + typee.lower() + '_tp', fig)
 
     # -------- Latency
-    lat = aggr[aggr.tplat == 'lat_stable'].sort_values('var')
+    lat = aggr[aggr.tplat == 'lat_unloaded'].sort_values('var')
 
-    fig, axarr = plt.subplots(1, 4, sharey=True, sharex=True, figsize=(7.5, 7.5))
-    slot = 0
+    i = 0
     for typee, group in lat.groupby('type'):
-        ax = axarr[slot]
-        ax.set_title(str(typee))
+        fig, ax = plt.subplots()
 
         for strategy, grp in group.groupby('strategy'):
             grp.plot(ax=ax, kind='line', x='var', y='value', label=strategy)
 
-        #ax.set_ylim(min=0)
+        ax.set_ylim((0, 50))
         ax.margins(y=0.1)
+        ax.set_xticks(range(1, 6))
         ax.set_ylabel('average latency [ms]')
-        ax.set_xlabel(' ')
-        #ax.set_xscale('log')
-        #plt.gca().invert_xaxis()
+        ax.set_xlabel('number of states/t-graphs')
 
-        if slot > 0:
-            ax.get_legend().set_visible(False)
-
-        slot += 1
-
-    savefig('topologies_overview_lat', fig)
+        i += 1
+        savefig('topologies_' + typee.lower() + '_lat', fig)
