@@ -145,7 +145,7 @@ public class TransactionEnvironment {
 
     public void enableDurability() throws IOException {
         isDurabilityEnabled = true;
-        streamExecutionEnvironment.enableCheckpointing(10000);
+        streamExecutionEnvironment.enableCheckpointing(60000);
         streamExecutionEnvironment.setRestartStrategy(RestartStrategies.fixedDelayRestart(
                 60, Time.of(10, TimeUnit.SECONDS)));
         streamExecutionEnvironment.setStateBackend(new FsStateBackend("file:///tmp/checkpoints"));
