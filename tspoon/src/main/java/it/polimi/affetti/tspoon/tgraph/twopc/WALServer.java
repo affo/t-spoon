@@ -53,7 +53,7 @@ public class WALServer extends AbstractServer {
 
     private synchronized void addEntry(WAL.Entry entry) throws IOException {
         currentWAL.addEntry(entry);
-        if (snapshotInProgress & entry.timestamp > temporaryWatermark) {
+        if (snapshotInProgress && entry.timestamp > temporaryWatermark) {
             temporaryWAL.addEntry(entry);
         }
     }

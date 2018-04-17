@@ -39,8 +39,8 @@ public abstract class AbstractCloseOperatorTransactionCloser {
     }
 
     public void onMetadata(Metadata metadata) throws Exception {
+        writeToWAL(metadata.tid, metadata.timestamp, metadata.vote, metadata.updates); // write before applying protocol
         applyProtocolOnMetadata(metadata);
-        writeToWAL(metadata.tid, metadata.timestamp, metadata.vote, metadata.updates);
     }
 
     /**

@@ -46,6 +46,7 @@ public class Updates implements Serializable, Cloneable {
     public Updates clone() {
         Updates cloned = new Updates();
         cloned.updates.putAll(this.updates);
+        cloned.namespacesInvolved.addAll(namespacesInvolved);
         return cloned;
     }
 
@@ -58,6 +59,7 @@ public class Updates implements Serializable, Cloneable {
      */
     public void merge(Updates other) {
         updates.putAll(other.updates);
+        namespacesInvolved.addAll(other.namespacesInvolved);
     }
 
     @Override
