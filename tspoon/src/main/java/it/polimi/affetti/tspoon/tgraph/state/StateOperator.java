@@ -3,6 +3,7 @@ package it.polimi.affetti.tspoon.tgraph.state;
 import it.polimi.affetti.tspoon.common.Address;
 import it.polimi.affetti.tspoon.common.SafeCollector;
 import it.polimi.affetti.tspoon.common.TaskExecutor;
+import it.polimi.affetti.tspoon.metrics.MetricAccumulator;
 import it.polimi.affetti.tspoon.runtime.NetUtils;
 import it.polimi.affetti.tspoon.tgraph.*;
 import it.polimi.affetti.tspoon.tgraph.db.Object;
@@ -47,6 +48,7 @@ public abstract class StateOperator<T, V>
     protected final TRuntimeContext tRuntimeContext;
 
     private IntCounter inconsistenciesPrevented = new IntCounter();
+    private MetricAccumulator recoveryTime = new MetricAccumulator();
 
     protected transient SafeCollector<T> collector;
     private transient AbstractStateOperatorTransactionCloser transactionCloser;
@@ -90,7 +92,15 @@ public abstract class StateOperator<T, V>
             shard.setDeferredReadsListener(this);
         }
 
+        if (tRuntimeContext.isDurabilityEnabled()) {
+            getRuntimeContext().addAccumulator("recovery-time", recoveryTime);
+        }
+
+        long start = System.nanoTime();
         initState();
+        double delta = (System.nanoTime() - start) / Math.pow(10, 6); // ms
+        recoveryTime.add(delta);
+
 
         collector = new SafeCollector<>(output);
 
