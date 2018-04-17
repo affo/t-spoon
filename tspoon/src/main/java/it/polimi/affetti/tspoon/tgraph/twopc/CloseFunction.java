@@ -11,6 +11,7 @@ import org.apache.flink.runtime.state.FunctionInitializationContext;
 import org.apache.flink.runtime.state.FunctionSnapshotContext;
 import org.apache.flink.streaming.api.checkpoint.CheckpointedFunction;
 import org.apache.flink.util.Collector;
+import org.apache.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -21,6 +22,7 @@ import java.util.List;
  */
 public class CloseFunction extends RichFlatMapFunction<Metadata, TransactionResult>
         implements CheckpointedFunction {
+    private transient Logger LOG;
     private TRuntimeContext tRuntimeContext;
     private transient WAL wal;
     private transient AbstractCloseOperatorTransactionCloser transactionCloser;
@@ -38,6 +40,8 @@ public class CloseFunction extends RichFlatMapFunction<Metadata, TransactionResu
     @Override
     public void open(Configuration parameters) throws Exception {
         super.open(parameters);
+        LOG = Logger.getLogger(getClass().getSimpleName());
+
         ParameterTool parameterTool = (ParameterTool)
                 getRuntimeContext().getExecutionConfig().getGlobalJobParameters();
 
@@ -100,6 +104,7 @@ public class CloseFunction extends RichFlatMapFunction<Metadata, TransactionResu
     @Override
     public void snapshotState(FunctionSnapshotContext functionSnapshotContext) throws Exception {
         wal.commitSnapshot();
+        LOG.info("committing snapshot");
     }
 
     @Override

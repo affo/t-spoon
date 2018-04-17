@@ -14,10 +14,10 @@ import java.util.function.Supplier;
  * Created by affo on 25/01/17.
  */
 public class NetUtils {
-    public static final int JOB_CONTROL_PORT = 3000;
-    public static final int WAL_SERVER_PORT = 4000;
+    public static final int JOB_CONTROL_PORT = 1234;
+    public static final int WAL_SERVER_PORT = 1235;
     public static final int MIN_PORT = 9000;
-    public static final int MAX_PORT = 10000;
+    public static final int MAX_PORT = 50000;
 
     // ensure that singleton servers' base port is at list at the specified distance
     // in order to have more than 1 server in the pool, or to make it possible

@@ -48,6 +48,7 @@ public abstract class StateOperator<T, V>
     protected final TRuntimeContext tRuntimeContext;
 
     private IntCounter inconsistenciesPrevented = new IntCounter();
+    private MetricAccumulator numberOfWalEntriesReplayed = new MetricAccumulator();
     private MetricAccumulator recoveryTime = new MetricAccumulator();
 
     protected transient SafeCollector<T> collector;
@@ -94,12 +95,14 @@ public abstract class StateOperator<T, V>
 
         if (tRuntimeContext.isDurabilityEnabled()) {
             getRuntimeContext().addAccumulator("recovery-time", recoveryTime);
+            getRuntimeContext().addAccumulator("number-of-wal-entries-replayed", numberOfWalEntriesReplayed);
         }
 
         long start = System.nanoTime();
-        initState();
+        int numberOfWalEntries = initState();
         double delta = (System.nanoTime() - start) / Math.pow(10, 6); // ms
         recoveryTime.add(delta);
+        numberOfWalEntriesReplayed.add((double) numberOfWalEntries);
 
 
         collector = new SafeCollector<>(output);
@@ -250,6 +253,7 @@ public abstract class StateOperator<T, V>
     // --------------------------------------- State Recovery & Snapshotting ---------------------------------------
 
     private ListState<Map<String, V>> snapshot;
+    private ListState<Integer> watermark;
 
     /**
      * Stream operators with state, which want to participate in a snapshot need to override this hook method.
@@ -262,9 +266,14 @@ public abstract class StateOperator<T, V>
         super.snapshotState(context);
 
         int wm = wal.getSnapshotInProgressWatermark();
+        this.watermark.clear();
+        this.watermark.add(wm);
+
         Map<String, V> snapshot = shard.getConsistentSnapshot(wm);
         this.snapshot.clear();
         this.snapshot.add(snapshot);
+
+        LOG.info("Snapshot with WM " + wm + " taken");
     }
 
     /**
@@ -282,6 +291,8 @@ public abstract class StateOperator<T, V>
         // recover snapshot
         snapshot = context.getOperatorStateStore().getListState(
                 new ListStateDescriptor<>("snapshot", stateType));
+        watermark = context.getOperatorStateStore().getListState(
+                new ListStateDescriptor<>("watermark", Integer.class));
     }
 
     /**
@@ -289,30 +300,44 @@ public abstract class StateOperator<T, V>
      * If not restoring, then the snapshot and the WAL are empty.
      *
      * @throws Exception
+     * @return number of entries replayed by the wal
      */
-    private void initState() throws Exception {
+    private int initState() throws Exception {
         Map<String, V> snapshot = null;
 
         for (Map<String, V> snap : this.snapshot.get()) {
             snapshot = snap;
         }
 
+        Integer wm = -1;
+        for (Integer w : watermark.get()) {
+            wm = w;
+        }
+
+
         if (snapshot != null) {
             shard.installSnapshot(snapshot);
+            LOG.info("Init state: snapshot installed [wm: " + wm + "]");
         }
 
         // replay WAL
+        int numberOfEntries = 0;
         Iterator<WAL.Entry> walIterator = wal.replay(nameSpace);
         while (walIterator.hasNext()) {
             WAL.Entry entry = walIterator.next();
-            if (entry.vote == Vote.COMMIT) {
+            if (entry.vote == Vote.COMMIT && entry.timestamp > wm) {
                 Map<String, java.lang.Object> myUpdates = entry.updates.getUpdatesFor(nameSpace);
                 for (Map.Entry<String, java.lang.Object> update : myUpdates.entrySet()) {
                     shard.recover(update.getKey(), (V) update.getValue());
                 }
+
+                numberOfEntries++;
             }
         }
 
+        LOG.info("Init state: WAL Replayed");
         shard.signalRecoveryComplete();
+
+        return numberOfEntries;
     }
 }

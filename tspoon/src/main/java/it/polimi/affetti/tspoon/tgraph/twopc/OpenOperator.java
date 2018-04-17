@@ -361,7 +361,10 @@ public class OpenOperator<T>
             startTid.add(transactionsIndex.getCurrentTid());
 
             // save watermark for snapshotting at state operators
-            wal.startSnapshot(transactionsIndex.getCurrentWatermark());
+            int currentWatermark = transactionsIndex.getCurrentWatermark();
+            wal.startSnapshot(currentWatermark);
+
+            LOG.info("Snapshot started [wm: " + currentWatermark + "]");
         }
     }
 
@@ -375,5 +378,7 @@ public class OpenOperator<T>
         for (Integer tid : startTid.get()) {
             restoredTid = tid;
         }
+
+        LOG.info("Restored tid: " + restoredTid);
     }
 }
