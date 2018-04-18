@@ -7,6 +7,7 @@ import it.polimi.affetti.tspoon.tgraph.twopc.WALClient;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Created by affo on 29/07/17.
@@ -21,7 +22,7 @@ public class SimulateRecovery {
         List<WAL.Entry> entries = new ArrayList<>();
 
         long start = System.nanoTime();
-        Iterator<WAL.Entry> replayed = wal.replay("balances");
+        Iterator<WAL.Entry> replayed = wal.replay("balances-0");
         while (replayed.hasNext()) {
             WAL.Entry next = replayed.next();
             entries.add(next);
@@ -29,7 +30,8 @@ public class SimulateRecovery {
         double delta = (System.nanoTime() - start) / Math.pow(10, 6);
 
         for (WAL.Entry entry : entries) {
-            System.out.println(entry);
+            Map<String, Object> updates = entry.updates.getUpdatesFor("balances", 0);
+            System.out.println(updates);
         }
 
         int wm = wal.getSnapshotInProgressWatermark();

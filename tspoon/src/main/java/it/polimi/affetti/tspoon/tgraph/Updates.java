@@ -1,5 +1,6 @@
 package it.polimi.affetti.tspoon.tgraph;
 
+import it.polimi.affetti.tspoon.tgraph.state.StateOperator;
 import org.apache.flink.api.java.tuple.Tuple2;
 
 import java.io.Serializable;
@@ -7,6 +8,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 /**
@@ -30,16 +32,32 @@ public class Updates implements Serializable, Cloneable {
     }
 
     @SuppressWarnings("unchecked")
-    public <T> T getUpdate(String namespace, String key) {
-        return (T) updates.get(new Key(namespace, key));
+    public <T> Map<String, T> getUpdatesFor(String namespace, int shardID) {
+        Predicate<Map.Entry<Key, Object>> filterFunction;
+        if (shardID > 0) {
+            String finalNamespace = String.format(StateOperator.SHARD_ID_FORMAT, namespace, shardID);
+            filterFunction = e -> e.getKey().namespace.equals(finalNamespace);
+        } else {
+            filterFunction = e -> {
+                String key = e.getKey().namespace;
+                if (key.contains(StateOperator.SHARD_ID_SEPARATOR)) {
+                    return key.split(StateOperator.SHARD_ID_SEPARATOR)[0].equals(namespace);
+                }
+
+                return key.equals(namespace);
+            };
+        }
+
+
+        return updates.entrySet().stream()
+                .filter(filterFunction)
+                .map(entry -> Tuple2.of(entry.getKey().key, (T) entry.getValue()))
+                .collect(Collectors.toMap(t -> t.f0, t -> t.f1));
     }
 
     @SuppressWarnings("unchecked")
     public <T> Map<String, T> getUpdatesFor(String namespace) {
-        return updates.entrySet().stream()
-                .filter(entry -> entry.getKey().namespace.equals(namespace))
-                .map(entry -> Tuple2.of(entry.getKey().key, (T) entry.getValue()))
-                .collect(Collectors.toMap(t -> t.f0, t -> t.f1));
+        return getUpdatesFor(namespace, -1);
     }
 
     @Override

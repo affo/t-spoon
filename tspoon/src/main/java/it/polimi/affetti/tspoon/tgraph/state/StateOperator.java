@@ -36,13 +36,19 @@ public abstract class StateOperator<T, V>
         extends AbstractStreamOperator<Enriched<T>>
         implements TwoInputStreamOperator<Enriched<T>, NoConsensusOperation, Enriched<T>>,
         StateOperatorTransactionCloseListener, Object.DeferredReadListener {
+    public static final String SHARD_ID_SEPARATOR = "-";
+    public static final String SHARD_ID_FORMAT = "%s" + SHARD_ID_SEPARATOR + "%d";
+
     protected final int tGraphID;
     protected final String nameSpace;
+    //protected final String snapshotShardID;
     public final OutputTag<QueryResult> queryResultTag = new OutputTag<QueryResult>("queryResult") {
     };
     public final OutputTag<TransactionResult> singlePartitionTag = new OutputTag<TransactionResult>("singlePartition") {
     };
     protected transient Shard<V> shard;
+    protected int taskID;
+    protected String shardID;
     protected final StateFunction<T, V> stateFunction;
     protected final KeySelector<T, String> keySelector;
     protected final TRuntimeContext tRuntimeContext;
@@ -55,6 +61,11 @@ public abstract class StateOperator<T, V>
     private transient AbstractStateOperatorTransactionCloser transactionCloser;
     private transient TaskExecutor singlePartitionOperationExecutor;
     private transient WAL wal;
+
+    // Snapshotted state
+    private ListState<Integer> snapshotShardID; // preserve the matching snapshotShardID-snapshot
+    private ListState<Integer> snapshotTimestamp; // preserve the matching watermark-snapshot
+    private ListState<Map<String, V>> snapshot;
 
     public StateOperator(
             int tGraphID,
@@ -74,17 +85,32 @@ public abstract class StateOperator<T, V>
         super.open();
         ParameterTool parameterTool = (ParameterTool)
                 getRuntimeContext().getExecutionConfig().getGlobalJobParameters();
-        // TODO by default, we disable version compaction (for now...).
+
+        // -------------------- Init state
+        // NOTE by default, we disable version compaction (for now...).
         int maxNumberOfVersions = parameterTool.getInt("maxNoVersions", Integer.MAX_VALUE);
 
-        int taskNumber = getRuntimeContext().getIndexOfThisSubtask();
+        int shardIDSize = 0;
+        for (Integer taskID : snapshotShardID.get()) {
+            this.taskID = taskID;
+            shardIDSize++;
+        }
+
+        if (shardIDSize > 1) {
+            throw new RuntimeException("The topology probably downscaled: this is forbidden for transaction environment");
+        }
+
+        if (shardIDSize == 0) {
+            this.taskID = getRuntimeContext().getIndexOfThisSubtask();
+        }
+        this.shardID = String.format(StateOperator.SHARD_ID_FORMAT, nameSpace, taskID);
         int numberOfTasks = getRuntimeContext().getNumberOfParallelSubtasks();
 
         wal = tRuntimeContext.getWALFactory().getWAL(parameterTool);
         wal.open();
 
         shard = new Shard<>(
-                nameSpace, taskNumber, numberOfTasks, maxNumberOfVersions,
+                nameSpace, taskID, numberOfTasks, maxNumberOfVersions,
                 tRuntimeContext.getIsolationLevel().gte(IsolationLevel.PL2), wal,
                 ObjectFunction.fromStateFunction(stateFunction));
 
@@ -105,9 +131,10 @@ public abstract class StateOperator<T, V>
         numberOfWalEntriesReplayed.add((double) numberOfWalEntries);
 
 
+        // -------------------- Init stuff for execution and collecting
         collector = new SafeCollector<>(output);
 
-        transactionCloser = tRuntimeContext.getAtStateTransactionCloser(taskNumber);
+        transactionCloser = tRuntimeContext.getAtStateTransactionCloser(taskID);
         transactionCloser.open();
 
         if (tRuntimeContext.getSubscriptionMode() == AbstractTwoPCParticipant.SubscriptionMode.GENERIC) {
@@ -246,14 +273,11 @@ public abstract class StateOperator<T, V>
         if (record.metadata.vote == Vote.COMMIT &&
                 tRuntimeContext.isDurabilityEnabled() && !tRuntimeContext.isSynchronous()) {
             V version = transaction.getVersion(key);
-            record.metadata.addUpdate(nameSpace, key, version);
+            record.metadata.addUpdate(shardID, key, version); // save the partition in the namespace for later recovery
         }
     }
 
     // --------------------------------------- State Recovery & Snapshotting ---------------------------------------
-
-    private ListState<Map<String, V>> snapshot;
-    private ListState<Integer> watermark;
 
     /**
      * Stream operators with state, which want to participate in a snapshot need to override this hook method.
@@ -266,12 +290,15 @@ public abstract class StateOperator<T, V>
         super.snapshotState(context);
 
         int wm = wal.getSnapshotInProgressWatermark();
-        this.watermark.clear();
-        this.watermark.add(wm);
+        this.snapshotTimestamp.clear();
+        this.snapshotTimestamp.add(wm);
 
         Map<String, V> snapshot = shard.getConsistentSnapshot(wm);
         this.snapshot.clear();
         this.snapshot.add(snapshot);
+
+        this.snapshotShardID.clear();
+        this.snapshotShardID.add(taskID);
 
         LOG.info("Snapshot with WM " + wm + " taken");
     }
@@ -291,8 +318,10 @@ public abstract class StateOperator<T, V>
         // recover snapshot
         snapshot = context.getOperatorStateStore().getListState(
                 new ListStateDescriptor<>("snapshot", stateType));
-        watermark = context.getOperatorStateStore().getListState(
-                new ListStateDescriptor<>("watermark", Integer.class));
+        snapshotTimestamp = context.getOperatorStateStore().getListState(
+                new ListStateDescriptor<>("snapshotTimestamp", Integer.class));
+        snapshotShardID = context.getOperatorStateStore().getListState(
+                new ListStateDescriptor<>("snapshotShardID", Integer.class));
     }
 
     /**
@@ -310,7 +339,7 @@ public abstract class StateOperator<T, V>
         }
 
         Integer wm = -1;
-        for (Integer w : watermark.get()) {
+        for (Integer w : snapshotTimestamp.get()) {
             wm = w;
         }
 
@@ -322,11 +351,11 @@ public abstract class StateOperator<T, V>
 
         // replay WAL
         int numberOfEntries = 0;
-        Iterator<WAL.Entry> walIterator = wal.replay(nameSpace);
+        Iterator<WAL.Entry> walIterator = wal.replay(shardID); // replay only the records for this partition
         while (walIterator.hasNext()) {
             WAL.Entry entry = walIterator.next();
             if (entry.vote == Vote.COMMIT && entry.timestamp > wm) {
-                Map<String, java.lang.Object> myUpdates = entry.updates.getUpdatesFor(nameSpace);
+                Map<String, java.lang.Object> myUpdates = entry.updates.getUpdatesFor(nameSpace, taskID);
                 for (Map.Entry<String, java.lang.Object> update : myUpdates.entrySet()) {
                     shard.recover(update.getKey(), (V) update.getValue());
                 }

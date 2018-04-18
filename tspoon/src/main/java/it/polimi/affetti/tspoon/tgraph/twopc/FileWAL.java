@@ -1,5 +1,7 @@
 package it.polimi.affetti.tspoon.tgraph.twopc;
 
+import it.polimi.affetti.tspoon.tgraph.Vote;
+
 import java.io.*;
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -52,7 +54,8 @@ public class FileWAL {
             while (true) {
                 try {
                     WAL.Entry e = (WAL.Entry) in.readObject();
-                    if (e.updates != null && (namespace == null || e.updates.isInvolved(namespace))) {
+                    if (e.vote == Vote.COMMIT
+                            && e.updates != null && (namespace == null || e.updates.isInvolved(namespace))) {
                         entries.add(e);
                     }
                 } catch (EOFException eof) {
