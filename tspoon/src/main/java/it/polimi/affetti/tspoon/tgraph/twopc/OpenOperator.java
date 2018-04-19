@@ -46,7 +46,7 @@ public class OpenOperator<T>
 
     private final int tGraphID;
     private int lastCommittedWatermark = 0;
-    private int restoredTid = -1;
+    private int restoredTid = 0;
     private Set<Integer> intraEpochTids = new HashSet<>(); // to discard WALled tnxs
     // TODO temporarly avoiding log ordering
     //protected transient InOrderSideCollector<T, Tuple2<Long, Vote>> collector;
