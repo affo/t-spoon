@@ -263,15 +263,12 @@ public abstract class StateOperator<T, V>
      * It expects a record that is ready for collection (dependency tracking done and merged vote) and a transaction
      * that has already registered updates (versions) for key `key`.
      *
-     * It produces some side-effect only in the case that the record is committing, durability is enabled and we
-     * are using the ASYNCH protocol (SYNCH protocol gathers updates onSinkACK).
      * @param key
      * @param record
      * @param transaction
      */
     protected void decorateRecordWithUpdates(String key, Enriched<T> record, Transaction<V> transaction) {
-        if (record.metadata.vote == Vote.COMMIT &&
-                tRuntimeContext.isDurabilityEnabled() && !tRuntimeContext.isSynchronous()) {
+        if (record.metadata.vote == Vote.COMMIT) {
             V version = transaction.getVersion(key);
             record.metadata.addUpdate(shardID, key, version); // save the partition in the namespace for later recovery
         }

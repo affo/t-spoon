@@ -48,7 +48,6 @@ public class Updates implements Serializable, Cloneable {
             };
         }
 
-
         return updates.entrySet().stream()
                 .filter(filterFunction)
                 .map(entry -> Tuple2.of(entry.getKey().key, (T) entry.getValue()))
@@ -64,7 +63,7 @@ public class Updates implements Serializable, Cloneable {
     public Updates clone() {
         Updates cloned = new Updates();
         cloned.updates.putAll(this.updates);
-        cloned.namespacesInvolved.addAll(namespacesInvolved);
+        cloned.namespacesInvolved.addAll(this.namespacesInvolved);
         return cloned;
     }
 
