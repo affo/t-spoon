@@ -1,0 +1,4 @@
+# Example file for startInputRates, if not stated, the default is 1000
+parallel_1tg_4.TB.PL3=2500
+series_ntg_3.LB.PL4=1000
+keyspace_1000.LB.PL4=500

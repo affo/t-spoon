@@ -64,7 +64,7 @@ public class BuyProducts {
         tEnv.setStateServerPoolSize(Runtime.getRuntime().availableProcessors());
 
         PurchaseSource purchaseSource = new PurchaseSource(
-                startInputRate, resolution, batchSize, TRANSACTION_TRACKING_SERVER_NAME);
+                startInputRate, resolution, batchSize, 1, TRANSACTION_TRACKING_SERVER_NAME);
         DataStream<PurchaseID> purchaseIds = env.addSource(purchaseSource).name("PurchaseIDSource");
         DataStream<Purchase> purchases = purchaseIds.map(new ToPurchase()).name("ToPurchases");
 
@@ -98,10 +98,9 @@ public class BuyProducts {
                     Purchase original = (Purchase) tr.f2;
                     return original.id;
                 }).returns(PurchaseID.class)
-                .addSink(new FinishOnBackPressure<>(
-                        0.25, batchSize, startInputRate,
+                .addSink(new MetricCalculator<>(batchSize, startInputRate,
                         resolution, -1, TRANSACTION_TRACKING_SERVER_NAME))
-                .name("FinishOnBackPressure")
+                .name("MetricCalculator")
                 .setParallelism(1);
 
 
@@ -327,9 +326,9 @@ public class BuyProducts {
 
     private static class PurchaseSource extends TunableSource<PurchaseID> {
 
-        public PurchaseSource(int baseRate, int resolution, int batchSize,
+        public PurchaseSource(int baseRate, int resolution, int batchSize, int backPressureThreshold,
                               String trackingServerNameForDiscovery) {
-            super(baseRate, resolution, batchSize, trackingServerNameForDiscovery);
+            super(baseRate, resolution, batchSize, backPressureThreshold, trackingServerNameForDiscovery);
         }
 
         @Override

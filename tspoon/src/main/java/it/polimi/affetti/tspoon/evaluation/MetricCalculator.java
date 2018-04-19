@@ -17,7 +17,7 @@ import java.util.Map;
 /**
  * Created by affo on 07/12/17.
  */
-public class FinishOnBackPressure<T extends UniquelyRepresentableForTracking> extends RichSinkFunction<T> {
+public class MetricCalculator<T extends UniquelyRepresentableForTracking> extends RichSinkFunction<T> {
     public static final String THROUGHPUT_CURVE_ACC = "throughput-curve";
     public static final String LATENCY_CURVE_ACC = "latency-curve";
     public static final String MAX_TP_AND_LATENCY_ACC = "max-throughput-and-latency";
@@ -25,10 +25,9 @@ public class FinishOnBackPressure<T extends UniquelyRepresentableForTracking> ex
 
     private transient JobControlClient jobControlClient;
     private final String trackingServerName;
-    private int countStart, countEnd, batchNumber;
+    private int countStart, countEnd, batchNumber, skipFirst, realBatchSize;
     private final int batchSize, resolution, maxNumberOfBatches;
     public int expectedInputRate;
-    private final double errorPercentage;
     private final MetricCurveAccumulator throughputCurve, latencyCurve;
     private TimeDelta currentLatency;
     private Throughput currentInputRate, currentThroughput;
@@ -40,16 +39,13 @@ public class FinishOnBackPressure<T extends UniquelyRepresentableForTracking> ex
      */
     private transient WithServer requestTracker;
 
-    public FinishOnBackPressure(double errorPercentage, int batchSize, int startInputRate,
-                                int resolution, int maxNumberOfBatches, String trackingServerName) {
-        if (errorPercentage < 0 || errorPercentage >= 1) {
-            throw new IllegalArgumentException("Error Percentage must be a percentage: " + errorPercentage);
-        }
-
+    public MetricCalculator(int batchSize, int startInputRate,
+                            int resolution, int maxNumberOfBatches, String trackingServerName) {
         this.trackingServerName = trackingServerName;
         this.resolution = resolution;
-        this.errorPercentage = errorPercentage;
         this.batchSize = batchSize;
+        this.skipFirst = (int) (batchSize * (TunableSource.DISCARD_PERCENTAGE));
+        this.realBatchSize = batchSize - skipFirst;
         this.maxNumberOfBatches = maxNumberOfBatches >= 1 ? maxNumberOfBatches : Integer.MAX_VALUE;
         this.throughputCurve = new MetricCurveAccumulator();
         this.latencyCurve = new MetricCurveAccumulator();
@@ -106,6 +102,7 @@ public class FinishOnBackPressure<T extends UniquelyRepresentableForTracking> ex
     }
 
     private synchronized void start(String id) {
+        // no need to skip here, because the source doesn't send any record for latency tracking
         if (countStart == 0) {
             currentThroughput.open();
             currentInputRate.open();
@@ -114,28 +111,35 @@ public class FinishOnBackPressure<T extends UniquelyRepresentableForTracking> ex
         countStart++;
         currentLatency.start(id);
 
-        if (countStart % batchSize == 0) {
-            currentInputRate.close(batchSize);
+        if (countStart % realBatchSize == 0) {
+            currentInputRate.close(realBatchSize);
         }
 
         tryClose();
     }
 
     private synchronized void end(T id) {
+        countEnd++;
+
+        if (countEnd < skipFirst) {
+            // skip the first record sent and not track them
+            return;
+        }
+
         currentLatency.end(id.getUniqueRepresentation());
 
         if (countStart == 0) {
             currentThroughput.open();
         }
 
-        countEnd++;
-
         tryClose();
     }
 
     private void tryClose() {
-        if (countStart == batchSize && countEnd == batchSize) {
-            currentThroughput.close(batchSize);
+        // the countStart doesn't count for skipped records
+        // the countEnd counts every record
+        if (countStart == realBatchSize && countEnd == batchSize) {
+            currentThroughput.close(realBatchSize);
             closeBatch();
         }
     }
@@ -157,20 +161,8 @@ public class FinishOnBackPressure<T extends UniquelyRepresentableForTracking> ex
         LOG.info("Batch of " + batchSize + " records @ " + averageInputRate + "[records/sec] closed: " +
                 "avgThroughput: " + currentAverageThroughput + ", avgLatency: " + currentLatency.getMeanValue());
 
-        boolean finish = false;
         if (batchNumber == maxNumberOfBatches) {
             LOG.info("Maximum number of batches reached: " + batchNumber);
-            finish = true;
-        }
-
-        if (averageInputRate - currentAverageThroughput > averageInputRate * errorPercentage) {
-            LOG.info("Actual input rate is far from throughput: ([actual] " + averageInputRate +
-                    ", [throughput] " + currentAverageThroughput +
-                    ", [tolerance]" + errorPercentage + "), finishing job.");
-            finish = true;
-        }
-
-        if (finish) {
             jobControlClient.publishFinishMessage();
             return;
         }

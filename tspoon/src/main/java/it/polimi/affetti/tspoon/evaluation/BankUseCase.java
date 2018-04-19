@@ -17,6 +17,7 @@ import it.polimi.affetti.tspoon.tgraph.twopc.OpenStream;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.streaming.api.TimeCharacteristic;
 import org.apache.flink.streaming.api.datastream.DataStream;
+import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 
 import java.util.Arrays;
@@ -87,10 +88,10 @@ public class BankUseCase {
                 nameSpace, Transfer.KEY_PREFIX, keySpaceSize, startAmount
         );
         TunableSource.TunableSPUSource tunableSPUSource = new TunableSource.TunableSPUSource(
-                startInputRate, resolution, batchSize, SPU_TRACKING_SERVER_NAME, spuSupplier
+                startInputRate, resolution, batchSize, 1, SPU_TRACKING_SERVER_NAME, spuSupplier
         );
 
-        DataStream<SinglePartitionUpdate> spuStream = env.addSource(tunableSPUSource)
+        SingleOutputStreamOperator<SinglePartitionUpdate> spuStream = env.addSource(tunableSPUSource)
                 .name("TunableSPUSource");
 
         tEnv.enableSPUpdates(spuStream);
@@ -108,14 +109,13 @@ public class BankUseCase {
 
         DataStream<TransactionResult> output = tEnv.close(balances.leftUnchanged);
 
-        // every TunableSource requires a FinishOnBackPressure...
+        // every TunableSource requires a MetricCalculator...
         balances.spuResults
                 .map(tr -> ((SinglePartitionUpdate) tr.f2).id).returns(SinglePartitionUpdateID.class)
                 .addSink(
-                        new FinishOnBackPressure<>(
-                                0.25, batchSize, startInputRate,
+                        new MetricCalculator<>(batchSize, startInputRate,
                                 resolution, -1, SPU_TRACKING_SERVER_NAME))
-                .name("FinishOnBackPressure")
+                .name("MetricCalculator")
                 .setParallelism(1);
 
         if (consistencyCheck) {

@@ -11,6 +11,7 @@ import org.apache.flink.api.common.time.Time;
 import org.apache.flink.api.java.typeutils.runtime.kryo.JavaSerializer;
 import org.apache.flink.runtime.state.filesystem.FsStateBackend;
 import org.apache.flink.streaming.api.datastream.DataStream;
+import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.datastream.SplitStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.util.Preconditions;
@@ -50,6 +51,8 @@ public class TransactionEnvironment {
 
     private int tGraphId = 0;
     private Map<Integer, DataStream<TransactionResult>> spuResultsPerTGraph = new HashMap<>();
+    private String sourcesSharingGroup = "default";
+    private int sourcesParallelism;
 
     private TransactionEnvironment(StreamExecutionEnvironment env) {
         this.streamExecutionEnvironment = env;
@@ -59,6 +62,7 @@ public class TransactionEnvironment {
         if (instance == null) {
             instance = new TransactionEnvironment(env);
             instance.registerCustomSerializers();
+            instance.sourcesParallelism = env.getParallelism();
         }
         return instance;
     }
@@ -82,11 +86,19 @@ public class TransactionEnvironment {
 
         QuerySource querySource = new QuerySource();
         querySource.setQuerySupplier(querySupplier);
-        this.queryStream = streamExecutionEnvironment.addSource(querySource).name("QuerySource");
+        this.queryStream = streamExecutionEnvironment
+                .addSource(querySource)
+                .name("QuerySource")
+                .slotSharingGroup(sourcesSharingGroup)
+                .setParallelism(sourcesParallelism);
     }
 
-    public void enableSPUpdates(DataStream<SinglePartitionUpdate> spuStream) {
+    public void enableSPUpdates(SingleOutputStreamOperator<SinglePartitionUpdate> spuStream) {
         Preconditions.checkState(this.spuStream == null, "Cannot enable querying more than once");
+
+        spuStream = spuStream
+                .slotSharingGroup(sourcesSharingGroup)
+                .setParallelism(sourcesParallelism);
 
         this.spuStream = spuStream.split(spu -> Collections.singleton(spu.nameSpace));
     }
@@ -195,6 +207,26 @@ public class TransactionEnvironment {
         return baselineMode;
     }
 
+    /**
+     *
+     * @param sourcesSharingGroup "default" if no separation
+     * @param sourcePar <= 0 if you want to preserve global setting
+     */
+    public void setSourcesSharingGroup(String sourcesSharingGroup, int sourcePar) {
+        this.sourcesSharingGroup = sourcesSharingGroup;
+        if (sourcePar > 0) {
+            this.sourcesParallelism = sourcePar;
+        }
+    }
+
+    public int getSourcesParallelism() {
+        return sourcesParallelism;
+    }
+
+    public String getSourcesSharingGroup() {
+        return sourcesSharingGroup;
+    }
+
     public TRuntimeContext createTransactionalRuntimeContext() {
         TRuntimeContext runtimeContext = new TRuntimeContext();
         runtimeContext.setSynchronous(synchronous);
@@ -236,7 +268,7 @@ public class TransactionEnvironment {
         }
 
         if (spuStream == null) {
-            DataStream<SinglePartitionUpdate> spuStream = streamExecutionEnvironment
+            SingleOutputStreamOperator<SinglePartitionUpdate> spuStream = streamExecutionEnvironment
                     .addSource(new EmptySPUSource())
                     .name("SPUSource");
             enableSPUpdates(spuStream);

@@ -35,6 +35,7 @@ public class QuerySource extends ControlledSource<MultiStateQuery> {
 
     @Override
     public void onJobFinish() {
+        super.onJobFinish();
         stop = true;
     }
 }

@@ -1,6 +1,5 @@
 package it.polimi.affetti.tspoon.evaluation;
 
-import it.polimi.affetti.tspoon.common.FinishOnCountSink;
 import it.polimi.affetti.tspoon.metrics.Report;
 import it.polimi.affetti.tspoon.runtime.NetUtils;
 import it.polimi.affetti.tspoon.tgraph.IsolationLevel;
@@ -9,12 +8,10 @@ import it.polimi.affetti.tspoon.tgraph.TransactionEnvironment;
 import it.polimi.affetti.tspoon.tgraph.Vote;
 import it.polimi.affetti.tspoon.tgraph.backed.Transfer;
 import it.polimi.affetti.tspoon.tgraph.backed.TransferID;
-import it.polimi.affetti.tspoon.tgraph.backed.TransferSource;
 import org.apache.flink.api.common.JobExecutionResult;
-import org.apache.flink.api.common.typeinfo.TypeHint;
-import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.api.java.utils.ParameterTool;
+import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.TimeCharacteristic;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
@@ -22,9 +19,7 @@ import org.apache.flink.streaming.api.datastream.SplitStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 
 import java.io.PrintWriter;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
 
 public class Evaluation {
     public static final double startAmount = 100d;
@@ -35,23 +30,15 @@ public class Evaluation {
     }
 
     public static void main(String[] args) throws Exception {
-        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
-        env.setStreamTimeCharacteristic(TimeCharacteristic.ProcessingTime);
-        // Flink suggests to keep it within 5 and 10 ms:
-        // https://ci.apache.org/projects/flink/flink-docs-release-1.3/dev/datastream_api.html#controlling-latency
-        // Anyway, we keep it to 0 to be as reactive as possible when new records are produced.
-        // Buffering could lead to unexpected behavior (in terms of performance) in the transaction management.
-        env.setBufferTimeout(0);
-        env.getConfig().setLatencyTrackingInterval(-1);
+        // ---------------------------- Params
         ParameterTool parameters = ParameterTool.fromArgs(args);
 
         final String label = parameters.get("label");
-        final int numRecords = parameters.getInt("nRec", 500000);
-        final int sledLen = parameters.getInt("sled", 20000);
-        final double inputFrequency = parameters.getDouble("inputRate", -1);
-        final long waitPeriodMicro = getWaitPeriodInMicroseconds(inputFrequency);
-        final int par = parameters.getInt("par", 4);
-        final int partitioning = parameters.getInt("partitioning", 4);
+        final String propertiesFile = parameters.get("propsFile", null);
+
+        final int sourcePar = parameters.getInt("sourcePar", 1);
+        final int par = parameters.getInt("par", 4) - sourcePar;
+        final int partitioning = parameters.getInt("partitioning", 4) - sourcePar;
         final int keySpaceSize = parameters.getInt("ks", 100000);
         final int noTGraphs = parameters.getInt("noTG");
         final int noStates = parameters.getInt("noStates");
@@ -59,7 +46,7 @@ public class Evaluation {
         final boolean optimisticOrPessimistic = parameters.getBoolean("optOrNot", true);
         final boolean useDependencyTracking = parameters.getBoolean("dependencyTracking", true);
         final boolean synchronous = parameters.getBoolean("synchronous", false);
-        final boolean durable = parameters.getBoolean("durable", true);
+        final boolean durable = parameters.getBoolean("durable", false);
         final int isolationLevelNumber = parameters.getInt("isolationLevel", 3);
         final int openServerPoolSize = parameters.getInt("openPool", 1);
         final int stateServerPoolSize = parameters.getInt("statePool", 1);
@@ -68,16 +55,15 @@ public class Evaluation {
         final boolean printPlan = parameters.getBoolean("printPlan", false);
         final boolean baselineMode = parameters.getBoolean("baseline", false);
 
-        // parameters specific for tunable evaluation
-        final boolean tunableExperiment = parameters.getBoolean("tunable", true);
-        final int batchSize = parameters.getInt("batchSize", 50000);
-        final int resolution = parameters.getInt("resolution", 200);
-        final int startInputRate = parameters.getInt("startInputRate", 1000);
+        final int batchSize = parameters.getInt("batchSize", 100000);
+        final int resolution = parameters.getInt("resolution", 100);
         final int maxNumberOfBatches = parameters.getInt("numberOfBatches", -1);
 
+        assert par > 0;
+        assert partitioning > 0;
+        assert sourcePar > 0;
         assert noStates > 0;
         assert noTGraphs > 0;
-        //assert 0 < throughputPerc && throughputPerc <= 1;
         // if more than 1 tGraph, then we have only 1 state per tgraph
         assert !(noTGraphs > 1) || noStates == 1;
         assert isolationLevelNumber >= 0 && isolationLevelNumber <= 4;
@@ -85,9 +71,50 @@ public class Evaluation {
         final Strategy strategy = optimisticOrPessimistic ? Strategy.OPTIMISTIC : Strategy.PESSIMISTIC;
         final IsolationLevel isolationLevel = IsolationLevel.values()[isolationLevelNumber];
 
+        // get startInputRate from props file -> this should enable us to run faster examples
+        int startInputRate = parameters.getInt("startInputRate", -1);
+        if (startInputRate < 0) {
+            if (propertiesFile != null) {
+                ParameterTool fromProps = ParameterTool.fromPropertiesFile(propertiesFile);
+                String strStrategy = optimisticOrPessimistic ? "TB" : "LB"; // timestamp-based or lock-based
+                String key = String.format("%s.%s.%s", label, strStrategy, isolationLevel.toString());
+                startInputRate = fromProps.getInt(key, -1);
+            }
+
+            if (startInputRate < 0) {
+                startInputRate = 1000;
+            }
+        }
+
+        // merge the value obtained for startInputRate for later checking
+        Map<String, String> toMerge = new HashMap<>();
+        toMerge.put("startInputRate", String.valueOf(startInputRate));
+        parameters = parameters.mergeWith(ParameterTool.fromMap(toMerge));
+
         System.out.println("\n>>>");
         System.out.println(parameters.toMap());
         System.out.println("<<<\n");
+
+        // ---------------------------- Application
+
+        final boolean local = (label == null || label.startsWith("local"));
+        StreamExecutionEnvironment env;
+        if (local) { // TODO the only way to make slot sharing group work locally for now...
+            Configuration conf = new Configuration();
+            conf.setInteger("taskmanager.numberOfTaskSlots", par + sourcePar);
+            env = StreamExecutionEnvironment.createLocalEnvironment(par, conf);
+        } else {
+            env = StreamExecutionEnvironment.getExecutionEnvironment();
+            env.setParallelism(par);
+        }
+
+        env.setStreamTimeCharacteristic(TimeCharacteristic.ProcessingTime);
+        // Flink suggests to keep it within 5 and 10 ms:
+        // https://ci.apache.org/projects/flink/flink-docs-release-1.3/dev/datastream_api.html#controlling-latency
+        // Anyway, we keep it to 0 to be as reactive as possible when new records are produced.
+        // Buffering could lead to unexpected behavior (in terms of performance) in the transaction management.
+        env.setBufferTimeout(0);
+        env.getConfig().setLatencyTrackingInterval(-1);
 
         // do not launch jobControlServer in case of printing the plan
         if (!printPlan) {
@@ -95,9 +122,8 @@ public class Evaluation {
         }
 
         env.getConfig().setGlobalJobParameters(parameters);
-        env.setParallelism(par);
 
-        // >>>>> Topology
+        // ---------------------------- Topology
         TransactionEnvironment.clear();
         TransactionEnvironment tEnv = TransactionEnvironment.get(env);
         tEnv.configIsolation(strategy, isolationLevel);
@@ -108,44 +134,25 @@ public class Evaluation {
         tEnv.setStateServerPoolSize(stateServerPoolSize);
         tEnv.setQueryServerPoolSize(queryServerPoolSize);
         tEnv.setBaselineMode(baselineMode);
+        final String sourceSharingGroupName = "sources";
+        tEnv.setSourcesSharingGroup(sourceSharingGroupName, sourcePar);
 
-        // >>> Source
-        int numberOfElements = numRecords + sledLen;
-
-        DataStream<Transfer> transfers;
-        if (tunableExperiment) {
-            TunableSource.TunableTransferSource tunableSource =
-                    new TunableSource.TunableTransferSource(
-                            startInputRate, resolution, batchSize, RECORD_TRACKING_SERVER_NAME);
-            transfers = env.addSource(tunableSource)
-                    .name("TunableParallelSource")
-                    .map(new TunableSource.ToTransfers(keySpaceSize, startAmount))
-                    .name("ToTransfers");
-        } else {
-            TransferSource transferSource = new TransferSource(numberOfElements, keySpaceSize, startAmount);
-            if (waitPeriodMicro > 0) {
-                transferSource.setMicroSleep(waitPeriodMicro);
-            }
-            transfers = env.addSource(transferSource).setParallelism(1);
+        if (durable) {
+            tEnv.enableDurability();
+            NetUtils.launchWALServer(parameters);
         }
 
-        DataStream<Transfer> afterSource = transfers;
-        if (!tunableExperiment) {
-            afterSource = transfers
-                    .filter(new SkipFirstN<>(sledLen))
-                    .setParallelism(1)
-                    .name("SkipFirst" + sledLen);
-        }
+        // We assign source to a particular slot sharing group to avoid interference
+        // in performance
 
-        // put a latency tracker at the beginning after the sled
-        EndToEndTracker beginEndToEndTracker = new EndToEndTracker(true);
-        // This tracks the generation of records, and does it by using a hand-managed channel to avoid back-pressure
-        SingleOutputStreamOperator<Transfer> afterStartTracking = afterSource
-                .process(beginEndToEndTracker)
-                .name("BeginTracker");
-
-        DataStream<TransferID> startTracking = afterStartTracking
-                .getSideOutput(beginEndToEndTracker.getRecordTracking());
+        TunableSource.TunableTransferSource tunableSource =
+                new TunableSource.TunableTransferSource(
+                        startInputRate, resolution, batchSize, 5, RECORD_TRACKING_SERVER_NAME);
+        DataStream<Transfer> transfers = env.addSource(tunableSource)
+                .name("TunableParallelSource").setParallelism(sourcePar)
+                .slotSharingGroup(sourceSharingGroupName)
+                .map(new TunableSource.ToTransfers(keySpaceSize, startAmount))
+                .name("ToTransfers").setParallelism(sourcePar); // still in sources group
 
         // in case of parallel tgraphs, split the original stream for load balancing
         SplitStream<Transfer> splitTransfers = null;
@@ -154,7 +161,7 @@ public class Evaluation {
                     t -> Collections.singletonList(String.valueOf(t.f0.f1 % noTGraphs)));
         }
 
-        // >>> Composing
+        // ---------------------------- Composing
         EvaluationGraphComposer.startAmount = startAmount;
         EvaluationGraphComposer.setTransactionEnvironment(tEnv);
 
@@ -191,18 +198,9 @@ public class Evaluation {
             }
         }
 
-        // >>> Closing
-        DataStream<Transfer> afterOut = out;
-        if (!tunableExperiment) {
-            afterOut = out
-                    .filter(new SkipFirstN<>(sledLen))
-                    .setParallelism(1)
-                    .name("SkipFirst" + sledLen);
-        }
-
         EndToEndTracker endEndToEndTracker = new EndToEndTracker(false);
 
-        SingleOutputStreamOperator<Transfer> afterEndTracking = afterOut
+        SingleOutputStreamOperator<Transfer> afterEndTracking = out
                 .process(endEndToEndTracker)
                 .setParallelism(1)
                 .name("EndTracker")
@@ -211,46 +209,12 @@ public class Evaluation {
         DataStream<TransferID> endTracking = afterEndTracking
                 .getSideOutput(endEndToEndTracker.getRecordTracking());
 
-        TypeInformation<Tuple2<TransferID, Boolean>> tupleTypeInfo =
-                TypeInformation.of(new TypeHint<Tuple2<TransferID, Boolean>>() {
-                });
-        DataStream<Tuple2<TransferID, Boolean>> trackingStream = startTracking
-                .map(tid -> Tuple2.of(tid, true))
-                .returns(tupleTypeInfo)
-                .name("AddBeginBoolean")
-                .union(
-                        endTracking
-                                .map(tid -> Tuple2.of(tid, false))
-                                .returns(tupleTypeInfo)
-                                .name("AddEndBoolean")
-                );
-
-        if (tunableExperiment) {
-            // >>> Add FinishOnBackPressure
-            endTracking // attach only to end tracking. We will use a server for begin requests.
-                    .addSink(
-                            new FinishOnBackPressure<>(0.25, batchSize, startInputRate, resolution,
-                                    maxNumberOfBatches, RECORD_TRACKING_SERVER_NAME))
-                    .setParallelism(1).name("FinishOnBackPressure");
-        } else {
-            // >>> Add latency calculator
-            trackingStream
-                    .flatMap(new TimestampDeltaFunction())
-                    .setParallelism(1).name("TimestampDelta");
-
-            // >>> Add ThroughputCalculator
-            afterOut // calculate throughput after the sled.
-                    // in this case, the batchSize is the subBatch size...
-                    // the batchSize is the total number of records
-                    .map(new ThroughputCalculator<>(batchSize))
-                    .setParallelism(1).name("ThroughputCalculator");
-
-            // >>> Add FinishOnCount
-            wal
-                    .filter(entry -> entry.f1 != Vote.REPLAY)
-                    .addSink(new FinishOnCountSink<>(numberOfElements))
-                    .setParallelism(1).name("FinishOnCount");
-        }
+        // ---------------------------- Calculate Metrics
+        endTracking // attach only to end tracking, we use a server for begin requests.
+                .addSink(
+                        new MetricCalculator<>(batchSize, startInputRate, resolution,
+                                maxNumberOfBatches, RECORD_TRACKING_SERVER_NAME))
+                .setParallelism(1).name("MetricCalculator");
 
         if (TransactionEnvironment.get(env).isVerbose()) {
             wal.print();
@@ -264,10 +228,10 @@ public class Evaluation {
             return;
         }
 
-        // >>>>> Executing
+        // ---------------------------- Executing
         JobExecutionResult jobExecutionResult = env.execute("Evaluation - " + label);
 
-        // >>> Only for local execution
+        // ---------------------------- Print report for local execution
         Report report = new Report("report");
         report.addAccumulators(jobExecutionResult);
         report.addField("parameters", parameters.toMap());

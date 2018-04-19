@@ -9,3 +9,6 @@ launchrc
 
 generated-data
 voltdb-home
+
+*.properties
+

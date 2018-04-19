@@ -68,7 +68,9 @@ public abstract class AbstractTStream<T> implements TStream<T> {
         SingleOutputStreamOperator<Enriched<T>> enriched = dataStream
                 .transform("open", type, openOperator)
                 .name("OpenTransaction")
-                .setParallelism(1);
+                .setParallelism(1)
+                // everything from the OpenOperator on is in the default slot sharing group
+                .slotSharingGroup("default");
 
         DataStream<Integer> watermarks = enriched.getSideOutput(openOperator.watermarkTag);
         DataStream<Tuple2<Long, Vote>> tLog = enriched.getSideOutput(openOperator.logTag);
@@ -78,6 +80,7 @@ public abstract class AbstractTStream<T> implements TStream<T> {
             queryStream = watermarks.connect(inputQueryStream)
                     .flatMap(new QueryProcessor())
                     .name("AssignWatermark")
+                    .slotSharingGroup("default") // out of sources group, default parallelism
                     .split(query -> Collections.singleton(query.getNameSpace()));
         }
 
@@ -157,14 +160,18 @@ public abstract class AbstractTStream<T> implements TStream<T> {
 
         // forwarding partitioning
         DataStream<NoConsensusOperation> wrappedQueries = queries.map(NoConsensusOperation::new);
-        DataStream<NoConsensusOperation> wrappedSpus = spus.map(NoConsensusOperation::new);
+        DataStream<NoConsensusOperation> wrappedSpus = spus
+                .map(NoConsensusOperation::new)
+                .setParallelism(transactionEnvironment.getSourcesParallelism()); // still in sources group
         DataStream<NoConsensusOperation> partitionedOps = wrappedQueries.union(wrappedSpus);
 
         ConnectedStreams<Enriched<T>, NoConsensusOperation> connected = dataStream.connect(partitionedOps);
         SingleOutputStreamOperator<Enriched<T>> mainStream =
                 connected.transform(
                         "StateOperator: " + nameSpace, dataStream.getType(), stateOperator)
-                        .name(nameSpace).setParallelism(partitioning);
+                        .name(nameSpace).setParallelism(partitioning)
+                        // now we are in the tgraph, default group
+                        .slotSharingGroup("default");
 
         DataStream<QueryResult> queryResults = mainStream.getSideOutput(stateOperator.queryResultTag);
         DataStream<TransactionResult> spuResults = mainStream.getSideOutput(stateOperator.singlePartitionTag);

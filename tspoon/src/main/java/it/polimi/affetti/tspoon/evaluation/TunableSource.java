@@ -19,10 +19,7 @@ import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.functions.source.RichParallelSourceFunction;
 import org.apache.log4j.Logger;
 
-import java.util.Optional;
 import java.util.Random;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 
@@ -34,11 +31,12 @@ import java.util.concurrent.TimeUnit;
 public abstract class TunableSource<T extends UniquelyRepresentableForTracking>
         extends RichParallelSourceFunction<T>
         implements JobControlListener {
+    public static final double DISCARD_PERCENTAGE = 0.1;
     protected transient Logger LOG;
 
     private boolean busyWait = false;
     protected final int baseRate, resolution, batchSize;
-    protected int count, numberOfRecordsPerTask;
+    protected int count, numberOfRecordsPerTask, skipFirst;
     protected double resolutionPerTask, currentRate;
     protected long waitPeriodMicro;
     private final String trackingServerNameForDiscovery;
@@ -46,21 +44,20 @@ public abstract class TunableSource<T extends UniquelyRepresentableForTracking>
     protected int taskNumber;
     protected volatile boolean stop;
 
-    private BlockingQueue<Optional<T>> elements;
-
     private Semaphore newBatchSemaphore;
 
     private transient JobControlClient jobControlClient;
     private transient StringClient requestTrackerClient;
-    private transient Thread trackerThread;
+    private double threshold;
 
-    public TunableSource(int baseRate, int resolution, int batchSize, String trackingServerNameForDiscovery) {
+    public TunableSource(int baseRate, int resolution, int batchSize,
+                         double backPressureThreshold, String trackingServerNameForDiscovery) {
         this.trackingServerNameForDiscovery = trackingServerNameForDiscovery;
         this.count = 0;
         this.batchSize = batchSize;
+        this.threshold = backPressureThreshold;
         this.baseRate = baseRate;
         this.resolution = resolution;
-        this.elements = new LinkedBlockingQueue<>();
         this.numberOfRecordsPerTask = batchSize;
 
         this.newBatchSemaphore = new Semaphore(1);
@@ -73,9 +70,8 @@ public abstract class TunableSource<T extends UniquelyRepresentableForTracking>
     @Override
     public void open(Configuration parameters) throws Exception {
         super.open(parameters);
-        LOG = Logger.getLogger(getClass().getSimpleName());
-
         taskNumber = getRuntimeContext().getIndexOfThisSubtask();
+        LOG = Logger.getLogger("TunableSource-" + taskNumber);
 
         int parallelism = getRuntimeContext().getNumberOfParallelSubtasks();
         resolutionPerTask = ((double) resolution) / parallelism;
@@ -86,6 +82,8 @@ public abstract class TunableSource<T extends UniquelyRepresentableForTracking>
             // getting remaining records, if any
             numberOfRecordsPerTask += batchSize % parallelism;
         }
+
+        skipFirst = (int) (numberOfRecordsPerTask * DISCARD_PERCENTAGE); // the first 10 percent is discarded
 
         currentRate = baseRatePerTask;
         updateWaitPeriod();
@@ -98,10 +96,6 @@ public abstract class TunableSource<T extends UniquelyRepresentableForTracking>
         Address address = jobControlClient.discoverServer(trackingServerNameForDiscovery);
         requestTrackerClient = new StringClient(address.ip, address.port);
         requestTrackerClient.init();
-
-        trackerThread = new Thread(new Tracker());
-        trackerThread.setName("Tracker for " + Thread.currentThread().getName());
-        trackerThread.start();
     }
 
     @Override
@@ -109,8 +103,6 @@ public abstract class TunableSource<T extends UniquelyRepresentableForTracking>
         super.close();
         jobControlClient.close();
         requestTrackerClient.close();
-
-        trackerThread.join();
     }
 
     private void updateWaitPeriod() {
@@ -119,12 +111,63 @@ public abstract class TunableSource<T extends UniquelyRepresentableForTracking>
 
     @Override
     public void run(SourceContext<T> sourceContext) throws Exception {
+        try {
+            while (!stop) {
+                newBatchSemaphore.acquire();
+                int loopLocalCount = 0;
 
-        Optional<T> out;
-        do {
-            out = elements.take();
-            out.ifPresent(sourceContext::collect);
-        } while (out.isPresent());
+                String batchDescription = "total-size: " + batchSize + "[records], " +
+                        "local-size: " + numberOfRecordsPerTask + "[records], " +
+                        "local-rate: " + currentRate + "[records/s]";
+
+                LOG.info("Starting with batch: " + batchDescription);
+                do {
+                    T next = getNext(count);
+
+                    long start = System.nanoTime(), afterSend = start, afterCollect;
+                    if (loopLocalCount + 1 > skipFirst) {
+                        // don't send the initial (per-batch) sled, the metric calculator
+                        // will only track useful records
+                        requestTrackerClient.send(next.getUniqueRepresentation());
+                        afterSend = System.nanoTime();
+                    }
+
+                    sourceContext.collect(next);
+                    afterCollect = System.nanoTime();
+
+                    // calculate delta in milliseconds, detecting backPressure
+                    double delta = (afterCollect - afterSend) / Math.pow(10, 6);
+                    if (loopLocalCount + 1 > skipFirst && delta > threshold) {
+                        LOG.info("Threshold exceeded (" + delta + " > " + threshold + "), finishing...");
+                        jobControlClient.publishFinishMessage();
+                        return;
+                    }
+
+                    sleep((long) ((afterCollect - start) / Math.pow(10, 3)));
+
+                    count++;
+                    loopLocalCount++;
+                } while (!stop && loopLocalCount < numberOfRecordsPerTask);
+                LOG.info("Finished with batch: " + batchDescription);
+            }
+        } catch (InterruptedException e) {
+            LOG.error("Interrupted: " + e.getMessage());
+        }
+    }
+
+    private void sleep(long alreadyElapsedMicro) throws InterruptedException {
+        long stillToSleep = waitPeriodMicro - alreadyElapsedMicro;
+
+        if (busyWait) {
+            long start = System.nanoTime();
+            while (System.nanoTime() - start < stillToSleep * 1000) {
+                // busy loop
+            }
+        } else {
+            if (stillToSleep > 0) {
+                TimeUnit.MICROSECONDS.sleep(stillToSleep);
+            }
+        }
     }
 
     protected abstract T getNext(int count);
@@ -138,7 +181,6 @@ public abstract class TunableSource<T extends UniquelyRepresentableForTracking>
     public void onJobFinish() {
         JobControlListener.super.onJobFinish();
         cancel();
-        trackerThread.interrupt();
     }
 
     @Override
@@ -148,54 +190,11 @@ public abstract class TunableSource<T extends UniquelyRepresentableForTracking>
         newBatchSemaphore.release();
     }
 
-    private class Tracker implements Runnable {
-
-        @Override
-        public void run() {
-            try {
-                String prefix = "TunableSource task " + taskNumber + " - ";
-
-                while (!stop) {
-                    newBatchSemaphore.acquire();
-
-                    String batchDescription = "total-size: " + batchSize + "[records], " +
-                            "local-size: " + numberOfRecordsPerTask + "[records], " +
-                            "local-rate: " + currentRate + "[records/s]";
-
-                    LOG.info(prefix + "Starting with batch: " + batchDescription);
-                    do {
-                        T next = getNext(count);
-                        elements.add(Optional.of(next));
-                        requestTrackerClient.send(next.getUniqueRepresentation());
-                        count++;
-
-                        sleep();
-                    } while (!stop && count % numberOfRecordsPerTask != 0);
-                    LOG.info(prefix + "Finished with batch: " + batchDescription);
-                }
-            } catch (InterruptedException e) {
-                LOG.error("Interrupted: " + e.getMessage());
-            } finally {
-                elements.add(Optional.empty());
-            }
-        }
-
-        private void sleep() throws InterruptedException {
-            if (busyWait) {
-                long start = System.nanoTime();
-                while (System.nanoTime() - start < waitPeriodMicro * 1000) {
-                    // busy loop
-                }
-            } else {
-                TimeUnit.MICROSECONDS.sleep(waitPeriodMicro);
-            }
-        }
-    }
-
     public static class TunableTransferSource extends TunableSource<TransferID> {
 
-        public TunableTransferSource(int baseRate, int resolution, int batchSize, String trackingServerNameForDiscovery) {
-            super(baseRate, resolution, batchSize, trackingServerNameForDiscovery);
+        public TunableTransferSource(int baseRate, int resolution, int batchSize,
+                                     double backPressureThreshold, String trackingServerNameForDiscovery) {
+            super(baseRate, resolution, batchSize, backPressureThreshold, trackingServerNameForDiscovery);
         }
 
         @Override
@@ -211,9 +210,10 @@ public abstract class TunableSource<T extends UniquelyRepresentableForTracking>
         private int stdDevQuerySize;
 
         public TunableQuerySource(
-                int baseRate, int resolution, int batchSize, String trackingServerName, String namespace,
+                int baseRate, int resolution, int batchSize, double backPressureThreshold,
+                String trackingServerName, String namespace,
                 int keyspaceSize, int averageQuerySize, int stdDevQuerySize) {
-            super(baseRate, resolution, batchSize, trackingServerName);
+            super(baseRate, resolution, batchSize, backPressureThreshold, trackingServerName);
             this.keyspaceSize = keyspaceSize;
             this.averageQuerySize = averageQuerySize;
             this.stdDevQuerySize = stdDevQuerySize;
@@ -237,8 +237,8 @@ public abstract class TunableSource<T extends UniquelyRepresentableForTracking>
 
         public TunableSPUSource(
                 int baseRate, int resolution, int batchSize,
-                String trackingServerNameForDiscovery, RandomSPUSupplier supplier) {
-            super(baseRate, resolution, batchSize, trackingServerNameForDiscovery);
+                double backPressureThreshold, String trackingServerNameForDiscovery, RandomSPUSupplier supplier) {
+            super(baseRate, resolution, batchSize, backPressureThreshold, trackingServerNameForDiscovery);
             this.supplier = supplier;
         }
 
@@ -247,7 +247,7 @@ public abstract class TunableSource<T extends UniquelyRepresentableForTracking>
             if (random == null) {
                 random = new Random(taskNumber);
             }
-            
+
             return supplier.next(new SinglePartitionUpdateID(taskNumber, (long) count), random);
         }
     }
