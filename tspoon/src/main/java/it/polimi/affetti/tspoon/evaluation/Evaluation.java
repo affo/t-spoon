@@ -147,7 +147,7 @@ public class Evaluation {
 
         TunableSource.TunableTransferSource tunableSource =
                 new TunableSource.TunableTransferSource(
-                        startInputRate, resolution, batchSize, 5, RECORD_TRACKING_SERVER_NAME);
+                        startInputRate, resolution, batchSize, 2, RECORD_TRACKING_SERVER_NAME);
         DataStream<Transfer> transfers = env.addSource(tunableSource)
                 .name("TunableParallelSource").setParallelism(sourcePar)
                 .slotSharingGroup(sourceSharingGroupName)

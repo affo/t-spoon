@@ -111,10 +111,12 @@ public abstract class TunableSource<T extends UniquelyRepresentableForTracking>
 
     @Override
     public void run(SourceContext<T> sourceContext) throws Exception {
+
         try {
             while (!stop) {
                 newBatchSemaphore.acquire();
                 int loopLocalCount = 0;
+                double totalLatency = 0.0;
 
                 String batchDescription = "total-size: " + batchSize + "[records], " +
                         "local-size: " + numberOfRecordsPerTask + "[records], " +
@@ -137,18 +139,23 @@ public abstract class TunableSource<T extends UniquelyRepresentableForTracking>
 
                     // calculate delta in milliseconds, detecting backPressure
                     double delta = (afterCollect - afterSend) / Math.pow(10, 6);
-                    if (loopLocalCount + 1 > skipFirst && delta > threshold) {
-                        LOG.info("Threshold exceeded (" + delta + " > " + threshold + "), finishing...");
-                        jobControlClient.publishFinishMessage();
-                        return;
+
+                    if (loopLocalCount + 1 > skipFirst) {
+                        totalLatency += delta;
                     }
 
                     sleep((long) ((afterCollect - start) / Math.pow(10, 3)));
-
                     count++;
                     loopLocalCount++;
                 } while (!stop && loopLocalCount < numberOfRecordsPerTask);
                 LOG.info("Finished with batch: " + batchDescription);
+
+                double avgLatency = totalLatency / (loopLocalCount - skipFirst);
+                if (avgLatency >= threshold) {
+                    LOG.info("Threshold exceeded (" + avgLatency + " > " + threshold + "), finishing...");
+                    jobControlClient.publishFinishMessage();
+                    return;
+                }
             }
         } catch (InterruptedException e) {
             LOG.error("Interrupted: " + e.getMessage());
