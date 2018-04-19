@@ -147,7 +147,9 @@ public class Evaluation {
 
         TunableSource.TunableTransferSource tunableSource =
                 new TunableSource.TunableTransferSource(
-                        startInputRate, resolution, batchSize, 2, RECORD_TRACKING_SERVER_NAME);
+                        startInputRate, resolution, batchSize, RECORD_TRACKING_SERVER_NAME);
+        tunableSource.enableBusyWait();
+
         DataStream<Transfer> transfers = env.addSource(tunableSource)
                 .name("TunableParallelSource").setParallelism(sourcePar)
                 .slotSharingGroup(sourceSharingGroupName)
@@ -212,9 +214,9 @@ public class Evaluation {
         // ---------------------------- Calculate Metrics
         endTracking // attach only to end tracking, we use a server for begin requests.
                 .addSink(
-                        new MetricCalculator<>(batchSize, startInputRate, resolution,
+                        new FinishOnBackPressure<>(0.25, batchSize, startInputRate, resolution,
                                 maxNumberOfBatches, RECORD_TRACKING_SERVER_NAME))
-                .setParallelism(1).name("MetricCalculator");
+                .setParallelism(1).name("FinishOnBackPressure");
 
         if (TransactionEnvironment.get(env).isVerbose()) {
             wal.print();

@@ -92,7 +92,7 @@ public class BankUseCaseNoT {
         DataStream<SinglePartitionUpdate> spuStream;
         if (tunable) {
             TunableSource.TunableSPUSource tunableSPUSource = new TunableSource.TunableSPUSource(
-                    startInputRate, resolution, batchSize, 1, SPU_TRACKING_SERVER_NAME, spuSupplier
+                    startInputRate, resolution, batchSize, SPU_TRACKING_SERVER_NAME, spuSupplier
             );
             tunableSPUSource.enableBusyWait();
 
@@ -157,9 +157,9 @@ public class BankUseCaseNoT {
         if (tunable) {
             singleResults
                     .addSink(
-                            new MetricCalculator<>(batchSize, startInputRate,
+                            new FinishOnBackPressure<>(0.25, batchSize, startInputRate,
                                     resolution, -1, SPU_TRACKING_SERVER_NAME))
-                    .name("MetricCalculator")
+                    .name("FinishOnBackPressure")
                     .setParallelism(1);
         } else {
             singleResults

@@ -72,7 +72,7 @@ public class QueryEvaluation {
         transferSource.setMicroSleep(waitPeriodMicro);
 
         TunableSource.TunableQuerySource tunableQuerySource = new TunableSource.TunableQuerySource(
-                startInputRate, resolution, batchSize, 1, QUERY_TRACKING_SERVER_NAME, nameSpace,
+                startInputRate, resolution, batchSize, QUERY_TRACKING_SERVER_NAME, nameSpace,
                 keySpaceSize, averageQuerySize, stdDevQuerySize);
         DataStream<Query> queries = env.addSource(tunableQuerySource).name("TunableQuerySource");
         DataStream<MultiStateQuery> msQueries = queries.map(q -> {
@@ -118,9 +118,9 @@ public class QueryEvaluation {
         balances.queryResults
                 .map(qr -> qr.queryID).returns(QueryID.class)
                 .addSink(
-                        new MetricCalculator<>(batchSize, startInputRate,
+                        new FinishOnBackPressure<>(0.25, batchSize, startInputRate,
                                 resolution, -1, QUERY_TRACKING_SERVER_NAME))
-                .name("MetricCalculator")
+                .name("FinishOnBackPressure")
                 .setParallelism(1);
 
 

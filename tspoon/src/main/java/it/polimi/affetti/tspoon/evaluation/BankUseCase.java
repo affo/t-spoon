@@ -88,7 +88,7 @@ public class BankUseCase {
                 nameSpace, Transfer.KEY_PREFIX, keySpaceSize, startAmount
         );
         TunableSource.TunableSPUSource tunableSPUSource = new TunableSource.TunableSPUSource(
-                startInputRate, resolution, batchSize, 1, SPU_TRACKING_SERVER_NAME, spuSupplier
+                startInputRate, resolution, batchSize, SPU_TRACKING_SERVER_NAME, spuSupplier
         );
 
         SingleOutputStreamOperator<SinglePartitionUpdate> spuStream = env.addSource(tunableSPUSource)
@@ -109,13 +109,13 @@ public class BankUseCase {
 
         DataStream<TransactionResult> output = tEnv.close(balances.leftUnchanged);
 
-        // every TunableSource requires a MetricCalculator...
+        // every TunableSource requires a FinishOnBackPressure...
         balances.spuResults
                 .map(tr -> ((SinglePartitionUpdate) tr.f2).id).returns(SinglePartitionUpdateID.class)
                 .addSink(
-                        new MetricCalculator<>(batchSize, startInputRate,
+                        new FinishOnBackPressure<>(0.25, batchSize, startInputRate,
                                 resolution, -1, SPU_TRACKING_SERVER_NAME))
-                .name("MetricCalculator")
+                .name("FinishOnBackPressure")
                 .setParallelism(1);
 
         if (consistencyCheck) {

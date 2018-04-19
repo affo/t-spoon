@@ -11,9 +11,9 @@ public class EvaluationQuerySource extends TunableSource<Query> {
     private final QuerySupplier supplier;
 
     public EvaluationQuerySource(
-            int baseRate, int resolution, int batchSize, int backPressureThreshold, String trackingServerName,
+            int baseRate, int resolution, int batchSize, String trackingServerName,
             QuerySupplier querySupplier) {
-        super(baseRate, resolution, batchSize, backPressureThreshold, trackingServerName);
+        super(baseRate, resolution, batchSize, trackingServerName);
         this.supplier = querySupplier;
     }
 
