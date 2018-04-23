@@ -36,7 +36,7 @@ if __name__ == '__main__':
         })
         return s
 
-    aggr = aggr[(aggr.isolationLevel != 'PL0')]
+    aggr = aggr[(aggr.isolationLevel != 'PL0') & (aggr.isolationLevel != 'PL1')]
     aggr = aggr[(aggr.tag1 != 'query') & (aggr.tag1 != 'ks')]
     aggr = aggr.apply(fix_columns, axis=1)
 
@@ -50,7 +50,7 @@ if __name__ == '__main__':
         for strategy, grp in group.groupby('strategy'):
             grp.plot(ax=ax, kind='line', x='var', y='value', label=strategy)
 
-        ax.set_ylim((0, 8000))
+        ax.set_ylim((0, 10000))
         ax.margins(y=0.1)
         ax.set_xticks(range(1, 6))
         ax.set_ylabel('sustainable throughput [tr/s]')

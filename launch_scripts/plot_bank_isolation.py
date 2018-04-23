@@ -10,7 +10,7 @@ if __name__ == '__main__':
 
     folder_name = sys.argv[1]
     img_folder = os.path.join(folder_name, 'img')
-    ks_size = 1000
+    ks_size = 100000
 
     out_fname = os.path.join(folder_name, 'parsed')
     tp = pd.read_json(out_fname + '_throughput.json')
@@ -22,45 +22,62 @@ if __name__ == '__main__':
         figure.savefig(os.path.join(img_folder, label + '.png'))
         plt.close(figure)
 
-
     def map_fn(strategy):
-        return 'LB-' if strategy == 'PESS' else 'TO-'
+        return 'LB' if strategy == 'PESS' else 'TB'
 
-    aggr['x'] = aggr['strategy'].map(map_fn) + aggr['isolationLevel']
+    aggr = aggr[(aggr.tag1 == 'ks') & (aggr['var'] == ks_size)]
+    aggr = aggr[(aggr.isolationLevel != 'PL0') & (aggr.isolationLevel != 'PL1')]
+    aggr['strategy'] = aggr['strategy'].map(map_fn)
+
+    lb = aggr[(aggr.strategy == 'LB')]
+    tb = aggr[(aggr.strategy == 'TB')]
+
+    def apply_fn(row):
+        tplat = row.tag3
+        isolation = row.isolationLevel
+        value = row.value
+
+        return pd.Series([tplat, isolation, value])
+
+    lb = lb.apply(apply_fn, axis=1)
+    lb.columns = ['tplat', 'isolation', 'LB']
+    lb['key'] = lb['tplat'] + lb['isolation']
+    tb = tb.apply(apply_fn, axis=1)
+    tb.columns = ['tplat', 'isolation', 'TB']
+    tb['key'] = tb['tplat'] + tb['isolation']
+    ys = ['TB', 'LB']
+
+    def merge_fn(row):
+        tplat = row.tplat_lb if not pd.isna(row.tplat_lb) else row.tplat_tb
+        isolation = row.isolation_lb if not pd.isna(row.isolation_lb) else row.isolation_tb
+        tb = row.TB
+        lb = row.LB
+        return pd.Series([tplat, isolation, tb, lb])
+
+    joined = lb.set_index('key').join(tb.set_index('key'), how='outer', lsuffix='_lb', rsuffix='_tb')
+    joined = joined.apply(merge_fn, axis=1)
+    joined.columns = ['tplat', 'isolation', 'TB', 'LB']
 
     # ------ throughput
-    tp = aggr[(aggr.tag1 == 'ks') & (aggr.tag3 == 'tp_stable')]
-    tp['ks_size'] = tp['var'].map(int)
-    tp = tp[tp.ks_size == ks_size]
-    tp = tp.sort_values('x')
+    tp = joined[(joined.tplat == 'tp_stable')]
 
     fig, ax = plt.subplots()
-    tp.plot(ax=ax, kind='bar', x='x', y='value', legend=False, rot=0)
+    tp.plot(ax=ax, kind='bar', x='isolation', y=ys, rot=0)
 
-    ax.set_ylim((0, ax.yaxis.get_data_interval()[1]))
+    ax.set_ylim((0, 8000))
     ax.margins(y=0.1)
     ax.set_ylabel('sustainable throughput [tr/s]')
     ax.set_xlabel(' ')
     savefig('bank_isol_tp', fig)
 
     # ------ latency
-    lat = aggr[(aggr.tag1 == 'ks') & (aggr.tag3 == 'lat_stable')]
-    lat['ks_size'] = lat['var'].map(int)
-    lat = lat[lat.ks_size == ks_size]
-    lat = lat.sort_values('x')
+    lat = joined[(joined.tplat == 'lat_unloaded')]
 
     fig, ax = plt.subplots()
-    lat.plot(ax=ax, kind='bar', x='x', y='value', legend=False, rot=0)
+    lat.plot(ax=ax, kind='bar', x='isolation', y=ys, rot=0)
 
-    ax.set_ylim((0, ax.yaxis.get_data_interval()[1]))
+    ax.set_ylim((0, 20))
     ax.margins(y=0.1)
     ax.set_ylabel('average latency [ms]')
     ax.set_xlabel(' ')
     savefig('bank_isol_lat', fig)
-
-    # ax1.set_xlim(xmin=30)
-    # ax1.margins(y=0.1)
-    # ax2.set_ylim((1, 500))
-    # ax2.set_xlim(xmin=30)
-    # ax2.margins(y=0.1)
-    # ax2.set_yscale('log')

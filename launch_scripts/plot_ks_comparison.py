@@ -22,14 +22,15 @@ if __name__ == '__main__':
         plt.close(figure)
 
     def map_fn(strategy):
-        return 'LB' if strategy == 'PESS' else 'TO'
+        return 'LB-' if strategy == 'PESS' else 'TB-'
 
+    aggr = aggr[(aggr.isolationLevel != 'PL0') & (aggr.isolationLevel != 'PL1')]
     aggr['strategy'] = aggr['strategy'].map(map_fn) + aggr['isolationLevel']
 
     # ------ throughput
     tp = aggr[(aggr.tag1 == 'ks') & (aggr.tag3 == 'tp_stable')]
     tp = tp.sort_values('var')
-    
+
     fig, ax = plt.subplots()
     for key, group in tp.groupby('strategy'):
         group.plot(ax=ax, kind='line', x='var', y='value', label=key)
