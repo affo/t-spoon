@@ -15,7 +15,7 @@ public class Query implements Serializable, UniquelyRepresentableForTracking,
     public final QueryID queryID;
     public final String nameSpace;
     public final Set<String> keys = new HashSet<>();
-    public int watermark;
+    public long watermark;
     public int numberOfPartitions;
     public QueryResult result;
 

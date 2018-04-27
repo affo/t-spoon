@@ -19,9 +19,9 @@ import java.io.Serializable;
  * At PL3 you can read as in PL2, but you can write only if the last version is known to be finished.
  */
 public interface VersioningStrategy extends Serializable {
-    <V> ObjectHandler<V> readVersion(int tid, int timestamp, int watermark, Object<V> versions);
+    <V> ObjectHandler<V> readVersion(long tid, long timestamp, long watermark, Object<V> versions);
 
-    boolean canWrite(int tid, int timestamp, int watermark, Object<?> object);
+    boolean canWrite(long tid, long timestamp, long watermark, Object<?> object);
 
-    <V> ObjectVersion<V> installVersion(int tid, int timestamp, Object<V> object, V version);
+    <V> ObjectVersion<V> installVersion(long tid, long timestamp, Object<V> object, V version);
 }

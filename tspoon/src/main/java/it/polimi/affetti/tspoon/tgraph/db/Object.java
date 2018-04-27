@@ -72,7 +72,7 @@ public class Object<T> implements Serializable {
         this.nameSpace = nameSpace;
         this.key = key;
         this.objectFunction = objectFunction;
-        this.versions = new OrderedElements<>(obj -> (long) obj.version);
+        this.versions = new OrderedElements<>(obj -> obj.version);
         this.lastCommittedVersion = initObject();
         this.lastVersion = initObject();
         this.versions.addInOrder(lastVersion);
@@ -152,7 +152,7 @@ public class Object<T> implements Serializable {
         throw new IllegalArgumentException("Version " + timestamp + " not found for Object " + this);
     }
 
-    public synchronized ObjectVersion<T> getLastVersionBefore(int timestamp) {
+    public synchronized ObjectVersion<T> getLastVersionBefore(long timestamp) {
         ObjectVersion<T> res = null;
         for (ObjectVersion<T> obj : versions) {
             if (obj.version > timestamp) {
@@ -172,7 +172,7 @@ public class Object<T> implements Serializable {
         return lastVersion;
     }
 
-    public synchronized Iterable<ObjectVersion<T>> getVersionsWithin(int startExclusive, int endInclusive) {
+    public synchronized Iterable<ObjectVersion<T>> getVersionsWithin(long startExclusive, long endInclusive) {
         List<ObjectVersion<T>> versions = new LinkedList<>();
 
         for (ObjectVersion<T> obj : this.versions) {
@@ -188,11 +188,11 @@ public class Object<T> implements Serializable {
         return versions;
     }
 
-    public synchronized Iterable<ObjectVersion<T>> getVersionsAfter(int startExclusive) {
+    public synchronized Iterable<ObjectVersion<T>> getVersionsAfter(long startExclusive) {
         return getVersionsWithin(startExclusive, Integer.MAX_VALUE);
     }
 
-    public synchronized ObjectVersion<T> addVersion(int tid, int version, T object) {
+    public synchronized ObjectVersion<T> addVersion(long tid, long version, T object) {
         ObjectVersion<T> objectVersion = ObjectVersion.of(this, version, tid, object);
         versions.addInOrder(objectVersion);
 
@@ -206,7 +206,7 @@ public class Object<T> implements Serializable {
     }
 
     // adds and commits atomically
-    public synchronized ObjectVersion<T> installVersion(int tid, int version, T object) {
+    public synchronized ObjectVersion<T> installVersion(long tid, long version, T object) {
         ObjectVersion<T> objectVersion = addVersion(tid, version, object);
         objectVersion.commit();
         return objectVersion;
@@ -240,7 +240,7 @@ public class Object<T> implements Serializable {
         notifyAll();
     }
 
-    public synchronized int performVersionCleanup(int version) {
+    public synchronized int performVersionCleanup(long version) {
         if (getVersionCount() <= maxNumberOfVersions) {
             return 0;
         }
@@ -273,7 +273,7 @@ public class Object<T> implements Serializable {
         return new ObjectHandler<>(version.object, version.version, version.createdBy, objectFunction::invariant);
     }
 
-    public synchronized ObjectHandler<T> readLastVersionBefore(int timestamp) {
+    public synchronized ObjectHandler<T> readLastVersionBefore(long timestamp) {
         return createHandler(getLastVersionBefore(timestamp));
     }
 
@@ -290,7 +290,7 @@ public class Object<T> implements Serializable {
      * @param version
      * @return
      */
-    public synchronized ObjectHandler<T> readCommittedBefore(int version) {
+    public synchronized ObjectHandler<T> readCommittedBefore(long version) {
         if (forceSerializableRead) {
             try {
                 return createHandler(serializableLastCommittedVersion(version));
@@ -303,7 +303,7 @@ public class Object<T> implements Serializable {
         return createHandler(simpleLastCommittedVersion(version));
     }
 
-    private ObjectVersion<T> simpleLastCommittedVersion(int version) {
+    private ObjectVersion<T> simpleLastCommittedVersion(long version) {
         ObjectVersion<T> lastCommittedBefore = null;
 
         for (ObjectVersion<T> objectVersion : versions) {
@@ -323,7 +323,7 @@ public class Object<T> implements Serializable {
         return lastCommittedBefore;
     }
 
-    private ObjectVersion<T> serializableLastCommittedVersion(int version) throws InterruptedException {
+    private ObjectVersion<T> serializableLastCommittedVersion(long version) throws InterruptedException {
         ObjectVersion<T> lastVersionBefore;
         boolean inconsistencyPrevented = false;
 
@@ -336,7 +336,7 @@ public class Object<T> implements Serializable {
                 wait();
             }
 
-            version--;
+            version = lastVersionBefore.version - 1;
         } while (!lastVersionBefore.isCommitted());
 
         if (inconsistencyPrevented) {

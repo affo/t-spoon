@@ -9,31 +9,31 @@ import java.util.Set;
  * Created by affo on 04/08/17.
  */
 public class StandardTransactionsIndex<T> extends TransactionsIndex<T> {
-    private Map<Integer, Integer> timestampTidMapping = new HashMap<>();
-    private Map<Integer, Set<Integer>> tidTimestampMapping = new HashMap<>();
+    private Map<Long, Long> timestampTidMapping = new HashMap<>();
+    private Map<Long, Set<Long>> tidTimestampMapping = new HashMap<>();
 
-    public StandardTransactionsIndex(int startIndex) {
-        super(startIndex);
+    public StandardTransactionsIndex(long startingPoint, int sourceParallelism, int sourceID) {
+        super(startingPoint, sourceParallelism, sourceID);
     }
 
     @Override
-    public Integer getTransactionId(int timestamp) {
+    public Long getTransactionId(long timestamp) {
         return timestampTidMapping.get(timestamp);
     }
 
     @Override
-    public LocalTransactionContext newTransaction(T element, int tid) {
+    public LocalTransactionContext newTransaction(T element, long tid) {
         LocalTransactionContext transactionContext = super.newTransaction(element, tid);
-        int timestamp = transactionContext.timestamp;
+        long timestamp = transactionContext.timestamp;
         timestampTidMapping.put(timestamp, tid);
         tidTimestampMapping.computeIfAbsent(tid, k -> new HashSet<>()).add(timestamp);
         return transactionContext;
     }
 
     @Override
-    public void deleteTransaction(int tid) {
+    public void deleteTransaction(long tid) {
         super.deleteTransaction(tid);
-        Set<Integer> timestamps = tidTimestampMapping.remove(tid);
+        Set<Long> timestamps = tidTimestampMapping.remove(tid);
         timestamps.forEach(ts -> timestampTidMapping.remove(ts));
     }
 }

@@ -20,7 +20,7 @@ public class PL4Strategy extends PL3Strategy {
      * must be REPLAYed and wait for its turn.
      */
     @Override
-    public boolean canWrite(int tid, int timestamp, int watermark, Object<?> object) {
+    public boolean canWrite(long tid, long timestamp, long watermark, Object<?> object) {
         for (ObjectVersion<?> version : object.getVersionsAfter(watermark)) {
             // version.version is the same as version.createdBy...
             if (version.version < tid) {
@@ -32,7 +32,7 @@ public class PL4Strategy extends PL3Strategy {
     }
 
     @Override
-    public <V> ObjectVersion<V> installVersion(int tid, int timestamp, Object<V> object, V version) {
+    public <V> ObjectVersion<V> installVersion(long tid, long timestamp, Object<V> object, V version) {
         // we use transaction ids for versioning
         return object.addVersion(tid, tid, version);
     }

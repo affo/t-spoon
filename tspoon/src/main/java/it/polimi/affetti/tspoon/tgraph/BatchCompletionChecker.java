@@ -14,7 +14,7 @@ import java.util.stream.IntStream;
  * The length of the batchIDs ingested must be fixed and imposed by the number of steps of the topology.
  */
 public class BatchCompletionChecker {
-    private final Map<Integer, Tree> trees = new HashMap<>();
+    private final Map<Long, Tree> trees = new HashMap<>();
 
     public boolean checkCompleteness(BatchID someBatchID) {
         return checkCompleteness(null, someBatchID);
@@ -24,15 +24,15 @@ public class BatchCompletionChecker {
      * @param someBatchID must be at least 1 step
      * @return
      */
-    public boolean checkCompleteness(Integer index, BatchID someBatchID) {
+    public boolean checkCompleteness(Long index, BatchID someBatchID) {
         // turn to shifted representation
         someBatchID = someBatchID.getShiftedRepresentation();
 
         Tuple2<Integer, Integer> firsElement = someBatchID.iterator().next();
         if (index == null) {
-            index = firsElement.f0;
+            index = Long.valueOf(firsElement.f0);
         }
-        final int firstFanout = firsElement.f1;
+        int firstFanout = firsElement.f1;
         Tree tree = trees.computeIfAbsent(index, (key) -> new Tree(firstFanout));
 
         tree.ackNode(someBatchID);
@@ -40,11 +40,11 @@ public class BatchCompletionChecker {
         return tree.isComplete();
     }
 
-    public boolean getCompleteness(Integer index) {
+    public boolean getCompleteness(Long index) {
         return trees.get(index).isComplete();
     }
 
-    public void freeIndex(int index) {
+    public void freeIndex(long index) {
         trees.remove(index);
     }
 
@@ -71,7 +71,7 @@ public class BatchCompletionChecker {
 
         private boolean ackNodeRecursive(Iterator<Tuple2<Integer, Integer>> iterator) {
             Tuple2<Integer, Integer> next = iterator.next();
-            int position = next.f0 - 1;
+            int position = (next.f0 - 1);
 
             if (!iterator.hasNext()) {
                 // a leaf is always complete, no need to process
@@ -81,8 +81,8 @@ public class BatchCompletionChecker {
 
             Tree child = children[position];
             if (child == null) {
-                int fanout = next.f1;
-                child = new Tree(fanout);
+                long fanout = next.f1;
+                child = new Tree((int) fanout);
                 children[position] = child;
             }
 

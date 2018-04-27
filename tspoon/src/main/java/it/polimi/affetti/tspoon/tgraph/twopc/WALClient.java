@@ -33,7 +33,7 @@ public class WALClient extends ObjectClient implements WAL {
     }
 
     @Override
-    public void startSnapshot(int newWM) throws IOException {
+    public void startSnapshot(long newWM) throws IOException {
         send(String.format(WALServer.startSnapshotFormat, newWM));
     }
 
@@ -43,9 +43,9 @@ public class WALClient extends ObjectClient implements WAL {
     }
 
     @Override
-    public int getSnapshotInProgressWatermark() throws IOException {
+    public long getSnapshotInProgressWatermark() throws IOException {
         send(WALServer.getCurrentSnapshotWMPattern);
-        return (int) receive();
+        return (long) receive();
     }
 
     public static WALClient get(ParameterTool parameters) throws IOException, IllegalArgumentException {
@@ -61,7 +61,7 @@ public class WALClient extends ObjectClient implements WAL {
     }
 
     private class WALIterator implements Iterator<WAL.Entry> {
-        private int lastTimestamp;
+        private long lastTimestamp;
         private WAL.Entry next;
 
         public WALIterator() {

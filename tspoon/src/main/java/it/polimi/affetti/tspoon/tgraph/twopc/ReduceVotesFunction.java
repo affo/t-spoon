@@ -15,7 +15,7 @@ import java.util.Map;
  * Created by affo on 29/01/17.
  */
 public class ReduceVotesFunction extends RichFlatMapFunction<Metadata, Metadata> {
-    private Map<Integer, Metadata> votes = new HashMap<>();
+    private Map<Long, Metadata> votes = new HashMap<>();
     private transient BatchCompletionChecker completionChecker;
 
     @Override
@@ -26,7 +26,7 @@ public class ReduceVotesFunction extends RichFlatMapFunction<Metadata, Metadata>
 
     @Override
     public void flatMap(Metadata metadata, Collector<Metadata> collector) throws Exception {
-        int timestamp = metadata.timestamp;
+        long timestamp = metadata.timestamp;
 
         Metadata accumulated = votes.get(timestamp);
         if (accumulated == null) {

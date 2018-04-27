@@ -43,6 +43,7 @@ public class TaskExecutor extends Thread {
                         listener.onTaskError(e);
                     } else {
                         LOG.error("Exception not caught: " + e.getMessage());
+                        e.printStackTrace();
                         break;
                     }
                 }

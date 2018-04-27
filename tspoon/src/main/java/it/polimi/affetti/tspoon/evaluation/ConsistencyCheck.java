@@ -15,6 +15,7 @@ import it.polimi.affetti.tspoon.tgraph.state.StateFunction;
 import it.polimi.affetti.tspoon.tgraph.state.StateStream;
 import it.polimi.affetti.tspoon.tgraph.twopc.OpenStream;
 import org.apache.flink.api.java.utils.ParameterTool;
+import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.TimeCharacteristic;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
@@ -27,38 +28,53 @@ import java.util.Arrays;
  */
 public class ConsistencyCheck {
     public static void main(String[] args) throws Exception {
-        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
-        env.setStreamTimeCharacteristic(TimeCharacteristic.ProcessingTime);
-        env.setBufferTimeout(0);
-        env.getConfig().setLatencyTrackingInterval(-1);
         ParameterTool parameters = ParameterTool.fromArgs(args);
 
+        final String label = parameters.get("label");
         final int numRecords = parameters.getInt("nRec", 500000);
         final double inputFrequency = parameters.getDouble("inputRate", 1000);
         final long waitPeriodMicro = Evaluation.getWaitPeriodInMicroseconds(inputFrequency);
-        final int par = parameters.getInt("par", 4);
-        final int partitioning = parameters.getInt("partitioning", 4);
+        final int sourcePar = parameters.getInt("sourcePar", 2);
+        final int par = parameters.getInt("par", 4) - sourcePar;
+        final int partitioning = parameters.getInt("partitioning", 4) - sourcePar;
         final int keySpaceSize = parameters.getInt("ks", 100000);
         final double queryRate = parameters.getDouble("queryRate", 0.1);
         final boolean optimisticOrPessimistic = parameters.getBoolean("optOrNot", true);
         final boolean synchronous = parameters.getBoolean("synchronous", false);
         final int isolationLevelNumber = parameters.getInt("isolationLevel", 3);
 
+        final Strategy strategy = optimisticOrPessimistic ? Strategy.OPTIMISTIC : Strategy.PESSIMISTIC;
+        final IsolationLevel isolationLevel = IsolationLevel.values()[isolationLevelNumber];
+        final double startAmount = 100;
+        final String nameSpace = "balances";
+
+        final boolean local = (label == null || label.startsWith("local"));
+        StreamExecutionEnvironment env;
+        if (local) { // TODO the only way to make slot sharing group work locally for now...
+            Configuration conf = new Configuration();
+            conf.setInteger("taskmanager.numberOfTaskSlots", par + sourcePar);
+            env = StreamExecutionEnvironment.createLocalEnvironment(par, conf);
+        } else {
+            env = StreamExecutionEnvironment.getExecutionEnvironment();
+            env.setParallelism(par);
+        }
+
+        env.setStreamTimeCharacteristic(TimeCharacteristic.ProcessingTime);
+        env.setBufferTimeout(0);
+        env.getConfig().setLatencyTrackingInterval(-1);
 
         NetUtils.launchJobControlServer(parameters);
         env.getConfig().setGlobalJobParameters(parameters);
 
         env.setParallelism(par);
 
-        final Strategy strategy = optimisticOrPessimistic ? Strategy.OPTIMISTIC : Strategy.PESSIMISTIC;
-        final IsolationLevel isolationLevel = IsolationLevel.values()[isolationLevelNumber];
-        final double startAmount = 100;
-        final String nameSpace = "balances";
-
+        // ------------ Topology
         TransactionEnvironment tEnv = TransactionEnvironment.get(env);
         tEnv.configIsolation(strategy, isolationLevel);
         tEnv.setSynchronous(synchronous);
         tEnv.setStateServerPoolSize(Runtime.getRuntime().availableProcessors());
+        final String sourceSharingGroupName = "sources";
+        tEnv.setSourcesSharingGroup(sourceSharingGroupName, sourcePar);
 
         TransferSource transferSource = new TransferSource(numRecords, keySpaceSize, startAmount);
         transferSource.setMicroSleep(waitPeriodMicro);
@@ -67,9 +83,11 @@ public class ConsistencyCheck {
         tEnv.enableStandardQuerying(
                 new FrequencyQuerySupplier(
                         queryID -> new PredicateQuery<>(nameSpace, queryID, new PredicateQuery.SelectAll<>()),
-                        queryRate));
+                        queryRate), 1);
 
-        DataStream<Transfer> transfers = env.addSource(transferSource).setParallelism(1);
+        DataStream<Transfer> transfers = env.addSource(transferSource)
+                .slotSharingGroup(sourceSharingGroupName)
+                .setParallelism(sourcePar);
         OpenStream<Transfer> open = tEnv.open(transfers);
 
         TStream<Movement> halves = open.opened.flatMap(
@@ -103,10 +121,10 @@ public class ConsistencyCheck {
 
         balances.queryResults.addSink(new CheckOnQueryResult(startAmount));
 
-        tEnv.close(balances.leftUnchanged);
+        DataStream<TransactionResult> out = tEnv.close(balances.leftUnchanged);
 
-        open.wal
-                .filter(entry -> entry.f1 != Vote.REPLAY)
+        out
+                .filter(entry -> entry.f3 != Vote.REPLAY)
                 .addSink(new FinishOnCountSink<>(numRecords)).setParallelism(1)
                 .name("FinishOnCount");
 

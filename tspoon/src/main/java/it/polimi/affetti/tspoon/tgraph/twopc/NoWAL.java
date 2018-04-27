@@ -40,7 +40,7 @@ public class NoWAL implements WAL {
     }
 
     @Override
-    public void startSnapshot(int newWM) throws IOException {
+    public void startSnapshot(long newWM) throws IOException {
 
     }
 
@@ -50,7 +50,7 @@ public class NoWAL implements WAL {
     }
 
     @Override
-    public int getSnapshotInProgressWatermark() throws IOException {
-        return 0;
+    public long getSnapshotInProgressWatermark() throws IOException {
+        return 0L;
     }
 }

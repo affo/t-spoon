@@ -11,7 +11,7 @@ import java.util.Map;
  * Created by affo on 09/11/17.
  */
 public class SynchronousOpenOperatorTransactionCloser extends AbstractOpenOperatorTransactionCloser {
-    private final Map<Integer, Integer> counters = new HashMap<>();
+    private final Map<Long, Integer> counters = new HashMap<>();
 
     protected SynchronousOpenOperatorTransactionCloser(SubscriptionMode subscriptionMode) {
         super(subscriptionMode);
@@ -23,7 +23,7 @@ public class SynchronousOpenOperatorTransactionCloser extends AbstractOpenOperat
     }
 
     private synchronized boolean handleStateAck(CloseTransactionNotification notification) {
-        int timestamp = notification.timestamp;
+        long timestamp = notification.timestamp;
         int batchSize = notification.batchSize;
 
         int count;

@@ -29,8 +29,9 @@ public class WALServer extends AbstractServer {
     private FileWAL temporaryWAL = new FileWAL("wal2.log");
 
     private boolean snapshotInProgress = false;
-    private int lastWatermark = -1; // for compaction
-    private int temporaryWatermark, numberOfCommits;
+    private long lastWatermark = -1; // for compaction
+    private long temporaryWatermark;
+    private int numberOfCommits;
     private final int numberOfSinkPartitions;
 
     public WALServer(int numberOfSinkPartitions) {
@@ -58,7 +59,7 @@ public class WALServer extends AbstractServer {
         }
     }
 
-    private synchronized void startSnapshot(int wm) throws IOException {
+    private synchronized void startSnapshot(long wm) throws IOException {
         Preconditions.checkArgument(wm > lastWatermark);
         temporaryWatermark = wm;
         snapshotInProgress = true;
@@ -121,7 +122,7 @@ public class WALServer extends AbstractServer {
                     String strRequest = (String) request;
 
                     if (strRequest.startsWith(startSnapshotPattern)) {
-                        int newWM = Integer.parseInt(strRequest.split(",")[1]);
+                        long newWM = Long.parseLong(strRequest.split(",")[1]);
                         startSnapshot(newWM);
                         return;
                     } else if (strRequest.startsWith(commitSnapshotPattern)) {
@@ -145,7 +146,7 @@ public class WALServer extends AbstractServer {
                         send(iterator.next());
                     }
 
-                    send(new WAL.Entry(null, -1,-1, null)); // finished
+                    send(new WAL.Entry(null, -1, -1, null)); // finished
                 } else {
                     throw new RuntimeException("[ERROR] in request to WALServer: " + request);
                 }

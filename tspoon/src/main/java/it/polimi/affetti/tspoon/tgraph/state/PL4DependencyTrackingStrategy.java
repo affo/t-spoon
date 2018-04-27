@@ -6,7 +6,7 @@ import it.polimi.affetti.tspoon.tgraph.db.Transaction;
 /**
  * Created by affo on 11/01/18.
  *
- * At PL4 we are interested in tracking dependencies with later transactions that happened earlier
+ * At PL4 we are longerested in tracking dependencies with later transactions that happened earlier
  * in processing time. That's why we add `createdBy` instead of `version` to the dependency set.
  * <p>
  * NOTE that we must track every dependency to make the StrictnessEnforcer make correct decisions.
@@ -28,7 +28,7 @@ public class PL4DependencyTrackingStrategy implements DependencyTrackingStrategy
     }
 
     @Override
-    public <T> void updateDependencies(Transaction<T> transaction, Object<T> object, int version, int createdBy) {
+    public <T> void updateDependencies(Transaction<T> transaction, Object<T> object, long version, long createdBy) {
         // normal dependencies
         wrapped.updateDependencies(transaction, object, version, createdBy);
 

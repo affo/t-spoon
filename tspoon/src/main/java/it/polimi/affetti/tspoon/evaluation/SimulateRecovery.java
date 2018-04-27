@@ -34,7 +34,7 @@ public class SimulateRecovery {
             System.out.println(updates);
         }
 
-        int wm = wal.getSnapshotInProgressWatermark();
+        long wm = wal.getSnapshotInProgressWatermark();
 
         System.out.println();
         System.out.println(">>> WM:\t\t" + wm);

@@ -26,7 +26,7 @@ public class PTStream<T> extends AbstractTStream<T> {
         OpenOutputs<T> outputs = AbstractTStream.open(ds, queryStream, tGraphID);
         return new OpenStream<>(
                 new PTStream<>(outputs.enrichedDataStream, outputs.queryStream, tGraphID),
-                outputs.watermarks, outputs.tLog);
+                outputs.watermarks);
     }
 
     @Override

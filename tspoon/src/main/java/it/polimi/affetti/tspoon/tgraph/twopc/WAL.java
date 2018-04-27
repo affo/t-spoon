@@ -27,21 +27,21 @@ public interface WAL {
 
     // ----------------- Snapshotting
 
-    void startSnapshot(int newWM) throws IOException;
+    void startSnapshot(long newWM) throws IOException;
 
     void commitSnapshot() throws IOException;
 
-    int getSnapshotInProgressWatermark() throws IOException;
+    long getSnapshotInProgressWatermark() throws IOException;
 
     /**
      * Class for WAL Entry
      */
     class Entry implements Serializable {
         public Vote vote;
-        public int tid, timestamp;
+        public long tid, timestamp;
         public Updates updates;
 
-        public Entry(Vote vote, int tid, int timestamp, Updates updates) {
+        public Entry(Vote vote, long tid, long timestamp, Updates updates) {
             this.vote = vote;
             this.tid = tid;
             this.timestamp = timestamp;
@@ -63,7 +63,8 @@ public interface WAL {
         @Override
         public int hashCode() {
             int result = vote != null ? vote.hashCode() : 0;
-            result = 31 * result + timestamp;
+            result = 31 * result + (int) (tid ^ (tid >>> 32));
+            result = 31 * result + (int) (timestamp ^ (timestamp >>> 32));
             result = 31 * result + (updates != null ? updates.hashCode() : 0);
             return result;
         }

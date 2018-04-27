@@ -10,16 +10,16 @@ import java.util.*;
  */
 public class DependencyTracker implements Serializable {
     // tid -> dependent tids (if mapping t1 -> [t2 ... tN] is present, this means that t2 ... tN depends on t1)
-    private Map<Integer, List<Integer>> dependencyTracking = new HashMap<>();
+    private Map<Long, List<Long>> dependencyTracking = new HashMap<>();
     // t1 -> t2 means that t1 is in dependencyTracking.get(t2)
-    private Map<Integer, Integer> dependentMapping = new HashMap<>();
+    private Map<Long, Long> dependentMapping = new HashMap<>();
 
-    public void addDependency(int hasDependent, int dependsOn) {
+    public void addDependency(long hasDependent, long dependsOn) {
         Preconditions.checkArgument(dependsOn > hasDependent,
                 "Dependent transaction must be newer: " + dependsOn + " < " + hasDependent);
 
-        Integer dependenciesLocation = dependentMapping.get(hasDependent);
-        List<Integer> dependencies;
+        Long dependenciesLocation = dependentMapping.get(hasDependent);
+        List<Long> dependencies;
         if (dependenciesLocation != null) {
             dependencies = dependencyTracking.get(dependenciesLocation);
         } else {
@@ -31,9 +31,9 @@ public class DependencyTracker implements Serializable {
         dependentMapping.put(dependsOn, dependenciesLocation);
 
         // merge dependencies
-        List<Integer> previousDependencies = dependencyTracking.remove(dependsOn);
+        List<Long> previousDependencies = dependencyTracking.remove(dependsOn);
         if (previousDependencies != null) {
-            for (int previousDependency : previousDependencies) {
+            for (long previousDependency : previousDependencies) {
                 dependencies.add(previousDependency);
                 dependentMapping.put(previousDependency, dependenciesLocation);
             }
@@ -47,10 +47,10 @@ public class DependencyTracker implements Serializable {
      * @param tid
      * @return the tid unlocked by the satisfaction of the dependency. Null if no transaction has been unlocked
      */
-    public Integer satisfyDependency(int tid) {
-        List<Integer> dependencies = dependencyTracking.remove(tid);
+    public Long satisfyDependency(long tid) {
+        List<Long> dependencies = dependencyTracking.remove(tid);
 
-        Integer unlocked = null;
+        Long unlocked = null;
         if (dependencies != null) {
             unlocked = dependencies.remove(0);
             dependentMapping.remove(unlocked);
@@ -59,7 +59,7 @@ public class DependencyTracker implements Serializable {
                 dependencyTracking.put(unlocked, dependencies);
 
                 // update locations
-                for (int dependency : dependencies) {
+                for (long dependency : dependencies) {
                     dependentMapping.put(dependency, unlocked);
                 }
             }

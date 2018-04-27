@@ -48,7 +48,7 @@ public class FunctionsTest {
         List<Enriched<Integer>> output = ResultUtils.extractResult(result, "out");
 
         List<Integer> expectedOutput = Arrays.asList(2, 4, 6, 8, 10);
-        List<Integer> expectedIds = Arrays.asList(1, 2, 3, 4, 5);
+        List<Long> expectedIds = Arrays.asList(1L, 2L, 3L, 4L, 5L);
         List<Integer> expectedBatchSizes = Arrays.asList(1, 1, 1, 1, 1);
 
         assertEquals(expectedOutput, output.stream().map(e -> e.value).collect(Collectors.toList()));
@@ -77,7 +77,7 @@ public class FunctionsTest {
                 0, 1,
                 0
         );
-        List<Integer> expectedIds = Arrays.asList(1, 1, 2, 2, 2, 3, 3, 4);
+        List<Long> expectedIds = Arrays.asList(1L, 1L, 2L, 2L, 2L, 3L, 3L, 4L);
         List<Integer> expectedBatchSizes = Arrays.asList(2, 2, 3, 3, 3, 2, 2, 1);
 
         assertEquals(expectedOutput, output.stream().map(e -> e.value).collect(Collectors.toList()));
@@ -99,7 +99,7 @@ public class FunctionsTest {
         List<Enriched<Integer>> output = ResultUtils.extractResult(result, "out");
 
         List<Integer> expectedOutput = Arrays.asList(null, 2, null, 4, null, 6, null, 8, null, 10);
-        List<Integer> expectedIds = elements;
+        List<Long> expectedIds = elements.stream().map(i -> (long) i).collect(Collectors.toList());
         List<Integer> expectedBatchSizes = elements.stream().map(e -> 1).collect(Collectors.toList());
 
         assertEquals(expectedOutput, output.stream().map(e -> e.value).collect(Collectors.toList()));

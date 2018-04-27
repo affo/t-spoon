@@ -10,13 +10,13 @@ import it.polimi.affetti.tspoon.tgraph.Vote;
  * At (optimistic) PL4 isolation level, we use transaction ids for versioning.
  */
 public class TidForWatermarkingTransactionsIndex<T> extends StandardTransactionsIndex<T> {
-    public TidForWatermarkingTransactionsIndex(int startIndex) {
-        super(startIndex);
+    public TidForWatermarkingTransactionsIndex(long startingPoint, int sourceParallelism, int sourceID) {
+        super(startingPoint, sourceParallelism, sourceID);
     }
 
     @Override
-    public int updateWatermark(int timestamp, Vote vote) {
-        int tid = getTransactionId(timestamp);
+    public long updateWatermark(long timestamp, Vote vote) {
+        long tid = getTransactionId(timestamp);
         if (vote != Vote.REPLAY) {
             // we use transaction ids for the watermark
             return super.updateWatermark(tid, vote);

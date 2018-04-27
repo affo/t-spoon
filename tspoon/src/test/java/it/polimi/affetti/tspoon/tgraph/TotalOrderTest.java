@@ -26,7 +26,7 @@ public class TotalOrderTest {
 
     @Test
     public void simpleOrderTest() {
-        int seed = 1;
+        long seed = 1;
         List<BatchID> idSpace = BatchIDTest.generateIdSpace(1, 100, seed);
 
         Collections.shuffle(idSpace);
@@ -79,9 +79,9 @@ public class TotalOrderTest {
         assertEquals(noTransactions, totalOrderEnforcer.getNumberOfIncompleteElements());
         assertEquals(idSpace.size(), totalOrderEnforcer.getTotalNumberOfIncompleteElements());
 
-        int previousTS = 0;
-        for (Map.Entry<Integer, List<BatchID>> bids : totalOrderEnforcer.next().entrySet()) {
-            int timestamp = bids.getKey();
+        long previousTS = 0;
+        for (Map.Entry<Long, List<BatchID>> bids : totalOrderEnforcer.next().entrySet()) {
+            long timestamp = bids.getKey();
 
             assertTrue(timestamp >= previousTS);
             previousTS = timestamp;

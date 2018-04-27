@@ -27,7 +27,7 @@ public class SequencerTest {
         }
 
         int i = 0;
-        for (int actual : sequencer.nextAvailableSequence()) {
+        for (long actual : sequencer.nextAvailableSequence()) {
             assertEquals(i + 1, actual);
             i++;
         }
@@ -42,7 +42,7 @@ public class SequencerTest {
         sequencer.addTransaction(1);
         sequencer.addTransaction(2);
         sequencer.signalReplay(4);
-        assertEquals(Arrays.asList(1, 2), sequencer.nextAvailableSequence());
+        assertEquals(Arrays.asList(1L, 2L), sequencer.nextAvailableSequence());
         assertEquals(Collections.emptyList(), sequencer.nextAvailableSequence()); // empty...
 
         sequencer.addTransaction(5);
@@ -52,7 +52,7 @@ public class SequencerTest {
         assertEquals(Collections.emptyList(), sequencer.nextAvailableSequence()); // 4 is not contiguous! Still waiting for 3
 
         sequencer.addTransaction(3);
-        assertEquals(Arrays.asList(3, 4, 5), sequencer.nextAvailableSequence()); // contiguous with 2, but still waiting for 4
+        assertEquals(Arrays.asList(3L, 4L, 5L), sequencer.nextAvailableSequence()); // contiguous with 2, but still waiting for 4
 
         assertEquals(Collections.emptyList(), sequencer.nextAvailableSequence()); // empty...
     }

@@ -37,7 +37,7 @@ public class Shard<V> implements
     private final boolean externalReadCommitted;
     private final ObjectFunction<V> objectFunction;
     // transaction contexts: timestamp -> context
-    private final Map<Integer, Transaction<V>> transactions;
+    private final Map<Long, Transaction<V>> transactions;
     private Object.DeferredReadListener deferredReadListener;
 
     private final transient WAL wal;
@@ -125,9 +125,9 @@ public class Shard<V> implements
         object.lock(true);
         try {
             ObjectHandler<V> handler = object.readLastCommittedVersion();
-            int tid = -1; // single-partition updated have no transaction id
+            long tid = -1; // single-partition updated have no transaction id
             // TODO represent sub-versioning in versions (for durability)
-            int version = handler.version; // append the version as a new version of the last timestamp
+            long version = handler.version; // append the version as a new version of the last timestamp
 
             RPC rpc = update.getCommand();
             V read = handler.read();
@@ -155,33 +155,34 @@ public class Shard<V> implements
         }
     }
 
-    public boolean transactionExist(int timestamp) {
+    public boolean transactionExist(long timestamp) {
         return transactions.containsKey(timestamp);
     }
 
-    public Transaction<V> getTransaction(int timestamp) {
+    public Transaction<V> getTransaction(long timestamp) {
         return transactions.get(timestamp);
     }
 
-    public Transaction<V> removeTransaction(int timestamp) {
+    public Transaction<V> removeTransaction(long timestamp) {
         return transactions.remove(timestamp);
     }
 
     // --------------------------------------- Querying ---------------------------------------
 
-    private V queryGetsObject(String key, int wm) {
+    private V queryGetsObject(String key, long wm) {
+        Object<V> object;
         synchronized (state) {
-            Object<V> object = state.get(key);
+            object = state.get(key);
             if (object == null) {
                 return null;
             }
-
-            if (externalReadCommitted) {
-                return object.readCommittedBefore(wm).object;
-            }
-
-            return object.getLastAvailableVersion().object;
         }
+
+        if (externalReadCommitted) {
+            return object.readCommittedBefore(wm).object;
+        }
+
+        return object.getLastAvailableVersion().object;
     }
 
     private void queryState(Query query) {
@@ -219,7 +220,7 @@ public class Shard<V> implements
 
     // --------------------------------------- Recovery & Snapshotting ---------------------------------------
 
-    public Map<String, V> getConsistentSnapshot(int wm) {
+    public Map<String, V> getConsistentSnapshot(long wm) {
         Map<String, V> snapshot = new HashMap<>();
 
         for (Map.Entry<String, Object<V>> entry : state.entrySet()) {

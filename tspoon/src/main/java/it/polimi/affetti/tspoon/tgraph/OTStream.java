@@ -25,7 +25,7 @@ public class OTStream<T> extends AbstractTStream<T> {
         OpenOutputs<T> outputs = AbstractTStream.open(ds, queryStream, tGraphId);
         return new OpenStream<>(
                 new OTStream<>(outputs.enrichedDataStream, outputs.queryStream, tGraphId),
-                outputs.watermarks, outputs.tLog);
+                outputs.watermarks);
     }
 
     @Override

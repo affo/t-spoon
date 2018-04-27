@@ -5,11 +5,9 @@ import it.polimi.affetti.tspoon.runtime.NetUtils;
 import it.polimi.affetti.tspoon.tgraph.IsolationLevel;
 import it.polimi.affetti.tspoon.tgraph.Strategy;
 import it.polimi.affetti.tspoon.tgraph.TransactionEnvironment;
-import it.polimi.affetti.tspoon.tgraph.Vote;
 import it.polimi.affetti.tspoon.tgraph.backed.Transfer;
 import it.polimi.affetti.tspoon.tgraph.backed.TransferID;
 import org.apache.flink.api.common.JobExecutionResult;
-import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.TimeCharacteristic;
@@ -167,17 +165,16 @@ public class Evaluation {
         EvaluationGraphComposer.startAmount = startAmount;
         EvaluationGraphComposer.setTransactionEnvironment(tEnv);
 
-        List<EvaluationGraphComposer.TGraph> tGraphs = new ArrayList<>(noTGraphs);
+        List<DataStream<Transfer>> outs = new ArrayList<>(noTGraphs);
         int i = 0;
         do {
             if (!seriesOrParallel) {
                 // select the portion of the source stream relevant to this state
                 transfers = splitTransfers.select(String.valueOf(i));
             }
-            EvaluationGraphComposer.TGraph tGraph = EvaluationGraphComposer
+            DataStream<Transfer> out = EvaluationGraphComposer
                     .generateTGraph(transfers, noStates, partitioning, seriesOrParallel);
-            tGraphs.add(tGraph);
-            DataStream<Transfer> out = tGraph.getOut();
+            outs.add(out);
             if (seriesOrParallel) {
                 transfers = out;
             }
@@ -185,18 +182,12 @@ public class Evaluation {
         } while (i < noTGraphs);
 
         DataStream<Transfer> out;
-        DataStream<Tuple2<Long, Vote>> wal;
         if (seriesOrParallel) {
-            EvaluationGraphComposer.TGraph lastTGraph = tGraphs.get(noTGraphs - 1);
-            out = lastTGraph.getOut();
-            wal = lastTGraph.getWal();
+            out = outs.get(noTGraphs - 1);
         } else {
-            EvaluationGraphComposer.TGraph firstTGraph = tGraphs.get(0);
-            out = firstTGraph.getOut();
-            wal = firstTGraph.getWal();
-            for (EvaluationGraphComposer.TGraph tg : tGraphs.subList(1, noTGraphs)) {
-                out = out.union(tg.getOut());
-                wal = wal.union(tg.getWal());
+            out = outs.get(0);
+            for (DataStream<Transfer> o : outs.subList(1, noTGraphs)) {
+                out = out.union(o);
             }
         }
 
@@ -219,7 +210,7 @@ public class Evaluation {
                 .setParallelism(1).name("FinishOnBackPressure");
 
         if (TransactionEnvironment.get(env).isVerbose()) {
-            wal.print();
+            out.print();
         }
 
         if (printPlan) {

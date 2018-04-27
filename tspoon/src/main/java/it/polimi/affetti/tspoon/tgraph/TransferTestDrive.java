@@ -91,7 +91,7 @@ public class TransferTestDrive {
             };
 
             tEnv.enableStandardQuerying(
-                    new FrequencyQuerySupplier(singleKeyQuerySupplier,1));
+                    new FrequencyQuerySupplier(singleKeyQuerySupplier, 1));
             tEnv.setOnQueryResult(new QueryResultMerger.PrintQueryResult());
         }
 
@@ -162,10 +162,7 @@ public class TransferTestDrive {
                     }
                 })
                 .returns(new TypeHint<TransactionResult>() {
-                });
-
-        open.wal
-                .filter(entry -> entry.f1 != Vote.REPLAY)
+                })
                 .addSink(new FinishOnCountSink<>(numberOfElements)).setParallelism(1)
                 .name("FinishOnCount");
 

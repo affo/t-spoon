@@ -10,7 +10,7 @@ import java.util.Collections;
 public class AsynchronousSinkTransactionCloser extends AbstractCloseOperatorTransactionCloser {
     @Override
     public void applyProtocolOnMetadata(Metadata metadata) throws Exception {
-        int dependency;
+        long dependency;
 
         if (metadata.dependencyTracking.isEmpty()) {
             dependency = -1;

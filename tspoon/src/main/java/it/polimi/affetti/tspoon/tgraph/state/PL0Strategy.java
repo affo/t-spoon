@@ -9,17 +9,17 @@ import it.polimi.affetti.tspoon.tgraph.db.ObjectVersion;
  */
 public class PL0Strategy implements VersioningStrategy {
     @Override
-    public <V> ObjectHandler<V> readVersion(int tid, int timestamp, int watermark, Object<V> versions) {
+    public <V> ObjectHandler<V> readVersion(long tid, long timestamp, long watermark, Object<V> versions) {
         return versions.readLastVersionBefore(timestamp);
     }
 
     @Override
-    public boolean canWrite(int tid, int timestamp, int watermark, Object<?> object) {
+    public boolean canWrite(long tid, long timestamp, long watermark, Object<?> object) {
         return true;
     }
 
     @Override
-    public <V> ObjectVersion<V> installVersion(int tid, int timestamp, Object<V> object, V version) {
+    public <V> ObjectVersion<V> installVersion(long tid, long timestamp, Object<V> object, V version) {
         return object.addVersion(tid, timestamp, version);
     }
 }

@@ -82,6 +82,10 @@ public class TransactionEnvironment {
     }
 
     public void enableStandardQuerying(QuerySupplier querySupplier) {
+        this.enableStandardQuerying(querySupplier, sourcesParallelism);
+    }
+
+    public void enableStandardQuerying(QuerySupplier querySupplier, int queryPar) {
         Preconditions.checkState(this.queryStream == null, "Cannot enable querying more than once");
 
         QuerySource querySource = new QuerySource();
@@ -90,7 +94,7 @@ public class TransactionEnvironment {
                 .addSource(querySource)
                 .name("QuerySource")
                 .slotSharingGroup(sourcesSharingGroup)
-                .setParallelism(sourcesParallelism);
+                .setParallelism(queryPar);
     }
 
     public void enableSPUpdates(SingleOutputStreamOperator<SinglePartitionUpdate> spuStream) {

@@ -64,7 +64,7 @@ public abstract class StateOperator<T, V>
 
     // Snapshotted state
     private ListState<Integer> snapshotShardID; // preserve the matching snapshotShardID-snapshot
-    private ListState<Integer> snapshotTimestamp; // preserve the matching watermark-snapshot
+    private ListState<Long> snapshotTimestamp; // preserve the matching watermark-snapshot
     private ListState<Map<String, V>> snapshot;
 
     public StateOperator(
@@ -167,7 +167,7 @@ public abstract class StateOperator<T, V>
         final String key = keySelector.getKey(element);
 
         metadata.addCohort(transactionCloser.getServerAddress());
-        int timestamp = metadata.timestamp;
+        long timestamp = metadata.timestamp;
 
         boolean newTransaction = shard.addOperation(key, metadata, Operation.from(element, stateFunction));
 
@@ -218,7 +218,7 @@ public abstract class StateOperator<T, V>
 
     @Override
     public boolean isInterestedIn(long timestamp) {
-        return shard.transactionExist((int) timestamp);
+        return shard.transactionExist(timestamp);
     }
 
     @Override
@@ -247,12 +247,12 @@ public abstract class StateOperator<T, V>
     }
 
     @Override
-    public String getUpdatesRepresentation(int timestamp) {
+    public String getUpdatesRepresentation(long timestamp) {
         return shard.getTransaction(timestamp).getUpdates().toString();
     }
 
     @Override
-    public Address getCoordinatorAddressForTransaction(int timestamp) {
+    public Address getCoordinatorAddressForTransaction(long timestamp) {
         return shard.getTransaction(timestamp).getCoordinator();
     }
 
@@ -286,7 +286,7 @@ public abstract class StateOperator<T, V>
     public void snapshotState(StateSnapshotContext context) throws Exception {
         super.snapshotState(context);
 
-        int wm = wal.getSnapshotInProgressWatermark();
+        long wm = wal.getSnapshotInProgressWatermark();
         this.snapshotTimestamp.clear();
         this.snapshotTimestamp.add(wm);
 
@@ -316,7 +316,7 @@ public abstract class StateOperator<T, V>
         snapshot = context.getOperatorStateStore().getListState(
                 new ListStateDescriptor<>("snapshot", stateType));
         snapshotTimestamp = context.getOperatorStateStore().getListState(
-                new ListStateDescriptor<>("snapshotTimestamp", Integer.class));
+                new ListStateDescriptor<>("snapshotTimestamp", Long.class));
         snapshotShardID = context.getOperatorStateStore().getListState(
                 new ListStateDescriptor<>("snapshotShardID", Integer.class));
     }
@@ -335,11 +335,10 @@ public abstract class StateOperator<T, V>
             snapshot = snap;
         }
 
-        Integer wm = -1;
-        for (Integer w : snapshotTimestamp.get()) {
+        long wm = -1;
+        for (Long w : snapshotTimestamp.get()) {
             wm = w;
         }
-
 
         if (snapshot != null) {
             shard.installSnapshot(snapshot);

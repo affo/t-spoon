@@ -68,9 +68,9 @@ public class OptimisticTransactionExecutor {
                 return;
             }
 
-            int tid = transaction.tid;
-            int timestamp = transaction.timestamp;
-            int watermark = transaction.watermark;
+            long tid = transaction.tid;
+            long timestamp = transaction.timestamp;
+            long watermark = transaction.watermark;
 
             Object<V> object = transaction.getObject(key);
 

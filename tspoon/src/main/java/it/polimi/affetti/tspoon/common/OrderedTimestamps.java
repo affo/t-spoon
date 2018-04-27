@@ -1,26 +1,29 @@
 package it.polimi.affetti.tspoon.common;
 
+import org.apache.flink.api.java.tuple.Tuple2;
+
 import java.util.ListIterator;
 
 /**
  * Created by affo on 04/08/17.
- */
-public class OrderedTimestamps extends OrderedElements<Integer> {
+ *
+xx */
+public class OrderedTimestamps extends OrderedElements<Long> {
     public OrderedTimestamps() {
-        super(Integer::longValue);
+        super((TimestampExtractor<Long>) aLong -> aLong);
     }
 
-    public void addInOrderWithoutRepetition(Integer timestamp) {
-        ListIterator<Integer> it = iterator();
+    public void addInOrderWithoutRepetition(Long ts) {
+        ListIterator<Long> it = iterator();
 
         boolean added = false;
 
         while (it.hasNext() && !added) {
-            Integer nextTimestamp = it.next();
-            if (nextTimestamp >= timestamp) {
-                if (nextTimestamp > timestamp) {
+            Long nextTimestamp = it.next();
+            if (nextTimestamp >= ts) {
+                if (nextTimestamp > ts) {
                     it.previous();
-                    it.add(timestamp);
+                    it.add(ts);
                 }
                 added = true;
             }
@@ -28,7 +31,7 @@ public class OrderedTimestamps extends OrderedElements<Integer> {
 
         // add in tail
         if (!added) {
-            it.add(timestamp);
+            it.add(ts);
         }
     }
 }

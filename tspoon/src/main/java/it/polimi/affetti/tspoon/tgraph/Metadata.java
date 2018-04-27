@@ -18,22 +18,22 @@ public class Metadata implements Serializable {
     public Object originalRecord;
     public int tGraphID;
     public BatchID batchID;
-    public int tid, timestamp;
+    public long tid, timestamp;
     public HashSet<Address> cohorts = new HashSet<>();
     public Address coordinator;
     public Vote vote = Vote.COMMIT;
-    public int watermark = 0;
-    public HashSet<Integer> dependencyTracking = new HashSet<>();
+    public long watermark = 0;
+    public HashSet<Long> dependencyTracking = new HashSet<>();
     public Updates updates = new Updates();
 
     public Metadata() {
     }
 
-    public Metadata(int tid) {
+    public Metadata(long tid) {
         this(0, tid);
     }
 
-    public Metadata(int tGraphID, int tid) {
+    public Metadata(int tGraphID, long tid) {
         this.tGraphID = tGraphID;
         this.batchID = new BatchID(tid);
         this.tid = tid;
@@ -120,6 +120,6 @@ public class Metadata implements Serializable {
 
     @Override
     public int hashCode() {
-        return timestamp;
+        return (int) timestamp;
     }
 }

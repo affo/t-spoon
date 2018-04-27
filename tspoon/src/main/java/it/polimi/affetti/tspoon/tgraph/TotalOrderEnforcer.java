@@ -13,16 +13,16 @@ public class TotalOrderEnforcer {
     private long lastRemoved = 0;
     private BatchCompletionChecker completionChecker = new BatchCompletionChecker();
     private OrderedTimestamps timestamps = new OrderedTimestamps();
-    private Map<Integer, SimpleOrderedElements<BatchID>> bids = new HashMap<>();
+    private Map<Long, SimpleOrderedElements<BatchID>> bids = new HashMap<>();
 
-    public void addElement(int timestamp, BatchID bid) {
+    public void addElement(long timestamp, BatchID bid) {
         timestamps.addInOrderWithoutRepetition(timestamp);
         bids.computeIfAbsent(timestamp, ts -> new SimpleOrderedElements<>()).addInOrder(bid);
         completionChecker.checkCompleteness(timestamp, bid);
     }
 
-    public LinkedHashMap<Integer, List<BatchID>> next() {
-        LinkedHashMap<Integer, List<BatchID>> result = new LinkedHashMap<>();
+    public LinkedHashMap<Long, List<BatchID>> next() {
+        LinkedHashMap<Long, List<BatchID>> result = new LinkedHashMap<>();
 
         final long[] newLastRemoved = {lastRemoved};
         timestamps.peekContiguous(lastRemoved,

@@ -35,11 +35,10 @@ public abstract class AbstractStateOperatorTransactionCloser
                                     Consumer<Throwable> error);
 
     private class StateServer extends ProcessRequestServer {
-        int count = 0;
 
         @Override
         protected void parseRequest(String request) {
-            // LOG.info(getServerAddress() + " " + request);
+            //LOG.info(getServerAddress() + " " + request);
             CloseTransactionNotification notification = CloseTransactionNotification.deserialize(request);
             long timestamp = notification.timestamp;
 
@@ -51,9 +50,9 @@ public abstract class AbstractStateOperatorTransactionCloser
             StringBuilder updatesRepresentation = new StringBuilder();
 
             for (StateOperatorTransactionCloseListener listener : listeners) {
-                coordinatorAddress = listener.getCoordinatorAddressForTransaction((int) timestamp);
+                coordinatorAddress = listener.getCoordinatorAddressForTransaction(timestamp);
                 if (notification.vote == Vote.COMMIT) {
-                    updatesRepresentation.append(listener.getUpdatesRepresentation((int) timestamp));
+                    updatesRepresentation.append(listener.getUpdatesRepresentation(timestamp));
                 }
             }
 

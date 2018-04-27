@@ -21,7 +21,7 @@ import java.util.stream.Stream;
  * Requires keyBy timestamp
  */
 public abstract class WindowWrapper<I, O> extends RichFlatMapFunction<Enriched<I>, Enriched<O>> {
-    private Map<Integer, List<Enriched<I>>> batches = new HashMap<>();
+    private Map<Long, List<Enriched<I>>> batches = new HashMap<>();
     private transient BatchCompletionChecker completionChecker;
 
     @Override
@@ -30,7 +30,7 @@ public abstract class WindowWrapper<I, O> extends RichFlatMapFunction<Enriched<I
         completionChecker = new BatchCompletionChecker();
     }
 
-    private List<Enriched<I>> addElement(int timestamp, Enriched<I> element) {
+    private List<Enriched<I>> addElement(long timestamp, Enriched<I> element) {
         List<Enriched<I>> batch = batches.computeIfAbsent(timestamp, k -> new LinkedList<>());
         batch.add(element);
         return batch;
@@ -38,7 +38,7 @@ public abstract class WindowWrapper<I, O> extends RichFlatMapFunction<Enriched<I
 
     @Override
     public void flatMap(Enriched<I> element, Collector<Enriched<O>> collector) throws Exception {
-        int timestamp = element.metadata.timestamp;
+        long timestamp = element.metadata.timestamp;
         List<Enriched<I>> batch = addElement(timestamp, element);
 
         boolean complete = completionChecker.checkCompleteness(timestamp, element.metadata.batchID);

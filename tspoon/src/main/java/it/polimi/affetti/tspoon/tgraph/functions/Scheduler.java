@@ -16,7 +16,7 @@ public class Scheduler<T> extends RichFlatMapFunction<Enriched<T>, Enriched<T>> 
     private Map<String, Enriched<T>> cachedRecords = new HashMap<>();
     private transient TotalOrderEnforcer totalOrderEnforcer;
 
-    private String getMappingKey(int timestamp, BatchID bid) {
+    private String getMappingKey(long timestamp, BatchID bid) {
         return timestamp + "-" + bid.getDottedRepresentation();
     }
 
@@ -28,18 +28,18 @@ public class Scheduler<T> extends RichFlatMapFunction<Enriched<T>, Enriched<T>> 
 
     @Override
     public void flatMap(Enriched<T> enriched, Collector<Enriched<T>> collector) throws Exception {
-        int timestamp = enriched.metadata.timestamp;
+        long timestamp = enriched.metadata.timestamp;
         BatchID batchID = enriched.metadata.batchID;
 
         cachedRecords.put(getMappingKey(timestamp, batchID), enriched);
         totalOrderEnforcer.addElement(timestamp, batchID);
 
-        for (Map.Entry<Integer, List<BatchID>> bids : totalOrderEnforcer.next().entrySet()) {
-            int ts = bids.getKey();
+        for (Map.Entry<Long, List<BatchID>> bids : totalOrderEnforcer.next().entrySet()) {
+            long ts = bids.getKey();
 
             List<BatchID> batch = bids.getValue();
             // flatten the batch id
-            int tid = batch.get(0).getTid();
+            long tid = batch.get(0).getTid();
             List<BatchID> flattenedIdSpace = new BatchID(tid).addStep(batch.size());
             Iterator<BatchID> flattenedIdSpaceIterator = flattenedIdSpace.iterator();
 

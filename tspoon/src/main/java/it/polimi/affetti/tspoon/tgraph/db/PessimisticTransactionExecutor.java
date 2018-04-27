@@ -12,7 +12,7 @@ import java.util.function.Supplier;
 public class PessimisticTransactionExecutor implements
         KeyLevelTaskExecutor.TaskCompletionObserver<Void> {
     private KeyLevelTaskExecutor<Void> executor;
-    private Map<Integer, Integer> timestampTidMapping = new ConcurrentHashMap<>();
+    private Map<Long, Long> timestampTidMapping = new ConcurrentHashMap<>();
 
     public PessimisticTransactionExecutor(int numberOfExecutors) {
         executor = new KeyLevelTaskExecutor<>(numberOfExecutors, this);
@@ -95,7 +95,7 @@ public class PessimisticTransactionExecutor implements
             executor.run(transaction.timestamp, key, task);
         } catch (KeyLevelTaskExecutor.OutOfOrderTaskException e) {
             transaction.mergeVote(Vote.REPLAY);
-            Integer replayCause = timestampTidMapping.get((int) e.getGreaterID());
+            Long replayCause = timestampTidMapping.get(e.getGreaterID());
             if (replayCause != null) {
                 // the replayCause could be `null` in the case its transaction has already terminated globally.
                 // in this case it is useless to specify it as a dependency (it has already finished...)

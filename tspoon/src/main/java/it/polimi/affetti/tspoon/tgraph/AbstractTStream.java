@@ -11,7 +11,6 @@ import org.apache.flink.api.common.functions.FilterFunction;
 import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.java.functions.KeySelector;
-import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.streaming.api.datastream.ConnectedStreams;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
@@ -65,26 +64,36 @@ public abstract class AbstractTStream<T> implements TStream<T> {
         TypeInformation<Enriched<T>> type = Enriched.getTypeInfo(dataStream.getType());
         OpenOperator<T> openOperator = new OpenOperator<>(
                 transactionEnvironment.createTransactionalRuntimeContext(), tGraphId);
+
+        int openParallelism;
+        if (transactionEnvironment.getIsolationLevel() == IsolationLevel.PL4) {
+            // the open operator must have parallelism 1, if not it can't
+            // follow the ingestion order...
+            openParallelism = 1;
+        } else {
+            // the open operator has parallelism equal to sources
+            openParallelism = transactionEnvironment.getSourcesParallelism();
+        }
+
         SingleOutputStreamOperator<Enriched<T>> enriched = dataStream
                 .transform("open", type, openOperator)
                 .name("OpenTransaction")
-                .setParallelism(1)
+                .setParallelism(openParallelism)
                 // everything from the OpenOperator on is in the default slot sharing group
                 .slotSharingGroup("default");
 
-        DataStream<Integer> watermarks = enriched.getSideOutput(openOperator.watermarkTag);
-        DataStream<Tuple2<Long, Vote>> tLog = enriched.getSideOutput(openOperator.logTag);
+        DataStream<Long> watermarks = enriched.getSideOutput(openOperator.watermarkTag).broadcast();
 
         SplitStream<Query> queryStream = null;
         if (inputQueryStream != null) {
             queryStream = watermarks.connect(inputQueryStream)
-                    .flatMap(new QueryProcessor())
+                    .flatMap(new WatermarkAssigner())
                     .name("AssignWatermark")
                     .slotSharingGroup("default") // out of sources group, default parallelism
                     .split(query -> Collections.singleton(query.getNameSpace()));
         }
 
-        return new OpenOutputs<>(enriched, queryStream, tLog, watermarks);
+        return new OpenOutputs<>(enriched, queryStream, watermarks);
     }
 
     public <U> AbstractTStream<U> map(MapFunction<T, U> fn) {
@@ -109,9 +118,9 @@ public abstract class AbstractTStream<T> implements TStream<T> {
     @Override
     public <U> TStream<U> window(TWindowFunction<T, U> windowFunction) {
         DataStream<Enriched<U>> windowed = dataStream.keyBy(
-                new KeySelector<Enriched<T>, Integer>() {
+                new KeySelector<Enriched<T>, Long>() {
                     @Override
-                    public Integer getKey(Enriched<T> enriched) throws Exception {
+                    public Long getKey(Enriched<T> enriched) throws Exception {
                         return enriched.metadata.timestamp;
                     }
                 })
@@ -161,8 +170,8 @@ public abstract class AbstractTStream<T> implements TStream<T> {
         // forwarding partitioning
         DataStream<NoConsensusOperation> wrappedQueries = queries.map(NoConsensusOperation::new);
         DataStream<NoConsensusOperation> wrappedSpus = spus
-                .map(NoConsensusOperation::new)
-                .setParallelism(transactionEnvironment.getSourcesParallelism()); // still in sources group
+                // now we are in default group if not we loose partitioning due to rebalancing
+                .map(NoConsensusOperation::new).slotSharingGroup("default");
         DataStream<NoConsensusOperation> partitionedOps = wrappedQueries.union(wrappedSpus);
 
         ConnectedStreams<Enriched<T>, NoConsensusOperation> connected = dataStream.connect(partitionedOps);
@@ -195,17 +204,14 @@ public abstract class AbstractTStream<T> implements TStream<T> {
     protected static class OpenOutputs<T> {
         public DataStream<Enriched<T>> enrichedDataStream;
         public SplitStream<Query> queryStream;
-        public DataStream<Tuple2<Long, Vote>> tLog;
-        public DataStream<Integer> watermarks;
+        public DataStream<Long> watermarks;
 
         public OpenOutputs(
                 DataStream<Enriched<T>> enrichedDataStream,
                 SplitStream<Query> queryStream,
-                DataStream<Tuple2<Long, Vote>> tLog,
-                DataStream<Integer> watermarks) {
+                DataStream<Long> watermarks) {
             this.enrichedDataStream = enrichedDataStream;
             this.queryStream = queryStream;
-            this.tLog = tLog;
             this.watermarks = watermarks;
         }
     }

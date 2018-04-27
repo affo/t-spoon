@@ -8,11 +8,11 @@ import org.apache.flink.util.Collector;
  * <p>
  * NOTE the stream of queries is split into different streams by nameSpace
  */
-public class QueryProcessor implements CoFlatMapFunction<Integer, MultiStateQuery, Query> {
-    private int currentWatermark;
+public class WatermarkAssigner implements CoFlatMapFunction<Long, MultiStateQuery, Query> {
+    private long currentWatermark;
 
     @Override
-    public void flatMap1(Integer watermark, Collector<Query> collector) throws Exception {
+    public void flatMap1(Long watermark, Collector<Query> collector) throws Exception {
         currentWatermark = Math.max(currentWatermark, watermark);
     }
 

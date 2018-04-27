@@ -3,7 +3,6 @@ package it.polimi.affetti.tspoon.tgraph.twopc;
 import it.polimi.affetti.tspoon.tgraph.Vote;
 
 import java.io.Serializable;
-import java.util.Arrays;
 
 /**
  * Created by affo on 09/11/17.
@@ -12,18 +11,18 @@ import java.util.Arrays;
  */
 public class CloseTransactionNotification implements Serializable {
     public final int tGraphID;
-    public final int timestamp;
+    public final long timestamp;
     public final Vote vote;
     public final int batchSize;
-    public final int replayCause;
+    public final long replayCause;
 
     private CloseTransactionNotification(
-            int timestamp, Vote vote, int batchSize, int replayCause) {
+            long timestamp, Vote vote, int batchSize, long replayCause) {
         this(0, timestamp, vote, batchSize, replayCause);
     }
 
     private CloseTransactionNotification(
-            int tGraphID, int timestamp, Vote vote, int batchSize, int replayCause) {
+            int tGraphID, long timestamp, Vote vote, int batchSize, long replayCause) {
         this.tGraphID = tGraphID;
         this.timestamp = timestamp;
         this.vote = vote;
@@ -34,10 +33,10 @@ public class CloseTransactionNotification implements Serializable {
     public static CloseTransactionNotification deserialize(String request) {
         String[] tokens = request.split(",");
         int tGraphID = Integer.parseInt(tokens[0]);
-        int timestamp = Integer.parseInt(tokens[1]);
+        long timestamp = Long.parseLong(tokens[1]);
         Vote vote = Vote.values()[Integer.parseInt(tokens[2])];
         int batchSize = Integer.parseInt(tokens[3]);
-        int replayCause = Integer.parseInt(tokens[4]);
+        long replayCause = Long.parseLong(tokens[4]);
 
         return new CloseTransactionNotification(tGraphID, timestamp, vote, batchSize, replayCause);
     }
@@ -47,7 +46,7 @@ public class CloseTransactionNotification implements Serializable {
     }
 
     public static String serialize(
-            int tGraphID, int timestamp, Vote vote, int batchSize, int replayCause) {
+            int tGraphID, long timestamp, Vote vote, int batchSize, long replayCause) {
 
         return tGraphID + "," + timestamp + "," + vote.ordinal() + ","
                 + batchSize + "," + replayCause;

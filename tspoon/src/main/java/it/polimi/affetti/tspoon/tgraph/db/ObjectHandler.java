@@ -7,12 +7,12 @@ import java.util.function.Predicate;
  * Created by affo on 14/07/17.
  */
 public class ObjectHandler<T> implements Serializable {
-    public final int version, createdBy;
+    public final long version, createdBy;
     public T object;
     public boolean read, write;
     private final Predicate<T> invariant;
 
-    public ObjectHandler(T object, int version, int createdBy, Predicate<T> invariant) {
+    public ObjectHandler(T object, long version, long createdBy, Predicate<T> invariant) {
         this.version = version;
         this.createdBy = createdBy;
         this.object = object;

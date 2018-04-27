@@ -8,7 +8,7 @@ import it.polimi.affetti.tspoon.tgraph.db.Transaction;
  */
 public class NoDependencyTrackingStrategy implements DependencyTrackingStrategy {
     @Override
-    public <T> void updateDependencies(Transaction<T> transaction, Object<T> object, int version, int createdBy) {
+    public <T> void updateDependencies(Transaction<T> transaction, Object<T> object, long version, long createdBy) {
         // does nothing
     }
 }

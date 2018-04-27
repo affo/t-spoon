@@ -1,6 +1,7 @@
 package it.polimi.affetti.tspoon.tgraph.twopc;
 
 import it.polimi.affetti.tspoon.common.SafeCollector;
+import it.polimi.affetti.tspoon.common.TimestampUtils;
 import it.polimi.affetti.tspoon.metrics.*;
 import it.polimi.affetti.tspoon.runtime.JobControlClient;
 import it.polimi.affetti.tspoon.runtime.JobControlListener;
@@ -8,7 +9,6 @@ import it.polimi.affetti.tspoon.tgraph.*;
 import org.apache.flink.api.common.accumulators.IntCounter;
 import org.apache.flink.api.common.state.ListState;
 import org.apache.flink.api.common.state.ListStateDescriptor;
-import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.runtime.state.StateInitializationContext;
 import org.apache.flink.runtime.state.StateSnapshotContext;
@@ -39,23 +39,20 @@ public class OpenOperator<T>
     private static final String REPLAYED_3_PLUS = "replayed-3+";
     private static final String PROTOCOL_LATENCY = "open2open-latency";
 
-    public final OutputTag<Integer> watermarkTag = new OutputTag<Integer>("watermark") {
-    };
-    public final OutputTag<Tuple2<Long, Vote>> logTag = new OutputTag<Tuple2<Long, Vote>>("tLog") {
+    public final OutputTag<Long> watermarkTag = new OutputTag<Long>("watermark") {
     };
 
+    private int sourceID;
     private final int tGraphID;
-    private int lastCommittedWatermark = 0;
-    private int restoredTid = 0;
-    private Set<Integer> intraEpochTids = new HashSet<>(); // to discard WALled tnxs
-    // TODO temporarly avoiding log ordering
-    //protected transient InOrderSideCollector<T, Tuple2<Long, Vote>> collector;
+    private long lastCommittedWatermark = Long.MIN_VALUE;
+    private long restoredTid = 0;
+    private Set<Long> intraEpochTids = new HashSet<>(); // to discard WALled tnxs
     protected transient SafeCollector<T> collector;
 
     private DependencyTracker dependencyTracker = new DependencyTracker();
     // tid -> current watermark
-    private Map<Integer, Integer> playedWithWatermark = new HashMap<>();
-    private Set<Integer> laterReplay = new HashSet<>();
+    private Map<Long, Long> playedWithWatermark = new HashMap<>();
+    private Set<Long> laterReplay = new HashSet<>();
 
     protected final TRuntimeContext tRuntimeContext;
     protected TransactionsIndex<T> transactionsIndex;
@@ -74,7 +71,7 @@ public class OpenOperator<T>
     private IntCounter directlyReplayed = new IntCounter();
     private SingleValueAccumulator<Double> replayedRatio = new SingleValueAccumulator<>(0.0);
 
-    private Map<Integer, Integer> replayCounts = new HashMap<>();
+    private Map<Long, Integer> replayCounts = new HashMap<>();
     private IntCounter replayedTwice = new IntCounter();
     private IntCounter replayedTrice = new IntCounter();
     private IntCounter replayedTooMuch = new IntCounter();
@@ -102,7 +99,11 @@ public class OpenOperator<T>
     public void open() throws Exception {
         super.open();
         // NOTE: this happens __after__ initializeState
-        transactionsIndex = tRuntimeContext.getTransactionsIndex(restoredTid);
+        this.sourceID = getRuntimeContext().getIndexOfThisSubtask();
+        transactionsIndex = tRuntimeContext.getTransactionsIndex(restoredTid,
+                getRuntimeContext().getNumberOfParallelSubtasks(),
+                sourceID);
+
 
         collector = new SafeCollector<>(output);
         // everybody shares the same OpenServer by specifying the same taskNumber
@@ -175,7 +176,7 @@ public class OpenOperator<T>
     }
 
     private void collect(TransactionsIndex<T>.LocalTransactionContext transactionContext) {
-        int tid = transactionContext.tid;
+        long tid = transactionContext.tid;
         Metadata metadata = new Metadata(tGraphID, tid);
         metadata.originalRecord = transactionContext.element;
         metadata.timestamp = transactionContext.timestamp;
@@ -192,7 +193,7 @@ public class OpenOperator<T>
         currentLatency.start(String.valueOf(metadata.timestamp));
     }
 
-    private void collect(int tid) {
+    private void collect(long tid) {
         T element = transactionsIndex.getTransaction(tid).element;
         TransactionsIndex<T>.LocalTransactionContext tContext = transactionsIndex.newTransaction(element, tid);
         this.collect(tContext);
@@ -205,7 +206,7 @@ public class OpenOperator<T>
         return tGraphID;
     }
 
-    private void updateStats(int timestamp, Vote vote) {
+    private void updateStats(long timestamp, Vote vote) {
         switch (vote) {
             case COMMIT:
                 commits.add(1);
@@ -235,29 +236,35 @@ public class OpenOperator<T>
         TransactionsIndex<T>.LocalTransactionContext localTransactionContext = transactionsIndex
                 .getTransactionByTimestamp(notification.timestamp);
 
-        if (localTransactionContext == null &&
-                tRuntimeContext.getSubscriptionMode() == AbstractTwoPCParticipant.SubscriptionMode.SPECIFIC) {
+        if (localTransactionContext == null) {
+            if (tRuntimeContext.getSubscriptionMode() == AbstractTwoPCParticipant.SubscriptionMode.SPECIFIC) {
+                // this means that this notification is not for me!
+                throw new IllegalStateException("I subscribed to a SPECIFIC transaction" +
+                        "that I didn't register in transactionIndex: " + notification.timestamp);
+            }
+
             // this means that this notification is not for me!
-            throw new IllegalStateException("I subscribed to a SPECIFIC transaction" +
-                    "that I didn't register in transactionIndex: " + notification.timestamp);
+            return;
         }
 
-        if (localTransactionContext == null &&
-                tRuntimeContext.getSubscriptionMode() == AbstractTwoPCParticipant.SubscriptionMode.GENERIC) {
-            // this means that this notification is not for me!
+        if (!TimestampUtils.checkTimestamp(sourceID, notification.timestamp)) {
+            // not for me
             return;
         }
 
         updateStats(notification.timestamp, notification.vote);
 
-        int tid = localTransactionContext.tid;
-        int timestamp = localTransactionContext.timestamp;
+        //TODO
+        //System.out.println(notification);
+
+        long tid = localTransactionContext.tid;
+        long timestamp = localTransactionContext.timestamp;
         Vote vote = notification.vote;
-        int replayCause = notification.replayCause;
+        long replayCause = notification.replayCause;
         boolean dependencyNotSatisfied = transactionsIndex.isTransactionRunning(replayCause);
 
-        int oldWM = transactionsIndex.getCurrentWatermark();
-        int newWM = transactionsIndex.updateWatermark(timestamp, vote);
+        long oldWM = transactionsIndex.getCurrentWatermark();
+        long newWM = transactionsIndex.updateWatermark(timestamp, vote);
         boolean wmUpdate = newWM > oldWM;
 
         if (wmUpdate) {
@@ -279,7 +286,7 @@ public class OpenOperator<T>
                 }
             case ABORT:
                 // committed/aborted transaction satisfies a dependency
-                Integer unleashed = dependencyTracker.satisfyDependency(tid);
+                Long unleashed = dependencyTracker.satisfyDependency(tid);
                 if (unleashed != null) {
                     replayElement(unleashed);
                     replayedUponDependencySatisfaction.add(1);
@@ -310,12 +317,9 @@ public class OpenOperator<T>
                     replayElement(tid);
                 }
         }
-
-        collector.safeCollect(logTag,
-                Tuple2.of((long) notification.timestamp, notification.vote));
     }
 
-    private void replayElement(Integer tid) {
+    private void replayElement(Long tid) {
         if (tRuntimeContext.isBaselineMode()) {
             // does nothing
             return;
@@ -325,7 +329,7 @@ public class OpenOperator<T>
                 tRuntimeContext.getIsolationLevel() != IsolationLevel.PL4) {
             // do not replay with the same watermark...
             // let something change before replay!
-            int playedWithWatermark = this.playedWithWatermark.remove(tid);
+            long playedWithWatermark = this.playedWithWatermark.remove(tid);
             if (playedWithWatermark < transactionsIndex.getCurrentWatermark()) {
                 collect(tid);
             } else {
@@ -349,7 +353,7 @@ public class OpenOperator<T>
 
     // --------------------------------------- Recovery & Snapshotting
 
-    private ListState<Integer> startTid;
+    private ListState<Long> startTid;
 
     @Override
     public void snapshotState(StateSnapshotContext context) throws Exception {
@@ -361,7 +365,7 @@ public class OpenOperator<T>
             startTid.add(transactionsIndex.getCurrentTid());
 
             // save watermark for snapshotting at state operators
-            int currentWatermark = transactionsIndex.getCurrentWatermark();
+            long currentWatermark = transactionsIndex.getCurrentWatermark();
             wal.startSnapshot(currentWatermark);
 
             LOG.info("Snapshot started [wm: " + currentWatermark + "]");
@@ -373,9 +377,9 @@ public class OpenOperator<T>
         super.initializeState(context);
 
         startTid = context.getOperatorStateStore().getListState(
-                new ListStateDescriptor<>("watermark", Integer.class));
+                new ListStateDescriptor<>("watermark", Long.class));
 
-        for (Integer tid : startTid.get()) {
+        for (Long tid : startTid.get()) {
             restoredTid = tid;
         }
 

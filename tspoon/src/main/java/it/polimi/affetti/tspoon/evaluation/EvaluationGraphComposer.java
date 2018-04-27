@@ -34,11 +34,9 @@ public class EvaluationGraphComposer {
         EvaluationGraphComposer.transactionEnvironment = transactionEnvironment;
     }
 
-    public static TGraph generateTGraph(
+    public static DataStream<Transfer> generateTGraph(
             DataStream<Transfer> transfers, int noStates, int partitioning, boolean seriesOrParallel) {
-        TGraph result = new TGraph();
         OpenStream<Transfer> openStream = openTGraph(transfers);
-        result.wal = openStream.wal;
         TStream<Transfer> open = openStream.opened;
         TStream<Movement> source = toMovements(open);
 
@@ -60,8 +58,7 @@ public class EvaluationGraphComposer {
             out = toSource(transactionEnvironment.close(outOfStateStreams));
         }
 
-        result.out = out;
-        return result;
+        return out;
     }
 
     public static OpenStream<Transfer> openTGraph(DataStream<Transfer> transfers) {
@@ -116,19 +113,6 @@ public class EvaluationGraphComposer {
 
     public static DataStream<TransactionResult> closeGraph(TStream<Movement> movements) {
         return transactionEnvironment.close(movements);
-    }
-
-    public static class TGraph {
-        private DataStream<Tuple2<Long, Vote>> wal;
-        private DataStream<Transfer> out;
-
-        public DataStream<Transfer> getOut() {
-            return out;
-        }
-
-        public DataStream<Tuple2<Long, Vote>> getWal() {
-            return wal;
-        }
     }
 
     /**

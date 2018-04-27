@@ -11,7 +11,7 @@ import static org.junit.Assert.*;
  * Created by affo on 20/11/17.
  */
 public class BatchIDTest {
-    public static List<BatchID> generateIdSpace(int steps, int maxChildren, int id) {
+    public static List<BatchID> generateIdSpace(int steps, int maxChildren, long id) {
         Random rand = new Random(id);
         return generateIdSpace(steps, rand, maxChildren, Collections.singletonList(new BatchID(id)));
     }

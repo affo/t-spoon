@@ -11,9 +11,9 @@ import java.util.stream.Collectors;
  * Created by affo on 19/12/17.
  */
 public class Transaction<V> {
-    public final int tid, timestamp, watermark;
+    public final long tid, timestamp, watermark;
     public Vote vote = Vote.COMMIT;
-    private final Set<Integer> dependencies; // should be transaction ids
+    private final Set<Long> dependencies; // should be transaction ids
     private final Map<String, Object<V>> touchedObjects = new HashMap<>();
     private final Map<String, ObjectVersion<V>> objectVersions = new HashMap<>();
     private final Map<String, Operation<V>> ops = new HashMap<>();
@@ -22,7 +22,7 @@ public class Transaction<V> {
     private boolean readOnly;
 
 
-    public Transaction(int tid, int timestamp, int watermark, Address coordinator) {
+    public Transaction(long tid, long timestamp, long watermark, Address coordinator) {
         this.tid = tid;
         this.timestamp = timestamp;
         this.watermark = watermark;
@@ -77,15 +77,15 @@ public class Transaction<V> {
         return coordinator;
     }
 
-    public void addDependency(int dependency) {
+    public void addDependency(long dependency) {
         this.dependencies.add(dependency);
     }
 
-    public void addDependencies(Collection<Integer> dependencies) {
+    public void addDependencies(Collection<Long> dependencies) {
         this.dependencies.addAll(dependencies);
     }
 
-    public Set<Integer> getDependencies() {
+    public Set<Long> getDependencies() {
         return dependencies;
     }
 

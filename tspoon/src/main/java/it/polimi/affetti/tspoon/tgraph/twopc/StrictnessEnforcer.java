@@ -26,9 +26,9 @@ import java.util.stream.Stream;
  */
 public class StrictnessEnforcer extends RichFlatMapFunction<Metadata, Metadata> {
     private transient Sequencer sequencer;
-    private Map<Integer, Metadata> metadataCache;
+    private Map<Long, Metadata> metadataCache;
     // tid -> newest tid of the transaction that signalled the fwd dependency
-    private Map<Integer, Integer> forwardDependencies;
+    private Map<Long, Long> forwardDependencies;
 
     @Override
     public void open(Configuration parameters) throws Exception {
@@ -40,7 +40,7 @@ public class StrictnessEnforcer extends RichFlatMapFunction<Metadata, Metadata> 
 
     @Override
     public void flatMap(Metadata metadata, Collector<Metadata> collector) throws Exception {
-        int tid = metadata.tid;
+        long tid = metadata.tid;
 
         if (metadata.vote == Vote.REPLAY) {
             sequencer.signalReplay(tid);
@@ -57,11 +57,11 @@ public class StrictnessEnforcer extends RichFlatMapFunction<Metadata, Metadata> 
             metadata.dependencyTracking = metadata.dependencyTracking.stream()
                     .flatMap(dep -> {
                         if (dep < 0) {
-                            int forwardDep = -dep;
+                            long forwardDep = -dep;
 
                             sequencer.signalReplay(forwardDep);
 
-                            Integer signallerTid = forwardDependencies.get(forwardDep);
+                            Long signallerTid = forwardDependencies.get(forwardDep);
                             if (signallerTid == null || signallerTid < tid) {
                                 // newer signaller detected
                                 forwardDependencies.put(forwardDep, tid);
@@ -80,7 +80,7 @@ public class StrictnessEnforcer extends RichFlatMapFunction<Metadata, Metadata> 
         //  - this new record signalled some previously processed Metadata -> collect them (it)
         collectForwardDependencies(collector);
 
-        for (Integer toCollect : sequencer.nextAvailableSequence()) {
+        for (Long toCollect : sequencer.nextAvailableSequence()) {
             Metadata m = metadataCache.remove(toCollect);
             collector.collect(m);
         }
@@ -91,11 +91,11 @@ public class StrictnessEnforcer extends RichFlatMapFunction<Metadata, Metadata> 
      * @param collector
      */
     private void collectForwardDependencies(Collector<Metadata> collector) {
-        Iterator<Map.Entry<Integer, Integer>> iterator = forwardDependencies.entrySet().iterator();
+        Iterator<Map.Entry<Long, Long>> iterator = forwardDependencies.entrySet().iterator();
         while (iterator.hasNext()) {
-            Map.Entry<Integer, Integer> entry = iterator.next();
-            int tid = entry.getKey();
-            int signallerTid = entry.getValue();
+            Map.Entry<Long, Long> entry = iterator.next();
+            long tid = entry.getKey();
+            long signallerTid = entry.getValue();
             Metadata metadata = metadataCache.remove(tid);
 
             // it could be that the Metadata for forward dependency has not yet come
@@ -120,10 +120,10 @@ public class StrictnessEnforcer extends RichFlatMapFunction<Metadata, Metadata> 
     public static class Sequencer {
         // cannot trust timestamps, they are not ordered wrt tids!
         private OrderedTimestamps tids = new OrderedTimestamps();
-        private Set<Integer> toReplay = new HashSet<>();
-        private int lastRemoved = 0;
+        private Set<Long> toReplay = new HashSet<>();
+        private long lastRemoved = 0;
 
-        public void signalReplay(int tid) {
+        public void signalReplay(long tid) {
             toReplay.add(tid);
         }
 
@@ -134,8 +134,8 @@ public class StrictnessEnforcer extends RichFlatMapFunction<Metadata, Metadata> 
          *
          * @param
          */
-        public void addTransaction(int tid) {
-            tids.addInOrderWithoutRepetition(tid);
+        public void addTransaction(long tid) {
+            tids.addInOrderWithoutRepetition(tid); // no matter of the real
             toReplay.remove(tid);
         }
 
@@ -157,9 +157,9 @@ public class StrictnessEnforcer extends RichFlatMapFunction<Metadata, Metadata> 
          * And so when every record before has committed or aborted. The Sequencer, however, does not remove the tids
          * of forward dependencies, because they will be REPLAYed.
          */
-        public List<Integer> nextAvailableSequence() {
-            int firstReplay = toReplay.isEmpty() ? Integer.MAX_VALUE : Collections.min(toReplay);
-            List<Integer> batch = tids.removeContiguousWith(lastRemoved, firstReplay);
+        public List<Long> nextAvailableSequence() {
+            long firstReplay = toReplay.isEmpty() ? Integer.MAX_VALUE : Collections.min(toReplay);
+            List<Long> batch = tids.removeContiguousWith(lastRemoved, firstReplay);
 
             if (!batch.isEmpty()) {
                 lastRemoved = Collections.max(batch);

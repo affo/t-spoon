@@ -34,7 +34,7 @@ public abstract class AbstractCloseOperatorTransactionCloser {
      * @param vote
      * @param updates
      */
-    public void writeToWAL(int tid, int timestamp, Vote vote, Updates updates) throws IOException {
+    public void writeToWAL(long tid, long timestamp, Vote vote, Updates updates) throws IOException {
         wal.addEntry(new WAL.Entry(vote, tid, timestamp, updates));
     }
 

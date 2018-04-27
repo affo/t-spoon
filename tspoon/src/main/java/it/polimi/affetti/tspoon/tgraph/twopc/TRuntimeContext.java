@@ -74,12 +74,12 @@ public class TRuntimeContext implements Serializable {
         return subscriptionMode;
     }
 
-    public <T> TransactionsIndex<T> getTransactionsIndex(int startIndex) {
+    public <T> TransactionsIndex<T> getTransactionsIndex(long startIndex, int sourceParallelism, int sourceID) {
         if (getStrategy() == Strategy.OPTIMISTIC && getIsolationLevel() == IsolationLevel.PL4) {
-            return new TidForWatermarkingTransactionsIndex<>(startIndex);
+            return new TidForWatermarkingTransactionsIndex<>(startIndex, sourceParallelism, sourceID);
         }
 
-        return new StandardTransactionsIndex<>(startIndex);
+        return new StandardTransactionsIndex<>(startIndex, sourceParallelism, sourceID);
     }
 
     public void setOpenServerPoolSize(int openServerPoolSize) {

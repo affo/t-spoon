@@ -6,20 +6,20 @@ import java.io.Serializable;
  * Created by affo on 14/07/17.
  */
 public class ObjectVersion<T> implements Serializable {
-    public final int version;
-    public final int createdBy;
+    public final long version;
+    public final long createdBy;
     private Status status = Status.UNKNOWN;
     public final T object;
     private final Object<T> parent;
 
-    private ObjectVersion(Object<T> parent, int version, int createdBy, T object) {
+    private ObjectVersion(Object<T> parent, long version, long createdBy, T object) {
         this.parent = parent;
         this.version = version;
         this.createdBy = createdBy;
         this.object = object;
     }
 
-    public static <T> ObjectVersion<T> of(Object<T> parent, int version, int createdBy, T object) {
+    public static <T> ObjectVersion<T> of(Object<T> parent, long version, long createdBy, T object) {
         if (object == null) {
             throw new NullPointerException();
         }
@@ -27,7 +27,7 @@ public class ObjectVersion<T> implements Serializable {
         return new ObjectVersion<>(parent, version, createdBy, object);
     }
 
-    public static <T> ObjectVersion<T> of(Object<T> parent, int version, int createdBy, ObjectFunction<T> objectFunction) {
+    public static <T> ObjectVersion<T> of(Object<T> parent, long version, long createdBy, ObjectFunction<T> objectFunction) {
         return new ObjectVersion<>(parent, version, createdBy, objectFunction.defaultValue());
     }
 

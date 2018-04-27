@@ -1,5 +1,6 @@
 package it.polimi.affetti.tspoon.tgraph.state;
 
+import it.polimi.affetti.tspoon.common.TimestampUtils;
 import it.polimi.affetti.tspoon.tgraph.Vote;
 import it.polimi.affetti.tspoon.tgraph.db.Object;
 import it.polimi.affetti.tspoon.tgraph.db.Transaction;
@@ -9,8 +10,8 @@ import it.polimi.affetti.tspoon.tgraph.db.Transaction;
  */
 public class StandardDependencyTrackingStrategy implements DependencyTrackingStrategy {
     @Override
-    public <T> void updateDependencies(Transaction<T> transaction, Object<T> object, int version, int createdBy) {
-        if (transaction.vote == Vote.REPLAY) {
+    public <T> void updateDependencies(Transaction<T> transaction, Object<T> object, long version, long createdBy) {
+        if (transaction.vote == Vote.REPLAY && TimestampUtils.sameSource(transaction.timestamp, version)) {
             transaction.addDependency(createdBy);
         }
     }

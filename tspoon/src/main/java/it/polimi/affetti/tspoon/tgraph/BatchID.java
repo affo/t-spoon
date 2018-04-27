@@ -24,9 +24,7 @@ import java.util.stream.Collectors;
  * The new step is saved in separated fields and it is consolidated upon new step generation.
  * Generating a new step will create a new BatchID that shares the root ID except for the new step introduced.
  */
-public final class BatchID implements Serializable,
-        Iterable<Tuple2<Integer, Integer>>,
-        Comparable<BatchID> {
+public final class BatchID implements Serializable, Iterable<Tuple2<Integer, Integer>>, Comparable<BatchID> {
     public LinkedList<Integer> offsets;
     public LinkedList<Integer> sizes;
 
@@ -37,8 +35,8 @@ public final class BatchID implements Serializable,
         sizes = new LinkedList<>();
     }
 
-    public BatchID(int tid) {
-        this(tid, 1, new LinkedList<>(), new LinkedList<>());
+    public BatchID(long tid) {
+        this((int) tid, 1, new LinkedList<>(), new LinkedList<>());
         consolidate();
     }
 
@@ -154,7 +152,7 @@ public final class BatchID implements Serializable,
         return representation;
     }
 
-    public int getTid() {
+    public long getTid() {
         return offsets.get(0);
     }
 

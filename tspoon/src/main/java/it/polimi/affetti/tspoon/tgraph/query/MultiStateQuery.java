@@ -15,7 +15,7 @@ public class MultiStateQuery implements Iterable<Query>, Serializable {
         queries.add(query);
     }
 
-    public void setWatermark(int watermark) {
+    public void setWatermark(long watermark) {
         queries.forEach(query -> query.watermark = watermark);
     }
 
