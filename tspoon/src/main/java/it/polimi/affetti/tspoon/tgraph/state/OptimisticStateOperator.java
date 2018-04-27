@@ -61,7 +61,11 @@ public class OptimisticStateOperator<T, V> extends StateOperator<T, V> {
         Consumer<Void> andThen = aVoid -> {
             record.metadata.dependencyTracking = new HashSet<>(transaction.getDependencies());
             record.metadata.vote = transaction.vote;
-            decorateRecordWithUpdates(key, record, transaction);
+            if (transaction.vote == Vote.COMMIT) {
+                V version = transaction.getVersion(key);
+                // The namespace contains the partition for later recovery
+                record.metadata.addUpdate(shardID, key, version);
+            }
             collector.safeCollect(record);
 
             // ------------ updates stats

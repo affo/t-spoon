@@ -1,6 +1,7 @@
 package it.polimi.affetti.tspoon.tgraph.state;
 
 import it.polimi.affetti.tspoon.tgraph.Enriched;
+import it.polimi.affetti.tspoon.tgraph.Vote;
 import it.polimi.affetti.tspoon.tgraph.db.PessimisticTransactionExecutor;
 import it.polimi.affetti.tspoon.tgraph.db.Transaction;
 import it.polimi.affetti.tspoon.tgraph.twopc.TRuntimeContext;
@@ -42,7 +43,11 @@ public class PessimisticStateOperator<T, V> extends StateOperator<T, V> {
                 () -> {
                     record.metadata.vote = transaction.vote;
                     record.metadata.dependencyTracking = new HashSet<>(transaction.getDependencies());
-                    decorateRecordWithUpdates(key, record, transaction);
+                    if (transaction.vote == Vote.COMMIT) {
+                        V version = transaction.getVersion(key);
+                        // The namespace contains the partition for later recovery
+                        record.metadata.addUpdate(shardID, key, version);
+                    }
                     collector.safeCollect(record);
                 });
     }

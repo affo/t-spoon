@@ -256,24 +256,6 @@ public abstract class StateOperator<T, V>
         return shard.getTransaction(timestamp).getCoordinator();
     }
 
-    /** TODO review
-     * This method is an helper for subclasses for enriching a record with the updates of some transaction for
-     * some key.
-     *
-     * It expects a record that is ready for collection (dependency tracking done and merged vote) and a transaction
-     * that has already registered updates (versions) for key `key`.
-     *
-     * @param key
-     * @param record
-     * @param transaction
-     */
-    protected void decorateRecordWithUpdates(String key, Enriched<T> record, Transaction<V> transaction) {
-        if (record.metadata.vote == Vote.COMMIT) {
-            V version = transaction.getVersion(key);
-            record.metadata.addUpdate(shardID, key, version); // save the partition in the namespace for later recovery
-        }
-    }
-
     // --------------------------------------- State Recovery & Snapshotting ---------------------------------------
 
     /**

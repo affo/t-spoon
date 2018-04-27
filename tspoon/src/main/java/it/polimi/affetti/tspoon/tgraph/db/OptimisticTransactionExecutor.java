@@ -94,7 +94,7 @@ public class OptimisticTransactionExecutor {
                 dependencyTrackingStrategy.updateDependencies(transaction, object, handler.version, handler.createdBy);
 
                 // avoid wasting memory in case we generated an invalid version
-                if (vote != Vote.REPLAY) {
+                if (transaction.vote != Vote.REPLAY) {
                     ObjectVersion<V> objectVersion = versioningStrategy.installVersion(tid, timestamp, object, handler.object);
                     transaction.addVersion(key, objectVersion);
                 }
