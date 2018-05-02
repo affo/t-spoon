@@ -16,7 +16,7 @@ if __name__ == "__main__":
     base_url = "http://localhost:8081"
     polling_interval = 20
     errors_threshold = 10
-    experiment_deadline = 2 * 60 * 60 # 2 hours
+    experiment_deadline = 1 * 60 * 60 # 1 hour
 
     resp = requests.post(
             base_url + "/jars/upload",
