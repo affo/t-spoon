@@ -260,6 +260,4 @@ public class Shard<V> implements
         recoverySemaphore.acquireUninterruptibly();
         recoverySemaphore.release();
     }
-
-
 }

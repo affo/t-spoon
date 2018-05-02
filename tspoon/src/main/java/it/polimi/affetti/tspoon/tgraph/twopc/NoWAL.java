@@ -24,8 +24,7 @@ public class NoWAL implements WAL {
 
     }
 
-    @Override
-    public Iterator<Entry> replay(String namespace) {
+    private Iterator<Entry> emptyItr() {
         return new Iterator<Entry>() {
             @Override
             public boolean hasNext() {
@@ -37,6 +36,16 @@ public class NoWAL implements WAL {
                 return null;
             }
         };
+    }
+
+    @Override
+    public Iterator<Entry> replay(String namespace) {
+        return emptyItr();
+    }
+
+    @Override
+    public Iterator<Entry> replay(int sourceID, int numberOfSources) throws IOException {
+        return emptyItr();
     }
 
     @Override

@@ -27,7 +27,8 @@ public class WALServiceTest {
     @Before
     public void before() throws IOException {
         Map<String, String> args = new HashMap<>();
-        args.put("par", "2");
+        args.put("par", "4");
+        args.put("sourcePar", "2");
         ParameterTool params = ParameterTool.fromMap(args);
         server = NetUtils.launchWALServer(params);
         client = WALClient.get(params);
@@ -129,8 +130,10 @@ public class WALServiceTest {
     }
 
     @Test
-    public void snapshotTest() throws IOException {
-        WALClient openOp = client;
+    public void snapshotTest() throws IOException, InterruptedException {
+        WALClient openOp1 = client;
+        WALClient openOp2 = new WALClient(client.address, client.port);
+        openOp2.init();
         WALClient stateOp = new WALClient(client.address, client.port);
         stateOp.init();
         WALClient closeSink1 = new WALClient(client.address, client.port);
@@ -152,7 +155,17 @@ public class WALServiceTest {
 
         // now snapshot
         int snapshotWM = 11;
-        openOp.startSnapshot(snapshotWM);
+        Thread start1 = new Thread(() -> {
+            try {
+                openOp1.startSnapshot(snapshotWM);
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        });
+        start1.start();
+        openOp2.startSnapshot(snapshotWM - 3); // the max will win
+
+        start1.join();
 
         // 5 records more
         for (int i = 15; i < 20; i++) {
@@ -168,7 +181,7 @@ public class WALServiceTest {
         }
 
         // sink2 commits, ok the snapshot is complete!
-        closeSink1.commitSnapshot();
+        closeSink2.commitSnapshot();
 
         Iterator<WAL.Entry> replay = stateOp.replay(namespace);
         int i = snapshotWM + 1;

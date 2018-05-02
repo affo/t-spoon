@@ -25,6 +25,16 @@ public interface WAL {
      */
     Iterator<Entry> replay(String namespace) throws IOException;
 
+    /**
+     * For open operators
+     *
+     * @param sourceID
+     * @param numberOfSources
+     * @return
+     * @throws IOException
+     */
+    Iterator<Entry> replay(int sourceID, int numberOfSources) throws IOException;
+
     // ----------------- Snapshotting
 
     void startSnapshot(long newWM) throws IOException;

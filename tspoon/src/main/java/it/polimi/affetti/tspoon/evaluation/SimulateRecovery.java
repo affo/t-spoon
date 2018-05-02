@@ -22,7 +22,7 @@ public class SimulateRecovery {
         List<WAL.Entry> entries = new ArrayList<>();
 
         long start = System.nanoTime();
-        Iterator<WAL.Entry> replayed = wal.replay("balances-0");
+        Iterator<WAL.Entry> replayed = wal.replay(0, 1);
         while (replayed.hasNext()) {
             WAL.Entry next = replayed.next();
             entries.add(next);
@@ -30,6 +30,7 @@ public class SimulateRecovery {
         double delta = (System.nanoTime() - start) / Math.pow(10, 6);
 
         for (WAL.Entry entry : entries) {
+            System.out.println(entry);
             Map<String, Object> updates = entry.updates.getUpdatesFor("balances", 0);
             System.out.println(updates);
         }

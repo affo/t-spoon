@@ -2,7 +2,10 @@ package it.polimi.affetti.tspoon.tgraph.twopc;
 
 import it.polimi.affetti.tspoon.common.SafeCollector;
 import it.polimi.affetti.tspoon.common.TimestampUtils;
-import it.polimi.affetti.tspoon.metrics.*;
+import it.polimi.affetti.tspoon.metrics.RealTimeAccumulatorsWithPerBatchCurve;
+import it.polimi.affetti.tspoon.metrics.Report;
+import it.polimi.affetti.tspoon.metrics.SingleValueAccumulator;
+import it.polimi.affetti.tspoon.metrics.TimeDelta;
 import it.polimi.affetti.tspoon.runtime.JobControlClient;
 import it.polimi.affetti.tspoon.runtime.JobControlListener;
 import it.polimi.affetti.tspoon.tgraph.*;
@@ -100,9 +103,8 @@ public class OpenOperator<T>
         super.open();
         // NOTE: this happens __after__ initializeState
         this.sourceID = getRuntimeContext().getIndexOfThisSubtask();
-        transactionsIndex = tRuntimeContext.getTransactionsIndex(restoredTid,
-                getRuntimeContext().getNumberOfParallelSubtasks(),
-                sourceID);
+        int numberOfSources = getRuntimeContext().getNumberOfParallelSubtasks();
+        transactionsIndex = tRuntimeContext.getTransactionsIndex(restoredTid, numberOfSources, sourceID);
 
 
         collector = new SafeCollector<>(output);
@@ -130,7 +132,7 @@ public class OpenOperator<T>
         wal.open();
 
         // restore completedTids in the lastSnapshot
-        Iterator<WAL.Entry> replay = wal.replay("*");// every entry, no matter the namespace
+        Iterator<WAL.Entry> replay = wal.replay(sourceID, numberOfSources); // the entries for my source ID
         while (replay.hasNext()) {
             intraEpochTids.add(replay.next().tid);
         }
@@ -257,9 +259,6 @@ public class OpenOperator<T>
 
         updateStats(notification.timestamp, notification.vote);
 
-        //TODO
-        //System.out.println(notification);
-
         long tid = localTransactionContext.tid;
         long timestamp = localTransactionContext.timestamp;
         Vote vote = notification.vote;
@@ -380,7 +379,7 @@ public class OpenOperator<T>
         super.initializeState(context);
 
         startTid = context.getOperatorStateStore().getListState(
-                new ListStateDescriptor<>("watermark", Long.class));
+                new ListStateDescriptor<>("tid", Long.class));
 
         for (Long tid : startTid.get()) {
             restoredTid = tid;

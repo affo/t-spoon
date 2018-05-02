@@ -33,8 +33,15 @@ public class WALClient extends ObjectClient implements WAL {
     }
 
     @Override
+    public Iterator<Entry> replay(int sourceID, int numberOfSources) throws IOException {
+        send(String.format(WALServer.replaySourceFormat, sourceID, numberOfSources));
+        return new WALIterator();
+    }
+
+    @Override
     public void startSnapshot(long newWM) throws IOException {
         send(String.format(WALServer.startSnapshotFormat, newWM));
+        receive(); // wait for the ACK
     }
 
     @Override

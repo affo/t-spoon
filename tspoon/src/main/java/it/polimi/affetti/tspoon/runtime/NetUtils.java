@@ -80,7 +80,8 @@ public class NetUtils {
         parameters.toMap().put("WALServerIP", getMyIp());
         parameters.toMap().put("WALServerPort", String.valueOf(WAL_SERVER_PORT));
         int parallelism = parameters.getInt("par", 4);
-        return getServer(WAL_SERVER_PORT, new WALServer(parallelism));
+        int sourcePar = parameters.getInt("sourcePar", 1);
+        return getServer(WAL_SERVER_PORT, new WALServer(sourcePar, parallelism - sourcePar));
     }
 
     public synchronized static <T extends AbstractServer> T openAsSingleton(
