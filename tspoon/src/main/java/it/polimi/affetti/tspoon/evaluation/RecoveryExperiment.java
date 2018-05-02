@@ -2,8 +2,6 @@ package it.polimi.affetti.tspoon.evaluation;
 
 import it.polimi.affetti.tspoon.common.FlatMapFunction;
 import it.polimi.affetti.tspoon.runtime.NetUtils;
-import it.polimi.affetti.tspoon.tgraph.IsolationLevel;
-import it.polimi.affetti.tspoon.tgraph.Strategy;
 import it.polimi.affetti.tspoon.tgraph.TStream;
 import it.polimi.affetti.tspoon.tgraph.TransactionEnvironment;
 import it.polimi.affetti.tspoon.tgraph.backed.Movement;
@@ -14,7 +12,6 @@ import it.polimi.affetti.tspoon.tgraph.state.StateFunction;
 import it.polimi.affetti.tspoon.tgraph.state.StateStream;
 import it.polimi.affetti.tspoon.tgraph.twopc.OpenStream;
 import org.apache.flink.api.java.utils.ParameterTool;
-import org.apache.flink.streaming.api.TimeCharacteristic;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 
@@ -25,41 +22,30 @@ import java.util.Arrays;
  */
 public class RecoveryExperiment {
     public static void main(String[] args) throws Exception {
-        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
-        env.setStreamTimeCharacteristic(TimeCharacteristic.ProcessingTime);
-        env.setBufferTimeout(0);
-        env.getConfig().setLatencyTrackingInterval(-1);
         ParameterTool parameters = ParameterTool.fromArgs(args);
-
+        EvalConfig config = EvalConfig.fromParams(parameters);
         final double inputFrequency = parameters.getDouble("inputRate", 1000);
         final long waitPeriodMicro = Evaluation.getWaitPeriodInMicroseconds(inputFrequency);
-        final int par = parameters.getInt("par", 4);
-        final int partitioning = parameters.getInt("partitioning", 4);
-        final int keySpaceSize = parameters.getInt("ks", 100000);
-        final boolean optimisticOrPessimistic = parameters.getBoolean("optOrNot", true);
-        final int isolationLevelNumber = parameters.getInt("isolationLevel", 3);
 
-
+        // side effect on params
         NetUtils.launchJobControlServer(parameters);
         NetUtils.launchWALServer(parameters);
-        env.getConfig().setGlobalJobParameters(parameters);
+        StreamExecutionEnvironment env = EvalUtils.getFlinkEnv(config);
 
-        env.setParallelism(par);
-
-        final Strategy strategy = optimisticOrPessimistic ? Strategy.OPTIMISTIC : Strategy.PESSIMISTIC;
-        final IsolationLevel isolationLevel = IsolationLevel.values()[isolationLevelNumber];
-        final double startAmount = 100;
         final String nameSpace = "balances";
 
         TransactionEnvironment tEnv = TransactionEnvironment.get(env);
-        tEnv.configIsolation(strategy, isolationLevel);
+        tEnv.configIsolation(config.strategy, config.isolationLevel);
         tEnv.enableDurability(); // here we are
         tEnv.setStateServerPoolSize(Runtime.getRuntime().availableProcessors());
+        EvalUtils.setSourcesSharingGroup(tEnv);
 
-        TransferSource transferSource = new TransferSource(Integer.MAX_VALUE, keySpaceSize, startAmount);
+        TransferSource transferSource = new TransferSource(Integer.MAX_VALUE, config.keySpaceSize, EvalUtils.startAmount);
         transferSource.setMicroSleep(waitPeriodMicro);
 
-        DataStream<Transfer> transfers = env.addSource(transferSource).setParallelism(1);
+        DataStream<Transfer> transfers = env.addSource(transferSource)
+                .slotSharingGroup(EvalUtils.sourceSharingGroup)
+                .setParallelism(1);
         OpenStream<Transfer> open = tEnv.open(transfers);
 
         TStream<Movement> halves = open.opened.flatMap(
@@ -70,7 +56,7 @@ public class RecoveryExperiment {
                 new StateFunction<Movement, Double>() {
                     @Override
                     public Double defaultValue() {
-                        return startAmount;
+                        return EvalUtils.startAmount;
                     }
 
                     @Override
@@ -89,7 +75,7 @@ public class RecoveryExperiment {
                         // r(x) w(x)
                         handler.write(handler.read() + element.f2);
                     }
-                }, partitioning);
+                }, config.partitioning);
 
         tEnv.close(balances.leftUnchanged);
 

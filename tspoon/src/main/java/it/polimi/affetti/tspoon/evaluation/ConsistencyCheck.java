@@ -3,7 +3,10 @@ package it.polimi.affetti.tspoon.evaluation;
 import it.polimi.affetti.tspoon.common.FinishOnCountSink;
 import it.polimi.affetti.tspoon.common.FlatMapFunction;
 import it.polimi.affetti.tspoon.runtime.NetUtils;
-import it.polimi.affetti.tspoon.tgraph.*;
+import it.polimi.affetti.tspoon.tgraph.TStream;
+import it.polimi.affetti.tspoon.tgraph.TransactionEnvironment;
+import it.polimi.affetti.tspoon.tgraph.TransactionResult;
+import it.polimi.affetti.tspoon.tgraph.Vote;
 import it.polimi.affetti.tspoon.tgraph.backed.Movement;
 import it.polimi.affetti.tspoon.tgraph.backed.Transfer;
 import it.polimi.affetti.tspoon.tgraph.backed.TransferSource;
@@ -15,8 +18,6 @@ import it.polimi.affetti.tspoon.tgraph.state.StateFunction;
 import it.polimi.affetti.tspoon.tgraph.state.StateStream;
 import it.polimi.affetti.tspoon.tgraph.twopc.OpenStream;
 import org.apache.flink.api.java.utils.ParameterTool;
-import org.apache.flink.configuration.Configuration;
-import org.apache.flink.streaming.api.TimeCharacteristic;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.sink.SinkFunction;
@@ -29,54 +30,24 @@ import java.util.Arrays;
 public class ConsistencyCheck {
     public static void main(String[] args) throws Exception {
         ParameterTool parameters = ParameterTool.fromArgs(args);
-
-        final String label = parameters.get("label");
+        EvalConfig config = EvalConfig.fromParams(parameters);
         final int numRecords = parameters.getInt("nRec", 500000);
         final double inputFrequency = parameters.getDouble("inputRate", 1000);
         final long waitPeriodMicro = Evaluation.getWaitPeriodInMicroseconds(inputFrequency);
-        final int sourcePar = parameters.getInt("sourcePar", 2);
-        final int par = parameters.getInt("par", 4) - sourcePar;
-        final int partitioning = parameters.getInt("partitioning", 4) - sourcePar;
-        final int keySpaceSize = parameters.getInt("ks", 100000);
         final double queryRate = parameters.getDouble("queryRate", 0.1);
-        final boolean optimisticOrPessimistic = parameters.getBoolean("optOrNot", true);
-        final boolean synchronous = parameters.getBoolean("synchronous", false);
-        final int isolationLevelNumber = parameters.getInt("isolationLevel", 3);
-
-        final Strategy strategy = optimisticOrPessimistic ? Strategy.OPTIMISTIC : Strategy.PESSIMISTIC;
-        final IsolationLevel isolationLevel = IsolationLevel.values()[isolationLevelNumber];
-        final double startAmount = 100;
         final String nameSpace = "balances";
-
-        final boolean local = (label == null || label.startsWith("local"));
-        StreamExecutionEnvironment env;
-        if (local) { // TODO the only way to make slot sharing group work locally for now...
-            Configuration conf = new Configuration();
-            conf.setInteger("taskmanager.numberOfTaskSlots", par + sourcePar);
-            env = StreamExecutionEnvironment.createLocalEnvironment(par, conf);
-        } else {
-            env = StreamExecutionEnvironment.getExecutionEnvironment();
-            env.setParallelism(par);
-        }
-
-        env.setStreamTimeCharacteristic(TimeCharacteristic.ProcessingTime);
-        env.setBufferTimeout(0);
-        env.getConfig().setLatencyTrackingInterval(-1);
-
         NetUtils.launchJobControlServer(parameters);
-        env.getConfig().setGlobalJobParameters(parameters);
+        StreamExecutionEnvironment env = EvalUtils.getFlinkEnv(config);
 
-        env.setParallelism(par);
 
         // ------------ Topology
         TransactionEnvironment tEnv = TransactionEnvironment.get(env);
-        tEnv.configIsolation(strategy, isolationLevel);
-        tEnv.setSynchronous(synchronous);
+        tEnv.configIsolation(config.strategy, config.isolationLevel);
+        tEnv.setSynchronous(config.synchronous);
         tEnv.setStateServerPoolSize(Runtime.getRuntime().availableProcessors());
-        final String sourceSharingGroupName = "sources";
-        tEnv.setSourcesSharingGroup(sourceSharingGroupName, sourcePar);
+        EvalUtils.setSourcesSharingGroup(tEnv);
 
-        TransferSource transferSource = new TransferSource(numRecords, keySpaceSize, startAmount);
+        TransferSource transferSource = new TransferSource(numRecords, config.keySpaceSize, EvalUtils.startAmount);
         transferSource.setMicroSleep(waitPeriodMicro);
 
         // select * from balances
@@ -86,8 +57,8 @@ public class ConsistencyCheck {
                         queryRate), 1);
 
         DataStream<Transfer> transfers = env.addSource(transferSource)
-                .slotSharingGroup(sourceSharingGroupName)
-                .setParallelism(sourcePar);
+                .slotSharingGroup(EvalUtils.sourceSharingGroup)
+                .setParallelism(config.sourcePar);
         OpenStream<Transfer> open = tEnv.open(transfers);
 
         TStream<Movement> halves = open.opened.flatMap(
@@ -98,7 +69,7 @@ public class ConsistencyCheck {
                 new StateFunction<Movement, Double>() {
                     @Override
                     public Double defaultValue() {
-                        return startAmount;
+                        return EvalUtils.startAmount;
                     }
 
                     @Override
@@ -117,9 +88,9 @@ public class ConsistencyCheck {
                         // r(x) w(x)
                         handler.write(handler.read() + element.f2);
                     }
-                }, partitioning);
+                }, config.partitioning);
 
-        balances.queryResults.addSink(new CheckOnQueryResult(startAmount));
+        balances.queryResults.addSink(new CheckOnQueryResult(EvalUtils.startAmount));
 
         DataStream<TransactionResult> out = tEnv.close(balances.leftUnchanged);
 
@@ -128,7 +99,7 @@ public class ConsistencyCheck {
                 .addSink(new FinishOnCountSink<>(numRecords)).setParallelism(1)
                 .name("FinishOnCount");
 
-        env.execute("Consistency check at " + strategy + " - " + isolationLevel);
+        env.execute("Consistency check at " + config.strategy + " - " + config.isolationLevel);
     }
 
     public static class CheckOnQueryResult implements SinkFunction<QueryResult> {

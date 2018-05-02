@@ -21,6 +21,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import static it.polimi.affetti.tspoon.evaluation.EvalUtils.startAmount;
+
 /**
  * Created by affo on 04/08/17.
  */
@@ -28,7 +30,6 @@ public class EvaluationGraphComposer {
     public static TransactionEnvironment transactionEnvironment;
     public static final String STATE_BASE_NAME = "state";
     private static int stateCount = 0;
-    public static double startAmount = 100d;
 
     public static void setTransactionEnvironment(TransactionEnvironment transactionEnvironment) {
         EvaluationGraphComposer.transactionEnvironment = transactionEnvironment;

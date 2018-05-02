@@ -2,8 +2,6 @@ package it.polimi.affetti.tspoon.evaluation;
 
 import it.polimi.affetti.tspoon.common.FlatMapFunction;
 import it.polimi.affetti.tspoon.runtime.NetUtils;
-import it.polimi.affetti.tspoon.tgraph.IsolationLevel;
-import it.polimi.affetti.tspoon.tgraph.Strategy;
 import it.polimi.affetti.tspoon.tgraph.TStream;
 import it.polimi.affetti.tspoon.tgraph.TransactionEnvironment;
 import it.polimi.affetti.tspoon.tgraph.backed.Movement;
@@ -17,11 +15,14 @@ import it.polimi.affetti.tspoon.tgraph.state.StateFunction;
 import it.polimi.affetti.tspoon.tgraph.state.StateStream;
 import it.polimi.affetti.tspoon.tgraph.twopc.OpenStream;
 import org.apache.flink.api.java.utils.ParameterTool;
-import org.apache.flink.streaming.api.TimeCharacteristic;
 import org.apache.flink.streaming.api.datastream.DataStream;
+import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.apache.flink.util.Preconditions;
 
 import java.util.Arrays;
+
+import static it.polimi.affetti.tspoon.evaluation.EvalUtils.startAmount;
 
 /**
  * Created by affo on 29/07/17.
@@ -30,60 +31,50 @@ public class QueryEvaluation {
     public static final String QUERY_TRACKING_SERVER_NAME = "query-tracker";
 
     public static void main(String[] args) throws Exception {
-        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
-        env.setStreamTimeCharacteristic(TimeCharacteristic.ProcessingTime);
-        env.setBufferTimeout(0);
-        env.getConfig().setLatencyTrackingInterval(-1);
         ParameterTool parameters = ParameterTool.fromArgs(args);
-
+        EvalConfig config = EvalConfig.fromParams(parameters);
         final double inputFrequency = parameters.getDouble("inputRate", 100);
         final long waitPeriodMicro = Evaluation.getWaitPeriodInMicroseconds(inputFrequency);
-        final int par = parameters.getInt("par", 4);
-        final int partitioning = parameters.getInt("partitioning", 4);
-        final int keySpaceSize = parameters.getInt("ks", 100000);
-        final boolean optimisticOrPessimistic = parameters.getBoolean("optOrNot", true);
-        final boolean synchronous = parameters.getBoolean("synchronous", false);
-        final int isolationLevelNumber = parameters.getInt("isolationLevel", 3);
-
         final int averageQuerySize = parameters.getInt("avg", 1);
         final int stdDevQuerySize = parameters.getInt("stddev", 0);
-        final int batchSize = parameters.getInt("batchSize", 10000);
-        final int resolution = parameters.getInt("resolution", 100);
-        final int startInputRate = parameters.getInt("startInputRate", 100);
 
-        assert averageQuerySize < keySpaceSize;
+        Preconditions.checkArgument(averageQuerySize < config.keySpaceSize);
 
         NetUtils.launchJobControlServer(parameters);
-        env.getConfig().setGlobalJobParameters(parameters);
-        env.setParallelism(par);
+        StreamExecutionEnvironment env = EvalUtils.getFlinkEnv(config);
 
-        final Strategy strategy = optimisticOrPessimistic ? Strategy.OPTIMISTIC : Strategy.PESSIMISTIC;
-        final IsolationLevel isolationLevel = IsolationLevel.values()[isolationLevelNumber];
-        final double startAmount = 100;
         final String nameSpace = "balances";
 
         TransactionEnvironment tEnv = TransactionEnvironment.get(env);
-        tEnv.configIsolation(strategy, isolationLevel);
-        tEnv.setSynchronous(synchronous);
+        tEnv.configIsolation(config.strategy, config.isolationLevel);
+        tEnv.setSynchronous(config.synchronous);
         tEnv.setStateServerPoolSize(Runtime.getRuntime().availableProcessors());
+        EvalUtils.setSourcesSharingGroup(tEnv);
 
-        // TODO implement insert INTO phase?
-        TransferSource transferSource = new TransferSource(Integer.MAX_VALUE, keySpaceSize, startAmount);
+        TransferSource transferSource = new TransferSource(Integer.MAX_VALUE, config.keySpaceSize, startAmount);
         transferSource.setMicroSleep(waitPeriodMicro);
 
         TunableSource.TunableQuerySource tunableQuerySource = new TunableSource.TunableQuerySource(
-                startInputRate, resolution, batchSize, QUERY_TRACKING_SERVER_NAME, nameSpace,
-                keySpaceSize, averageQuerySize, stdDevQuerySize);
-        DataStream<Query> queries = env.addSource(tunableQuerySource).name("TunableQuerySource");
-        DataStream<MultiStateQuery> msQueries = queries.map(q -> {
+                config.startInputRate, config.resolution, config.batchSize, QUERY_TRACKING_SERVER_NAME, nameSpace,
+                config.keySpaceSize, averageQuerySize, stdDevQuerySize);
+        tunableQuerySource.enableBusyWait();
+
+        SingleOutputStreamOperator<Query> queries = env.addSource(tunableQuerySource);
+        queries = EvalUtils.addToSourcesSharingGroup(queries, "TunableQuerySource");
+
+        SingleOutputStreamOperator<MultiStateQuery> msQueries = queries.map(q -> {
             MultiStateQuery multiStateQuery = new MultiStateQuery();
             multiStateQuery.addQuery(q);
             return multiStateQuery;
-        }).name("ToMultiStateQuery");
+        });
+
+        msQueries = EvalUtils.addToSourcesSharingGroup(msQueries, "ToMultiStateQuery");
 
         tEnv.enableCustomQuerying(msQueries);
 
-        DataStream<Transfer> transfers = env.addSource(transferSource).setParallelism(1);
+        DataStream<Transfer> transfers = env.addSource(transferSource)
+                .slotSharingGroup(EvalUtils.sourceSharingGroup).setParallelism(1);
+
         OpenStream<Transfer> open = tEnv.open(transfers);
 
         TStream<Movement> halves = open.opened.flatMap(
@@ -113,19 +104,19 @@ public class QueryEvaluation {
                         // r(x) w(x)
                         handler.write(handler.read() + element.f2);
                     }
-                }, partitioning);
+                }, config.partitioning);
 
         balances.queryResults
                 .map(qr -> qr.queryID).returns(QueryID.class)
                 .addSink(
-                        new FinishOnBackPressure<>(0.25, batchSize, startInputRate,
-                                resolution, -1, QUERY_TRACKING_SERVER_NAME))
+                        new FinishOnBackPressure<>(0.10, config.batchSize, config.startInputRate,
+                                config.resolution, -1, QUERY_TRACKING_SERVER_NAME))
                 .name("FinishOnBackPressure")
                 .setParallelism(1);
 
 
         tEnv.close(balances.leftUnchanged);
 
-        env.execute("Query evaluation at " + strategy + " - " + isolationLevel);
+        env.execute("Query evaluation at " + config.strategy + " - " + config.isolationLevel);
     }
 }

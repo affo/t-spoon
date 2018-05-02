@@ -12,11 +12,10 @@ BASE_RESULTS_DIR=$RESULTS_DIR
 rm -r $RESULTS_DIR
 mkdir -p $RESULTS_DIR
 
-opt_isolation=(0 1 2 3)
+opt_isolation=(2 3 4)
 pess_isolation=(3 4)
 
 for opt in true false; do
-
     export IS_OPTIMISTIC=$opt
 
     isolation=()
@@ -62,10 +61,41 @@ for opt in true false; do
         echo "Launching keyspace..."
         sleep 2
         launch_suite_keyspace
-
-        echo; echo; echo;
-        echo "Launching querying..."
-        sleep 2
-        launch_suite_query
     done
 done
+
+# some experiments run only for 1 isolation level
+
+export IS_OPTIMISTIC=true
+export ISOLATION=3
+export RESULTS_DIR=$BASE_RESULTS_DIR/querying
+mkdir -p $RESULTS_DIR
+echo; echo; echo;
+echo "Launching querying..."
+sleep 2
+launch_suite_query
+
+export IS_OPTIMISTIC=true
+export ISOLATION=3
+export RESULTS_DIR=$BASE_RESULTS_DIR/durability
+mkdir -p $RESULTS_DIR
+echo; echo; echo;
+echo "Launching durability..."
+sleep 2
+launch_durability
+
+export IS_OPTIMISTIC=true
+export ISOLATION=3
+export RESULTS_DIR=$BASE_RESULTS_DIR/scalability
+mkdir -p $RESULTS_DIR
+echo; echo; echo;
+echo "Launching scalability..."
+sleep 2
+launch_suite_scalability
+
+export RESULTS_DIR=$BASE_RESULTS_DIR/pure_flink
+mkdir -p $RESULTS_DIR
+echo; echo; echo;
+echo "Launching pure Flink..."
+sleep 2
+launch_bank_example_pure

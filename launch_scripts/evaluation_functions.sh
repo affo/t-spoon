@@ -111,14 +111,14 @@ function launch_keyspace {
 
 function launch_query {
     if [[ "$#" -lt 1 ]]; then
-        echo "Input: <update_frequency> <params...>"
+        echo "Input: <average_query_size> <params...>"
         return 1
     fi
 
-    local update_frequency=$1
+    local average_query_size=$1
 
-    launch 'query_'$update_frequency $QUERY_EVAL_CLASS \
-        --inputRate $update_frequency "${@:2}"
+    launch 'query_'$average_query_size $QUERY_EVAL_CLASS \
+        --avg $average_query_size --inputRate 1000 "${@:2}"
 }
 
 function launch_consistency_check {
@@ -144,6 +144,11 @@ function launch_bank_example {
     sleep 1
 }
 
+function launch_bank_example_pure {
+    launch pure_flink $BANK_EXAMPLE_NOT_CLASS "$@"
+    sleep 1
+}
+
 function launch_flink_wordcount {
     launch go_flink_go $PURE_FLINK_CLASS "${@:1}"
     sleep 1
@@ -152,6 +157,25 @@ function launch_flink_wordcount {
 function launch_recovery {
     launch recovery $RECOVERY_CLASS "${@:1}"
     sleep 1
+}
+
+# The default scenario with durability enabled
+function launch_durability {
+  launch durability $EVAL_CLASS --noStates 1 --noTG 1 --series true \
+    --durable true "$@"
+  sleep 1
+}
+
+function launch_scalability {
+    if [[ "$#" -lt 1 ]]; then
+        echo "Input: <scale_factor> <params...>"
+        return 1
+    fi
+
+    local scale=$1
+
+    launch 'scale_'$scale $EVAL_CLASS --noStates 1 --noTG 1 --series true \
+        --par $scale "${@:2}"
 }
 
 ### Builtin suites
@@ -172,20 +196,20 @@ function launch_suite_parallel_ntg {
 }
 
 function launch_suite_keyspace {
-    _launch_suite_keyspace 100000,70000,40000,10000,7000,4000,1000,700,400,100,70,40,10
+    _launch_suite_keyspace 100000,70000,40000,10000,7000,4000,1000,700,400,100
 }
 
-# keyspace 50, queryPerc 0.1
-# - launch one with no updates and only querying to get the throughput
-# - 2000 updates/s and variable querying frequency (10, 100, 1000, 3000, 5000)
-#   measure PUT and GET latency
 function launch_suite_query {
-    #launch --queryOn true --transfersOn false --queryPerc 0.1 --ks 50 \
-    #    --output $RESULTS_DIR/query_throughput --noTG 1 --noStates 1 --series true
-
-    #sleep 2
-
+    launch_query 1
+    launch_query 10
+    launch_query 100
     launch_query 1000
-    launch_query 3000
-    launch_query 5000
+}
+
+function launch_suite_scalability {
+    launch_scalability 8 --sourcePar 4 # the real parallelism is 8 - 4
+    launch_scalability 12 --sourcePar 4
+    launch_scalability 20 --sourcePar 4
+    launch_scalability 36 --sourcePar 4
+    launch_scalability 50 --sourcePar 4
 }
