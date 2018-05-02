@@ -32,60 +32,60 @@ public class Transaction<V> {
         this.updates = new LinkedList<>();
     }
 
-    public void setReadOnly(boolean readOnly) {
+    public synchronized void setReadOnly(boolean readOnly) {
         this.readOnly = readOnly;
     }
 
-    public boolean isReadOnly() {
+    public synchronized boolean isReadOnly() {
         return readOnly;
     }
 
-    public void addOperation(String key, Object<V> object, Operation<V> operation) {
+    public synchronized void addOperation(String key, Object<V> object, Operation<V> operation) {
         this.touchedObjects.put(key, object);
         this.ops.put(key, operation);
     }
 
-    public void addVersion(String key, ObjectVersion<V> objectVersion) {
+    public synchronized void addVersion(String key, ObjectVersion<V> objectVersion) {
         objectVersions.put(key, objectVersion);
     }
 
-    public Object<V> getObject(String key) {
+    public synchronized Object<V> getObject(String key) {
         return touchedObjects.get(key);
     }
 
-    public V getVersion(String key) {
+    public synchronized V getVersion(String key) {
         return objectVersions.get(key).object;
     }
 
-    public Iterable<String> getKeys() {
+    public synchronized Iterable<String> getKeys() {
         return touchedObjects.keySet();
     }
 
-    public Operation<V> getOperation(String key) {
+    public synchronized Operation<V> getOperation(String key) {
         return ops.get(key);
     }
 
-    public void mergeVote(Vote vote) {
+    public synchronized void mergeVote(Vote vote) {
         this.vote = this.vote.merge(vote);
     }
 
-    public Vote getVote() {
+    public synchronized Vote getVote() {
         return vote;
     }
 
-    public Address getCoordinator() {
+    public synchronized Address getCoordinator() {
         return coordinator;
     }
 
-    public void addDependency(long dependency) {
+    public synchronized void addDependency(long dependency) {
         this.dependencies.add(dependency);
     }
 
-    public void addDependencies(Collection<Long> dependencies) {
+    public synchronized void addDependencies(Collection<Long> dependencies) {
         this.dependencies.addAll(dependencies);
     }
 
-    public Set<Long> getDependencies() {
+    public synchronized Set<Long> getDependencies() {
         return dependencies;
     }
 
@@ -101,14 +101,14 @@ public class Transaction<V> {
      *
      * @return
      */
-    public List<Update<V>> getUpdates() {
+    public synchronized List<Update<V>> getUpdates() {
         if (!isReadOnly() && updates == null) {
             updates = calculateUpdates();
         }
         return updates;
     }
 
-    public Iterable<Update<V>> applyChanges() {
+    public synchronized Iterable<Update<V>> applyChanges() {
         List<Update<V>> updates = Collections.emptyList();
         if (!isReadOnly()) {
             if (vote == Vote.COMMIT) {
