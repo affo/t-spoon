@@ -28,10 +28,13 @@ public class ReduceVotesFunction extends RichFlatMapFunction<Metadata, Metadata>
     public void flatMap(Metadata metadata, Collector<Metadata> collector) throws Exception {
         long timestamp = metadata.timestamp;
 
+        BatchID batchIDToCheck = metadata.batchID;
         Metadata accumulated = votes.get(timestamp);
         if (accumulated == null) {
-            // first one
-            accumulated = metadata.deepClone(new BatchID(metadata.tid));
+            // first one:
+            // use the original metadata, but refresh the batch id for further reduction
+            metadata.batchID = new BatchID(metadata.tid);
+            accumulated = metadata;
         } else {
             accumulated.vote = accumulated.vote.merge(metadata.vote);
             accumulated.cohorts.addAll(metadata.cohorts);
@@ -45,7 +48,7 @@ public class ReduceVotesFunction extends RichFlatMapFunction<Metadata, Metadata>
         }
         votes.put(timestamp, accumulated);
 
-        if (completionChecker.checkCompleteness(timestamp, metadata.batchID)) {
+        if (completionChecker.checkCompleteness(timestamp, batchIDToCheck)) {
             completionChecker.freeIndex(timestamp);
             collector.collect(votes.remove(timestamp));
         }
