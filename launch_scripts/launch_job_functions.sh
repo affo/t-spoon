@@ -68,9 +68,9 @@ function launch {
 
     output="$RESULTS_DIR/$1.json"
     cmd="python run.py $output $PACKAGE_BASE.$2 $TARGET_JAR \
-      \"--label $1 ${@:3} --isolationLevel $ISOLATION --optOrNot $IS_OPTIMISTIC \
+      \"--label $1 --isolationLevel $ISOLATION --optOrNot $IS_OPTIMISTIC \
       --par $TOTAL_SLOTS --partitioning $TOTAL_SLOTS --sourcePar $SOURCE_SLOTS \
-      $DEFAULT\""
+      ${@:3} $DEFAULT\""
 
     opt=OPT
     if [[ $IS_OPTIMISTIC != true ]]; then

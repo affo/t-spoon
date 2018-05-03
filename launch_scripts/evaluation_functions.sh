@@ -175,7 +175,7 @@ function launch_scalability {
     local scale=$1
 
     launch 'scale_'$scale $EVAL_CLASS --noStates 1 --noTG 1 --series true \
-        --par $scale "${@:2}"
+        --par $scale --partitioning $scale "${@:2}"
 }
 
 ### Builtin suites
