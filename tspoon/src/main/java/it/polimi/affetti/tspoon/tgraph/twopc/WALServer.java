@@ -4,7 +4,6 @@ import it.polimi.affetti.tspoon.runtime.AbstractServer;
 import it.polimi.affetti.tspoon.runtime.ClientHandler;
 import it.polimi.affetti.tspoon.runtime.LoopingClientHandler;
 import it.polimi.affetti.tspoon.runtime.ObjectClientHandler;
-import org.apache.flink.util.Preconditions;
 
 import java.io.IOException;
 import java.net.Socket;
@@ -32,7 +31,7 @@ public class WALServer extends AbstractServer {
     private FileWAL temporaryWAL = new FileWAL("wal2.log");
 
     private boolean snapshotInProgress = false;
-    private long lastWatermark = -1; // for compaction
+    private long inProgressWatermark = -1;
     private int numberOfBegins, numberOfCommits;
     private Semaphore beginSemaphore = new Semaphore(0);
     private final int numberOfSourcePartitions, numberOfSinkPartitions;
@@ -58,19 +57,25 @@ public class WALServer extends AbstractServer {
 
     private synchronized void addEntry(WAL.Entry entry) throws IOException {
         currentWAL.addEntry(entry);
-        if (snapshotInProgress && entry.timestamp > lastWatermark) {
+        if (snapshotInProgress && entry.timestamp > inProgressWatermark) {
             temporaryWAL.addEntry(entry);
         }
     }
 
     private void startSnapshot(long wm) throws IOException, InterruptedException {
-        Preconditions.checkState(!snapshotInProgress, "Snapshot begins while snapshot in progress!");
+        if (snapshotInProgress) {
+            abortSnapshot();
+        }
 
         synchronized (this) {
-            lastWatermark = Math.max(lastWatermark, wm);
+            if (numberOfBegins == 0) {
+                inProgressWatermark = -1;
+            }
+
+            inProgressWatermark = Math.max(inProgressWatermark, wm);
             numberOfBegins++;
 
-            LOG.info("Snapshot starting - begins: " + numberOfBegins + " wm: " + lastWatermark);
+            LOG.info("Snapshot starting - begins: " + numberOfBegins + "/" + numberOfSourcePartitions + " wm: " + inProgressWatermark);
 
             if (numberOfBegins == numberOfSourcePartitions) {
                 numberOfBegins = 0;
@@ -80,12 +85,12 @@ public class WALServer extends AbstractServer {
                 Iterator<WAL.Entry> replaying = currentWAL.replay(null);
                 while (replaying.hasNext()) {
                     WAL.Entry next = replaying.next();
-                    if (next.timestamp > lastWatermark) {
+                    if (next.timestamp > inProgressWatermark) {
                         temporaryWAL.addEntry(next);
                     }
                 }
 
-                LOG.info("Snapshot started, WAL replayed until " + lastWatermark);
+                LOG.info("Snapshot started, WAL replayed until " + inProgressWatermark);
                 beginSemaphore.release();
             }
         }
@@ -98,9 +103,8 @@ public class WALServer extends AbstractServer {
         numberOfCommits++;
 
         if (numberOfCommits == numberOfSinkPartitions) {
-            snapshotInProgress = false;
-            numberOfCommits = 0;
-            beginSemaphore.drainPermits(); // next snapshot will start from scratch
+            LOG.info("Snapshot finished - wm: " + inProgressWatermark);
+            resetSnapshot();
 
             // switchFile
             FileWAL tmp = currentWAL;
@@ -111,9 +115,16 @@ public class WALServer extends AbstractServer {
 
     }
 
+    private synchronized void abortSnapshot() throws IOException {
+        LOG.warn("Aborting current snapshot: " + inProgressWatermark);
+        resetSnapshot();
+        temporaryWAL.clear();
+    }
+
     private synchronized void resetSnapshot() {
         snapshotInProgress = false;
         numberOfCommits = 0;
+        beginSemaphore.drainPermits(); // next snapshot will start from scratch
     }
 
     // Only for testing
@@ -150,13 +161,12 @@ public class WALServer extends AbstractServer {
                         commitSnapshot();
                         return;
                     } else if (strRequest.startsWith(getCurrentSnapshotWMPattern)) {
-                        send(lastWatermark);
+                        // if the init phase is still running, wait for its completion
+                        beginSemaphore.acquire();
+                        beginSemaphore.release();
+                        send(inProgressWatermark);
                         return;
                     }
-
-                    // someone wants replay
-                    // if a snapshot was open it has not happened indeed...
-                    resetSnapshot();
 
                     Iterator<WAL.Entry> iterator;
                     if (strRequest.startsWith(replaySourcePattern)) {

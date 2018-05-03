@@ -2,10 +2,7 @@ package it.polimi.affetti.tspoon.tgraph.twopc;
 
 import it.polimi.affetti.tspoon.common.SafeCollector;
 import it.polimi.affetti.tspoon.common.TimestampUtils;
-import it.polimi.affetti.tspoon.metrics.RealTimeAccumulatorsWithPerBatchCurve;
-import it.polimi.affetti.tspoon.metrics.Report;
-import it.polimi.affetti.tspoon.metrics.SingleValueAccumulator;
-import it.polimi.affetti.tspoon.metrics.TimeDelta;
+import it.polimi.affetti.tspoon.metrics.*;
 import it.polimi.affetti.tspoon.runtime.JobControlClient;
 import it.polimi.affetti.tspoon.runtime.JobControlListener;
 import it.polimi.affetti.tspoon.tgraph.*;
@@ -19,6 +16,7 @@ import org.apache.flink.streaming.api.operators.AbstractStreamOperator;
 import org.apache.flink.streaming.api.operators.OneInputStreamOperator;
 import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
 import org.apache.flink.util.OutputTag;
+import org.apache.log4j.Logger;
 
 import java.util.*;
 
@@ -29,6 +27,8 @@ public class OpenOperator<T>
         extends AbstractStreamOperator<Enriched<T>>
         implements OneInputStreamOperator<T, Enriched<T>>,
         OpenOperatorTransactionCloseListener, JobControlListener {
+    private transient Logger LOG;
+
     private static final String COMMIT_COUNT = "commit-count";
     private static final String ABORT_COUNT = "abort-count";
     private static final String REPLAY_COUNT = "replay-count";
@@ -83,6 +83,9 @@ public class OpenOperator<T>
 
     private RealTimeAccumulatorsWithPerBatchCurve accumulators = new RealTimeAccumulatorsWithPerBatchCurve();
 
+    private MetricAccumulator numberOfWalEntriesReplayed = new MetricAccumulator();
+    private MetricAccumulator recoveryTime = new MetricAccumulator();
+
     public OpenOperator(TRuntimeContext tRuntimeContext, int tGraphID) {
         this.tGraphID = tGraphID;
         this.tRuntimeContext = tRuntimeContext;
@@ -131,11 +134,23 @@ public class OpenOperator<T>
         wal = tRuntimeContext.getWALFactory().getWAL(parameterTool);
         wal.open();
 
+        if (tRuntimeContext.isDurabilityEnabled()) {
+            getRuntimeContext().addAccumulator("recovery-time", recoveryTime);
+            getRuntimeContext().addAccumulator("number-of-wal-entries-replayed", numberOfWalEntriesReplayed);
+        }
+
+        long start = System.nanoTime();
         // restore completedTids in the lastSnapshot
+        int numberOfWalEntries = 0;
         Iterator<WAL.Entry> replay = wal.replay(sourceID, numberOfSources); // the entries for my source ID
         while (replay.hasNext()) {
             intraEpochTids.add(replay.next().tid);
+            numberOfWalEntries++;
         }
+        double delta = (System.nanoTime() - start) / Math.pow(10, 6); // ms
+        recoveryTime.add(delta);
+        numberOfWalEntriesReplayed.add((double) numberOfWalEntries);
+
 
         // NOTE: the accumulator makes underlying akka create too much traffic, we avoid to register them
         // register accumulators
@@ -361,23 +376,25 @@ public class OpenOperator<T>
     public void snapshotState(StateSnapshotContext context) throws Exception {
         super.snapshotState(context);
 
+        long currentWatermark;
         synchronized (this) {
             // save start Tid for this snapshot
             startTid.clear();
             startTid.add(transactionsIndex.getCurrentTid());
 
             // save watermark for snapshotting at state operators
-            long currentWatermark = transactionsIndex.getCurrentWatermark();
-            wal.startSnapshot(currentWatermark);
-
-            LOG.info("Snapshot started [wm: " + currentWatermark + "]");
+            currentWatermark = transactionsIndex.getCurrentWatermark();
         }
+
+        wal.startSnapshot(currentWatermark);
+
+        LOG.info("Snapshot started [wm: " + currentWatermark + "]");
     }
 
     @Override
     public void initializeState(StateInitializationContext context) throws Exception {
         super.initializeState(context);
-
+        LOG = Logger.getLogger(Thread.currentThread().getName());
         startTid = context.getOperatorStateStore().getListState(
                 new ListStateDescriptor<>("tid", Long.class));
 

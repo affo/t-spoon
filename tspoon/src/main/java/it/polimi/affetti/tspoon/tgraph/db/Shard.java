@@ -237,7 +237,7 @@ public class Shard<V> implements
             String key = entry.getKey();
             V value = entry.getValue();
             Object<V> object = getObject(key);
-            object.addVersion(-1, 0, value);
+            object.installVersion(-1, 0, value);
         }
     }
 
@@ -249,7 +249,7 @@ public class Shard<V> implements
         }
 
         Object<V> object = getObject(key);
-        object.addVersion(-1, 0, value);
+        object.installVersion(-1, 0, value);
     }
 
     public void signalRecoveryComplete() {
@@ -257,7 +257,11 @@ public class Shard<V> implements
     }
 
     private void waitForRecoveryCompletion() {
-        recoverySemaphore.acquireUninterruptibly();
+        try {
+            recoverySemaphore.acquire();
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
         recoverySemaphore.release();
     }
 }

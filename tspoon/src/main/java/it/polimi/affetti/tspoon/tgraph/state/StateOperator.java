@@ -24,6 +24,7 @@ import org.apache.flink.streaming.api.operators.AbstractStreamOperator;
 import org.apache.flink.streaming.api.operators.TwoInputStreamOperator;
 import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
 import org.apache.flink.util.OutputTag;
+import org.apache.log4j.Logger;
 
 import java.lang.reflect.InvocationTargetException;
 import java.util.Iterator;
@@ -36,6 +37,7 @@ public abstract class StateOperator<T, V>
         extends AbstractStreamOperator<Enriched<T>>
         implements TwoInputStreamOperator<Enriched<T>, NoConsensusOperation, Enriched<T>>,
         StateOperatorTransactionCloseListener, Object.DeferredReadListener {
+    private transient Logger LOG;
     public static final String SHARD_ID_SEPARATOR = "-";
     public static final String SHARD_ID_FORMAT = "%s" + SHARD_ID_SEPARATOR + "%d";
 
@@ -83,6 +85,7 @@ public abstract class StateOperator<T, V>
     @Override
     public void open() throws Exception {
         super.open();
+        LOG = Logger.getLogger(Thread.currentThread().getName());
         ParameterTool parameterTool = (ParameterTool)
                 getRuntimeContext().getExecutionConfig().getGlobalJobParameters();
 

@@ -7,6 +7,7 @@ import org.apache.flink.api.common.accumulators.IntCounter;
 import org.apache.flink.api.common.functions.RichFlatMapFunction;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.configuration.Configuration;
+import org.apache.flink.runtime.state.CheckpointListener;
 import org.apache.flink.runtime.state.FunctionInitializationContext;
 import org.apache.flink.runtime.state.FunctionSnapshotContext;
 import org.apache.flink.streaming.api.checkpoint.CheckpointedFunction;
@@ -21,7 +22,7 @@ import java.util.List;
  * Created by affo on 18/07/17.
  */
 public class CloseFunction extends RichFlatMapFunction<Metadata, TransactionResult>
-        implements CheckpointedFunction {
+        implements CheckpointListener {
     private transient Logger LOG;
     private TRuntimeContext tRuntimeContext;
     private transient WAL wal;
@@ -102,13 +103,8 @@ public class CloseFunction extends RichFlatMapFunction<Metadata, TransactionResu
     // --------------------------------------- Snapshotting
 
     @Override
-    public void snapshotState(FunctionSnapshotContext functionSnapshotContext) throws Exception {
+    public void notifyCheckpointComplete(long id) throws Exception {
         wal.commitSnapshot();
-        LOG.info("committing snapshot");
-    }
-
-    @Override
-    public void initializeState(FunctionInitializationContext functionInitializationContext) throws Exception {
-        // does nothing
+        LOG.info("committing snapshot - id " + id);
     }
 }
