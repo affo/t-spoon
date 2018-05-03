@@ -23,10 +23,14 @@ export DEBUG=false
 export ISOLATION=3
 export IS_OPTIMISTIC=true
 
+# Parallelism settings
+export TOTAL_SLOTS=42
+export SOURCE_SLOTS=4 # the slots dedicated to sources of the TOTAL_SLOTS
+
 # Defaults
 # parameters appended as default options for every job
 # (could be empty)
-export DEFAULT="--durable false --startInputRate 100 --resolution 100 --par 42"
+export DEFAULT="--durable false --startInputRate 100 --resolution 100"
 
 # Refreshes the cluster at every job launch
 export REFRESH_CLUSTER=true

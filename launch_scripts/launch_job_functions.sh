@@ -67,7 +67,10 @@ function launch {
     refresh_cluster
 
     output="$RESULTS_DIR/$1.json"
-    cmd="python run.py $output $PACKAGE_BASE.$2 $TARGET_JAR \"--label $1 ${@:3} --isolationLevel $ISOLATION --optOrNot $IS_OPTIMISTIC $DEFAULT\""
+    cmd="python run.py $output $PACKAGE_BASE.$2 $TARGET_JAR \
+      \"--label $1 ${@:3} --isolationLevel $ISOLATION --optOrNot $IS_OPTIMISTIC \
+      --par $TOTAL_SLOTS --partitioning $TOTAL_SLOTS --sourcePar $SOURCE_SLOTS \
+      $DEFAULT\""
 
     opt=OPT
     if [[ $IS_OPTIMISTIC != true ]]; then
@@ -78,7 +81,7 @@ function launch {
     echo $cmd
     status="OK"
     if [[ $DEBUG != true ]]; then
-        eval $cmd
+        eval "$cmd"
         exit_code=$?
         if [[ $exit_code -eq 1 ]]; then
           status="ERROR"
