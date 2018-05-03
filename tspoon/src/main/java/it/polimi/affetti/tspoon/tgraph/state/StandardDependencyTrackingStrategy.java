@@ -11,7 +11,7 @@ import it.polimi.affetti.tspoon.tgraph.db.Transaction;
 public class StandardDependencyTrackingStrategy implements DependencyTrackingStrategy {
     @Override
     public <T> void updateDependencies(Transaction<T> transaction, Object<T> object, long version, long createdBy) {
-        if (transaction.vote == Vote.REPLAY && TimestampUtils.sameSource(transaction.timestamp, version)) {
+        if (transaction.vote == Vote.REPLAY) {
             transaction.addDependency(createdBy);
         }
     }
