@@ -41,15 +41,19 @@ public class EvalConfig {
         config.isLocal = config.label == null || config.label.startsWith("local");
         config.propertiesFile = parameters.get("propsFile", null);
         config.sourcePar = parameters.getInt("sourcePar", 1);
-
+        // let the real source parallelism affect the overall parallelism
+        config.parallelism = parameters.getInt("par", 4) - config.sourcePar;
+        config.partitioning = parameters.getInt("partitioning", 4) - config.sourcePar;
         int isolationLevelNumber = parameters.getInt("isolationLevel", 3);
         config.isolationLevel = IsolationLevel.values()[isolationLevelNumber];
+
+        // At PL4 we need an order defined by the user, the source has thus parallelism 1.
+        // The overall parallelism remains the user-define one minus the original sourcePar
+        // for proper comparison with other experiments.
         if (config.isolationLevel == IsolationLevel.PL4) {
             config.sourcePar = 1;
         }
 
-        config.parallelism = parameters.getInt("par", 4) - config.sourcePar;
-        config.partitioning = parameters.getInt("partitioning", 4) - config.sourcePar;
         config.noTGraphs = parameters.getInt("noTG", 1);
         config.noStates = parameters.getInt("noStates", 1);
         config.keySpaceSize = parameters.getInt("ks", 100000);
