@@ -14,6 +14,7 @@ import java.util.function.Consumer;
  */
 public class JobControlObserver implements Runnable {
     public static final String finishPattern = "FINISHED";
+    public static final String finishedExceptionallyFormat = "FINISHED,%s";
     public static String batchEndPattern = "BATCH_END";
 
     //----- Start Singleton
@@ -62,8 +63,13 @@ public class JobControlObserver implements Runnable {
     }
 
     private void processNotification(String message) {
-        if (message.equals(finishPattern)) {
-            notifyListeners(JobControlListener::onJobFinish);
+        if (message.startsWith(finishPattern)) {
+            if (message.contains(",")) {
+                String exceptionMessage = message.split(",")[1];
+                notifyListeners(l -> l.onJobFinishExceptionally(exceptionMessage));
+            } else {
+                notifyListeners(JobControlListener::onJobFinish);
+            }
         } else if (message.equals(batchEndPattern)) {
             notifyListeners(JobControlListener::onBatchEnd);
         } else {

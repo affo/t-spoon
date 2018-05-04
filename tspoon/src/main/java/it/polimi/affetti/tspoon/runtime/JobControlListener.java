@@ -15,5 +15,10 @@ public interface JobControlListener {
         }
     }
 
+    default void onJobFinishExceptionally(String exceptionMessage) {
+        // ignore the message by default
+        onJobFinish();
+    }
+
     void onBatchEnd();
 }

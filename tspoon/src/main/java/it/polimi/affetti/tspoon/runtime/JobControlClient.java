@@ -52,6 +52,10 @@ public class JobControlClient extends StringClient {
         this.publish(JobControlObserver.finishPattern);
     }
 
+    public void terminateJobExceptionally(String exceptionMessage) {
+        this.publish(String.format(JobControlObserver.finishedExceptionallyFormat, exceptionMessage));
+    }
+
     public void publishBatchEnd() {
         this.publish(JobControlObserver.batchEndPattern);
     }

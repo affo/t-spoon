@@ -13,6 +13,8 @@ import org.apache.sling.commons.json.JSONObject;
 import java.io.Serializable;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Timer;
+import java.util.TimerTask;
 
 /**
  * Created by affo on 07/12/17.
@@ -21,9 +23,16 @@ public class FinishOnBackPressure<T extends UniquelyRepresentableForTracking> ex
     public static final String THROUGHPUT_CURVE_ACC = "throughput-curve";
     public static final String LATENCY_CURVE_ACC = "latency-curve";
     public static final String MAX_TP_AND_LATENCY_ACC = "max-throughput-and-latency";
+    private static final long ABORT_THRESHOLD = 60 * 1000; // [ms]
+    private static final String abortExceptionMessage = "The job has entered a deadlock status. " +
+            "This means that the sink hadn't ingested any record for " + ABORT_THRESHOLD + "[ms]. " +
+            "This can be due to bugs in the code or to an excessive backpressure. " +
+            "In the latter, results could be valid, but must be human validated.";
     private transient Logger LOG;
 
     private transient JobControlClient jobControlClient;
+    private transient Timer timer;
+    private transient TimerTask abortTask;
     private final String trackingServerName;
     private int countStart, countEnd, batchNumber, skipFirst, realBatchSize;
     private final int batchSize, resolution, maxNumberOfBatches;
@@ -89,6 +98,10 @@ public class FinishOnBackPressure<T extends UniquelyRepresentableForTracking> ex
         requestTracker = new WithServer(new TrackingServer());
         requestTracker.open();
         jobControlClient.registerServer(trackingServerName, requestTracker.getMyAddress());
+
+
+        // ----------- init timer for abort
+        timer = new Timer("AbortJobTimer");
     }
 
     @Override
@@ -96,6 +109,7 @@ public class FinishOnBackPressure<T extends UniquelyRepresentableForTracking> ex
         super.close();
         jobControlClient.close();
         requestTracker.close();
+        timer.cancel();
     }
 
     public String getTrackingServerName() {
@@ -105,6 +119,26 @@ public class FinishOnBackPressure<T extends UniquelyRepresentableForTracking> ex
     @Override
     public void invoke(T tid) throws Exception {
         end(tid);
+    }
+
+    private TimerTask resetAbortTask() {
+        if (abortTask != null) {
+            abortTask.cancel();
+        }
+
+        timer.purge();
+        abortTask = new TimerTask() {
+            @Override
+            public void run() {
+                jobControlClient.terminateJobExceptionally(abortExceptionMessage);
+            }
+        };
+
+        return abortTask;
+    }
+
+    private void scheduleAbortTask() {
+        timer.schedule(resetAbortTask(), ABORT_THRESHOLD);
     }
 
     private synchronized void start(String id) {
@@ -125,6 +159,7 @@ public class FinishOnBackPressure<T extends UniquelyRepresentableForTracking> ex
     }
 
     private synchronized void end(T id) {
+        scheduleAbortTask();
         countEnd++;
 
         if (countEnd < skipFirst) {

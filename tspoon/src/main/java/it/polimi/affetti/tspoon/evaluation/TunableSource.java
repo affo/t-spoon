@@ -54,6 +54,8 @@ public abstract class TunableSource<T extends UniquelyRepresentableForTracking>
     private transient StringClient requestTrackerClient;
     private transient Thread trackerThread;
 
+    private transient RuntimeException abortException;
+
     public TunableSource(int baseRate, int resolution, int batchSize, String trackingServerNameForDiscovery) {
         this.trackingServerNameForDiscovery = trackingServerNameForDiscovery;
         this.count = 0;
@@ -63,7 +65,7 @@ public abstract class TunableSource<T extends UniquelyRepresentableForTracking>
         this.numberOfRecordsPerTask = batchSize;
         this.elements = new LinkedBlockingQueue<>();
 
-        this.newBatchSemaphore = new Semaphore(1);
+        this.newBatchSemaphore = new Semaphore(0);
     }
 
     public void enableBusyWait() {
@@ -111,6 +113,10 @@ public abstract class TunableSource<T extends UniquelyRepresentableForTracking>
         jobControlClient.close();
         requestTrackerClient.close();
         trackerThread.join();
+
+        if (abortException != null) {
+            throw abortException;
+        }
     }
 
     private void updateWaitPeriod() {
@@ -135,7 +141,6 @@ public abstract class TunableSource<T extends UniquelyRepresentableForTracking>
         public void run() {
             try {
                 while (!stop) {
-                    newBatchSemaphore.acquire();
                     int loopLocalCount = 0;
 
                     String batchDescription = "total-size: " + batchSize + "[records], " +
@@ -161,6 +166,7 @@ public abstract class TunableSource<T extends UniquelyRepresentableForTracking>
                         loopLocalCount++;
                     } while (!stop && loopLocalCount < numberOfRecordsPerTask);
                     LOG.info("Finished with batch: " + batchDescription);
+                    newBatchSemaphore.acquire();
                 }
             } catch (InterruptedException e) {
                 LOG.error("Interrupted: " + e.getMessage());
@@ -190,6 +196,7 @@ public abstract class TunableSource<T extends UniquelyRepresentableForTracking>
     @Override
     public void cancel() {
         this.stop = true;
+        newBatchSemaphore.release(); // if the thread is stuck on the semaphore it can terminate
     }
 
     // -------------------------------- Job control --------------------------------
@@ -199,6 +206,12 @@ public abstract class TunableSource<T extends UniquelyRepresentableForTracking>
         JobControlListener.super.onJobFinish();
         cancel();
         trackerThread.interrupt();
+    }
+
+    @Override
+    public void onJobFinishExceptionally(String exceptionMessage) {
+        abortException = new IllegalStateException(exceptionMessage);
+        onJobFinish();
     }
 
     @Override
