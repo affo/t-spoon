@@ -178,6 +178,25 @@ function launch_scalability {
         --par $scale --partitioning $scale "${@:2}"
 }
 
+# Launches the mixed job (voting example)
+# Preferrably use LB-PL3 (high contention workload)
+function launch_mixed {
+    if [[ "$#" -lt 3 ]]; then
+        echo "Input: <window_size_seconds> <window_slide_milliseconds> <analytics_only> <params...>"
+        return 1
+    fi
+
+    local wsize=$1
+    local wslide=$2
+    local analytics=$3
+
+    launch "mixed_$wsize"_"$slide"_"$analytics" $MIXED_CLASS \
+      --windowSizeSeconds $wsize \
+      --windowSlideMilliseconds $wslide \
+      --analyticsOnly $analytics "${@:4}"
+    sleep 1
+}
+
 ### Builtin suites
 function launch_suite_series_1tg {
     _launch_suite series_1tg noStates 5 --noTG 1 --series true
@@ -212,4 +231,16 @@ function launch_suite_scalability {
     launch_scalability 20 --sourcePar 4
     launch_scalability 36 --sourcePar 4
     launch_scalability 50 --sourcePar 4
+}
+
+function launch_suite_mixed {
+    local slide=100
+    launch_mixed 30 $slide false
+    launch_mixed 30 $slide true
+    launch_mixed 60 $slide false
+    launch_mixed 60 $slide true
+    launch_mixed 90 $slide false
+    launch_mixed 90 $slide true
+    launch_mixed 120 $slide false
+    launch_mixed 120 $slide true
 }

@@ -151,10 +151,6 @@ public class OpenOperator<T>
         recoveryTime.add(delta);
         numberOfWalEntriesReplayed.add((double) numberOfWalEntries);
 
-
-        // NOTE: the accumulator makes underlying akka create too much traffic, we avoid to register them
-        // register accumulators
-        /*
         accumulators.register(getRuntimeContext(), COMMIT_COUNT, commits);
         accumulators.register(getRuntimeContext(), ABORT_COUNT, aborts);
         accumulators.register(getRuntimeContext(), REPLAY_COUNT, replays);
@@ -168,7 +164,6 @@ public class OpenOperator<T>
         accumulators.register(getRuntimeContext(), REPLAYED_TRICE, replayedTrice);
         accumulators.register(getRuntimeContext(), REPLAYED_3_PLUS, replayedTooMuch);
         accumulators.registerCurve(getRuntimeContext(), getRuntimeContext().getTaskName() + "-curve");
-        */
     }
 
     @Override

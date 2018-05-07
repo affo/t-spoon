@@ -93,6 +93,15 @@ echo "Launching scalability..."
 sleep 2
 launch_suite_scalability
 
+export IS_OPTIMISTIC=false # more stability on high contention
+export ISOLATION=3
+export RESULTS_DIR=$BASE_RESULTS_DIR/mixed
+mkdir -p $RESULTS_DIR
+echo; echo; echo;
+echo "Launching mixed experiments..."
+sleep 2
+launch_suite_mixed
+
 export RESULTS_DIR=$BASE_RESULTS_DIR/pure_flink
 mkdir -p $RESULTS_DIR
 echo; echo; echo;
