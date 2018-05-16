@@ -11,16 +11,12 @@ if __name__ == '__main__':
     folder_name = sys.argv[1]
     img_folder = os.path.join(folder_name, 'img')
 
-    out_fname = os.path.join(folder_name, 'parsed')
-    tp = pd.read_json(out_fname + '_throughput.json')
-    lat = pd.read_json(out_fname + '_latency.json')
-    lat_des = pd.read_json(out_fname + '_latency_description.json')
-    aggr = pd.read_json(out_fname + '_aggregates.json')
+    out_fname = os.path.join(folder_name, 'parsed_aggregates.json')
+    aggr = pd.read_json(out_fname)
 
     def savefig(label, figure):
         figure.savefig(os.path.join(img_folder, label + '.png'))
         plt.close(figure)
-
 
     def map_fn(tag2):
         return 'SINGLE' if tag2 == '1tg' else 'MULTI'
