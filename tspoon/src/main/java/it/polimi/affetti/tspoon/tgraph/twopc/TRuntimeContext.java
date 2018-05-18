@@ -1,9 +1,14 @@
 package it.polimi.affetti.tspoon.tgraph.twopc;
 
+import it.polimi.affetti.tspoon.common.TimestampGenerator;
+import it.polimi.affetti.tspoon.runtime.NetUtils;
 import it.polimi.affetti.tspoon.tgraph.IsolationLevel;
 import it.polimi.affetti.tspoon.tgraph.Strategy;
+import it.polimi.affetti.tspoon.tgraph.durability.*;
+import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.util.Preconditions;
 
+import java.io.IOException;
 import java.io.Serializable;
 
 /**
@@ -21,6 +26,7 @@ import java.io.Serializable;
 public class TRuntimeContext implements Serializable {
     private static AbstractOpenOperatorTransactionCloser[] openOperatorTransactionCloserPool;
     private static AbstractStateOperatorTransactionCloser[] stateOperatorTransactionCloserPool;
+    private static LocalWALService localWALServer;
 
     private AbstractTwoPCParticipant.SubscriptionMode subscriptionMode = AbstractTwoPCParticipant.SubscriptionMode.GENERIC;
     public boolean durable, useDependencyTracking;
@@ -29,6 +35,7 @@ public class TRuntimeContext implements Serializable {
     public int openServerPoolSize = 1, stateServerPoolSize = 1, queryServerPoolSize = 1;
     private boolean synchronous;
     private boolean baselineMode;
+    private String[] taskManagers;
 
     public void setDurabilityEnabled(boolean durable) {
         this.durable = durable;
@@ -36,10 +43,6 @@ public class TRuntimeContext implements Serializable {
 
     public boolean isDurabilityEnabled() {
         return durable;
-    }
-
-    public WALFactory getWALFactory() {
-        return new WALFactory(isDurabilityEnabled());
     }
 
     public void setIsolationLevel(IsolationLevel isolationLevel) {
@@ -74,12 +77,13 @@ public class TRuntimeContext implements Serializable {
         return subscriptionMode;
     }
 
-    public <T> TransactionsIndex<T> getTransactionsIndex(long startIndex, int sourceParallelism, int sourceID) {
+    public <T> TransactionsIndex<T> getTransactionsIndex(
+            long startTid, TimestampGenerator timestampGenerator) {
         if (getStrategy() == Strategy.OPTIMISTIC && getIsolationLevel() == IsolationLevel.PL4) {
-            return new TidForWatermarkingTransactionsIndex<>(startIndex, sourceParallelism, sourceID);
+            return new TidForWatermarkingTransactionsIndex<>(startTid, timestampGenerator);
         }
 
-        return new StandardTransactionsIndex<>(startIndex, sourceParallelism, sourceID);
+        return new StandardTransactionsIndex<>(startTid, timestampGenerator);
     }
 
     public void setOpenServerPoolSize(int openServerPoolSize) {
@@ -118,6 +122,14 @@ public class TRuntimeContext implements Serializable {
 
     public boolean needWaitOnRead() {
         return !isSynchronous() && getIsolationLevel().gte(IsolationLevel.PL3);
+    }
+
+    public void setTaskManagers(String[] taskManagers) {
+        this.taskManagers = taskManagers;
+    }
+
+    public String[] getTaskManagers() {
+        return taskManagers;
     }
 
     // ---------------------- These methods are called upon deserialization
@@ -165,6 +177,36 @@ public class TRuntimeContext implements Serializable {
 
             return stateOperatorTransactionCloserPool[index];
         }
+    }
+
+    public LocalWALService getLocalWALServer(boolean restored) throws IOException {
+        if (isDurabilityEnabled()) {
+            synchronized (TRuntimeContext.class) {
+                if (localWALServer == null) {
+                    localWALServer = NetUtils.getServer(NetUtils.ServerType.WAL, new LocalWALService(restored));
+                }
+
+                return localWALServer;
+            }
+        }
+
+        return null;
+    }
+
+    public WALService getWALService() throws IOException {
+        if (isDurabilityEnabled()) {
+            return WALClient.get(this);
+        }
+
+        return new NoWAL();
+    }
+
+    public SnapshotService getSnapshotService(ParameterTool params) throws IOException {
+        if (isDurabilityEnabled()) {
+            return SnapshotClient.get(params);
+        }
+
+        return new NoSnap();
     }
 
     /**

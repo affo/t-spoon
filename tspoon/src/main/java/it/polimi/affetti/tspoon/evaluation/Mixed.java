@@ -60,16 +60,12 @@ public class Mixed {
         final Time topKWindowSize = Time.seconds(windowSizeSeconds);
 
         NetUtils.launchJobControlServer(parameters);
-        StreamExecutionEnvironment env = EvalUtils.getFlinkEnv(config);
+        StreamExecutionEnvironment env = config.getFlinkEnv();
 
-        TransactionEnvironment tEnv = TransactionEnvironment.get(env);
-        tEnv.configIsolation(config.strategy, config.isolationLevel);
-        tEnv.setSynchronous(config.synchronous);
-        tEnv.setStateServerPoolSize(Runtime.getRuntime().availableProcessors());
-        EvalUtils.setSourcesSharingGroup(tEnv);
+        TransactionEnvironment tEnv = TransactionEnvironment.fromConfig(config);
 
         SingleOutputStreamOperator<Vote> votes = env.addSource(new VotesSource(numRecords, numberOfAreas));
-        votes = EvalUtils.addToSourcesSharingGroup(votes, "RandomVotes");
+        votes = config.addToSourcesSharingGroup(votes, "RandomVotes");
 
         votes.addSink(new MeasureThroughput<>("input"))
                 .setParallelism(1).name("MeasureInputRate")

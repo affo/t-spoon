@@ -1,11 +1,14 @@
 package it.polimi.affetti.tspoon.tgraph.twopc;
 
 import it.polimi.affetti.tspoon.common.SafeCollector;
-import it.polimi.affetti.tspoon.common.TimestampUtils;
+import it.polimi.affetti.tspoon.common.TimestampGenerator;
 import it.polimi.affetti.tspoon.metrics.*;
 import it.polimi.affetti.tspoon.runtime.JobControlClient;
 import it.polimi.affetti.tspoon.runtime.JobControlListener;
 import it.polimi.affetti.tspoon.tgraph.*;
+import it.polimi.affetti.tspoon.tgraph.durability.SnapshotService;
+import it.polimi.affetti.tspoon.tgraph.durability.WALEntry;
+import it.polimi.affetti.tspoon.tgraph.durability.WALService;
 import org.apache.flink.api.common.accumulators.IntCounter;
 import org.apache.flink.api.common.state.ListState;
 import org.apache.flink.api.common.state.ListStateDescriptor;
@@ -56,13 +59,14 @@ public class OpenOperator<T>
     // tid -> current watermark
     private Map<Long, Long> playedWithWatermark = new HashMap<>();
     private Set<Long> laterReplay = new HashSet<>();
+    private transient TimestampGenerator timestampGenerator;
 
     protected final TRuntimeContext tRuntimeContext;
     protected TransactionsIndex<T> transactionsIndex;
     private transient AbstractOpenOperatorTransactionCloser openOperatorTransactionCloser;
 
     private transient JobControlClient jobControlClient;
-    private transient WAL wal;
+    private transient SnapshotService snapshotService;
 
     // stats
     private IntCounter commits = new IntCounter();
@@ -107,12 +111,9 @@ public class OpenOperator<T>
         // NOTE: this happens __after__ initializeState
         this.sourceID = getRuntimeContext().getIndexOfThisSubtask();
         int numberOfSources = getRuntimeContext().getNumberOfParallelSubtasks();
-        transactionsIndex = tRuntimeContext.getTransactionsIndex(restoredTid, numberOfSources, sourceID);
-
 
         collector = new SafeCollector<>(output);
-        // everybody shares the same OpenServer by specifying the same taskNumber
-        openOperatorTransactionCloser = tRuntimeContext.getSourceTransactionCloser(0);
+        openOperatorTransactionCloser = tRuntimeContext.getSourceTransactionCloser(this.sourceID);
         openOperatorTransactionCloser.open();
 
         if (tRuntimeContext.getSubscriptionMode() == AbstractTwoPCParticipant.SubscriptionMode.GENERIC) {
@@ -131,8 +132,8 @@ public class OpenOperator<T>
             jobControlClient = null;
         }
 
-        wal = tRuntimeContext.getWALFactory().getWAL(parameterTool);
-        wal.open();
+        WALService walService = tRuntimeContext.getWALService();
+        snapshotService = tRuntimeContext.getSnapshotService(parameterTool);
 
         if (tRuntimeContext.isDurabilityEnabled()) {
             getRuntimeContext().addAccumulator("recovery-time", recoveryTime);
@@ -142,14 +143,25 @@ public class OpenOperator<T>
         long start = System.nanoTime();
         // restore completedTids in the lastSnapshot
         int numberOfWalEntries = 0;
-        Iterator<WAL.Entry> replay = wal.replay(sourceID, numberOfSources); // the entries for my source ID
+        long maxTimestamp = -1;
+        Iterator<WALEntry> replay = walService.replay(sourceID, numberOfSources); // the entries for my source ID
         while (replay.hasNext()) {
-            intraEpochTids.add(replay.next().tid);
+            WALEntry walEntry = replay.next();
+            intraEpochTids.add(walEntry.tid);
             numberOfWalEntries++;
+            maxTimestamp = Math.max(maxTimestamp, walEntry.timestamp);
         }
         double delta = (System.nanoTime() - start) / Math.pow(10, 6); // ms
         recoveryTime.add(delta);
         numberOfWalEntriesReplayed.add((double) numberOfWalEntries);
+        walService.close();
+
+        if (maxTimestamp < 0) {
+            maxTimestamp = sourceID;
+        }
+
+        timestampGenerator = new TimestampGenerator(sourceID, numberOfSources, maxTimestamp);
+        transactionsIndex = tRuntimeContext.getTransactionsIndex(restoredTid, timestampGenerator);
 
         accumulators.register(getRuntimeContext(), COMMIT_COUNT, commits);
         accumulators.register(getRuntimeContext(), ABORT_COUNT, aborts);
@@ -181,7 +193,7 @@ public class OpenOperator<T>
         TransactionsIndex<T>.LocalTransactionContext tContext = transactionsIndex.newTransaction(element);
 
         // if in recovery mode we discard the transaction and update directly
-        // if it was logged on the WAL
+        // if it was logged on the WALService
         if (intraEpochTids.remove(tContext.tid)) {
             transactionsIndex.updateWatermark(tContext.timestamp, Vote.COMMIT);
             transactionsIndex.deleteTransaction(tContext.tid);
@@ -262,7 +274,7 @@ public class OpenOperator<T>
             return;
         }
 
-        if (!TimestampUtils.checkTimestamp(sourceID, notification.timestamp)) {
+        if (!timestampGenerator.checkTimestamp(sourceID, notification.timestamp)) {
             // not for me
             return;
         }
@@ -381,8 +393,8 @@ public class OpenOperator<T>
             currentWatermark = transactionsIndex.getCurrentWatermark();
         }
 
-        wal.startSnapshot(currentWatermark);
-
+        LOG.info("Starting snapshot at " + sourceID + " [wm: " + currentWatermark + "]");
+        snapshotService.startSnapshot(currentWatermark);
         LOG.info("Snapshot started [wm: " + currentWatermark + "]");
     }
 

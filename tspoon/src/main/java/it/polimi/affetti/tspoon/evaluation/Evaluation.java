@@ -39,28 +39,14 @@ public class Evaluation {
         if (!config.printPlan) {
             NetUtils.launchJobControlServer(parameters);
             if (config.durable) {
-                NetUtils.launchWALServer(parameters);
+                NetUtils.launchWALServer(parameters, config);
             }
         }
 
-        StreamExecutionEnvironment env = EvalUtils.getFlinkEnv(config);
+        StreamExecutionEnvironment env = config.getFlinkEnv();
 
         // ---------------------------- Topology
-        TransactionEnvironment.clear();
-        TransactionEnvironment tEnv = TransactionEnvironment.get(env);
-        tEnv.configIsolation(config.strategy, config.isolationLevel);
-        tEnv.setUseDependencyTracking(config.useDependencyTracking);
-        tEnv.setSynchronous(config.synchronous);
-        tEnv.setVerbose(false);
-        tEnv.setOpenServerPoolSize(config.openServerPoolSize);
-        tEnv.setStateServerPoolSize(config.stateServerPoolSize);
-        tEnv.setQueryServerPoolSize(config.queryServerPoolSize);
-        tEnv.setBaselineMode(config.baselineMode);
-        EvalUtils.setSourcesSharingGroup(tEnv);
-
-        if (config.durable) {
-            tEnv.enableDurability();
-        }
+        TransactionEnvironment tEnv = TransactionEnvironment.fromConfig(config);
 
         TunableSource.TunableTransferSource tunableSource =
                 new TunableSource.TunableTransferSource(
@@ -69,10 +55,10 @@ public class Evaluation {
 
         DataStreamSource<TransferID> dsSource = env.addSource(tunableSource);
         SingleOutputStreamOperator<TransferID> tidSource =
-                EvalUtils.addToSourcesSharingGroup(dsSource, "TunableParallelSource");
+                config.addToSourcesSharingGroup(dsSource, "TunableParallelSource");
         SingleOutputStreamOperator<Transfer> toTranfers = tidSource
-                .map(new TunableSource.ToTransfers(config.keySpaceSize, EvalUtils.startAmount));
-        DataStream<Transfer> transfers = EvalUtils.addToSourcesSharingGroup(toTranfers, "ToTransfers");
+                .map(new TunableSource.ToTransfers(config.keySpaceSize, EvalConfig.startAmount));
+        DataStream<Transfer> transfers = config.addToSourcesSharingGroup(toTranfers, "ToTransfers");
 
         // in case of parallel tgraphs, split the original stream for load balancing
         SplitStream<Transfer> splitTransfers = null;

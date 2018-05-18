@@ -1,5 +1,7 @@
 package it.polimi.affetti.tspoon.tgraph.twopc;
 
+import it.polimi.affetti.tspoon.common.TimestampGenerator;
+
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -12,8 +14,8 @@ public class StandardTransactionsIndex<T> extends TransactionsIndex<T> {
     private Map<Long, Long> timestampTidMapping = new HashMap<>();
     private Map<Long, Set<Long>> tidTimestampMapping = new HashMap<>();
 
-    public StandardTransactionsIndex(long startingPoint, int sourceParallelism, int sourceID) {
-        super(startingPoint, sourceParallelism, sourceID);
+    public StandardTransactionsIndex(long startingTid, TimestampGenerator timestampGenerator) {
+        super(startingTid, timestampGenerator);
     }
 
     @Override

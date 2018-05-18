@@ -4,7 +4,6 @@ import it.polimi.affetti.tspoon.common.TWindowFunction;
 import it.polimi.affetti.tspoon.tgraph.TStream;
 import it.polimi.affetti.tspoon.tgraph.TransactionEnvironment;
 import it.polimi.affetti.tspoon.tgraph.TransactionResult;
-import it.polimi.affetti.tspoon.tgraph.Vote;
 import it.polimi.affetti.tspoon.tgraph.backed.Movement;
 import it.polimi.affetti.tspoon.tgraph.backed.Transfer;
 import it.polimi.affetti.tspoon.tgraph.backed.TransferID;
@@ -12,7 +11,6 @@ import it.polimi.affetti.tspoon.tgraph.db.ObjectHandler;
 import it.polimi.affetti.tspoon.tgraph.state.StateFunction;
 import it.polimi.affetti.tspoon.tgraph.state.StateStream;
 import it.polimi.affetti.tspoon.tgraph.twopc.OpenStream;
-import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.streaming.api.datastream.DataStream;
 
 import java.io.Serializable;
@@ -20,8 +18,6 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-
-import static it.polimi.affetti.tspoon.evaluation.EvalUtils.startAmount;
 
 /**
  * Created by affo on 04/08/17.
@@ -78,7 +74,7 @@ public class EvaluationGraphComposer {
                 new StateFunction<Movement, Double>() {
                     @Override
                     public Double defaultValue() {
-                        return startAmount;
+                        return EvalConfig.startAmount;
                     }
 
                     @Override

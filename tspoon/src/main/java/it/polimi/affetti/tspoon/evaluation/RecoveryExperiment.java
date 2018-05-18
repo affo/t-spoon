@@ -24,27 +24,24 @@ public class RecoveryExperiment {
     public static void main(String[] args) throws Exception {
         ParameterTool parameters = ParameterTool.fromArgs(args);
         EvalConfig config = EvalConfig.fromParams(parameters);
-        final double inputFrequency = parameters.getDouble("inputRate", 1000);
+        final double inputFrequency = parameters.getDouble("inputRate", 100);
         final long waitPeriodMicro = Evaluation.getWaitPeriodInMicroseconds(inputFrequency);
 
         // side effect on params
         NetUtils.launchJobControlServer(parameters);
-        NetUtils.launchWALServer(parameters);
-        StreamExecutionEnvironment env = EvalUtils.getFlinkEnv(config);
+        NetUtils.launchWALServer(parameters, config);
+        StreamExecutionEnvironment env = config.getFlinkEnv();
+        TransactionEnvironment tEnv = TransactionEnvironment.fromConfig(config);
+        tEnv.enableDurability();
 
         final String nameSpace = "balances";
 
-        TransactionEnvironment tEnv = TransactionEnvironment.get(env);
-        tEnv.configIsolation(config.strategy, config.isolationLevel);
-        tEnv.enableDurability(); // here we are
-        tEnv.setStateServerPoolSize(Runtime.getRuntime().availableProcessors());
-        EvalUtils.setSourcesSharingGroup(tEnv);
-
-        TransferSource transferSource = new TransferSource(Integer.MAX_VALUE, config.keySpaceSize, EvalUtils.startAmount);
+        TransferSource transferSource = new TransferSource(
+                Integer.MAX_VALUE, config.keySpaceSize, EvalConfig.startAmount);
         transferSource.setMicroSleep(waitPeriodMicro);
 
         DataStream<Transfer> transfers = env.addSource(transferSource)
-                .slotSharingGroup(EvalUtils.sourceSharingGroup)
+                .slotSharingGroup(EvalConfig.sourceSharingGroup)
                 .setParallelism(1);
         OpenStream<Transfer> open = tEnv.open(transfers);
 
@@ -56,7 +53,7 @@ public class RecoveryExperiment {
                 new StateFunction<Movement, Double>() {
                     @Override
                     public Double defaultValue() {
-                        return EvalUtils.startAmount;
+                        return EvalConfig.startAmount;
                     }
 
                     @Override

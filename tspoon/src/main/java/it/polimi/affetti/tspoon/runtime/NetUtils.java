@@ -1,13 +1,16 @@
 package it.polimi.affetti.tspoon.runtime;
 
-import it.polimi.affetti.tspoon.tgraph.twopc.WALServer;
+import it.polimi.affetti.tspoon.evaluation.EvalConfig;
+import it.polimi.affetti.tspoon.tgraph.durability.ProxyWALServer;
 import org.apache.flink.api.java.utils.ParameterTool;
 
 import java.io.IOException;
+import java.net.ConnectException;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.function.BiFunction;
 import java.util.function.Supplier;
 
 /**
@@ -15,7 +18,8 @@ import java.util.function.Supplier;
  */
 public class NetUtils {
     public static final int JOB_CONTROL_PORT = 1234;
-    public static final int WAL_SERVER_PORT = 1235;
+    public static final int GLOBAL_WAL_SERVER_PORT = 1235;
+    public static final int LOCAL_WAL_SERVER_PORT = 1236;
     public static final int MIN_PORT = 9000;
     public static final int MAX_PORT = 50000;
 
@@ -31,7 +35,8 @@ public class NetUtils {
     public enum ServerType {
         OPEN(OPEN_SERVER_PORT),
         STATE(STATE_SERVER_PORT),
-        QUERY(QUERY_SERVER_PORT);
+        QUERY(QUERY_SERVER_PORT),
+        WAL(LOCAL_WAL_SERVER_PORT);
 
         private final int basePort;
 
@@ -76,12 +81,56 @@ public class NetUtils {
         return getServer(JOB_CONTROL_PORT, new JobControlServer());
     }
 
-    public static WALServer launchWALServer(ParameterTool parameters) throws IOException {
+    public static ProxyWALServer launchWALServer(ParameterTool parameters, EvalConfig config) throws IOException {
+        return launchWALServer(parameters, config.sourcePar, config.taskManagerIPs);
+    }
+
+    public static ProxyWALServer launchWALServer(
+            ParameterTool parameters, int numberOfOpens, String[] taskManagerIPs) throws IOException {
         parameters.toMap().put("WALServerIP", getMyIp());
-        parameters.toMap().put("WALServerPort", String.valueOf(WAL_SERVER_PORT));
-        int parallelism = parameters.getInt("par", 4);
-        int sourcePar = parameters.getInt("sourcePar", 1);
-        return getServer(WAL_SERVER_PORT, new WALServer(sourcePar, parallelism - sourcePar));
+        parameters.toMap().put("WALServerPort", String.valueOf(GLOBAL_WAL_SERVER_PORT));
+        return getServer(GLOBAL_WAL_SERVER_PORT,
+                new ProxyWALServer(numberOfOpens, taskManagerIPs));
+    }
+
+    public static <T extends ObjectClient> void fillWALClients(
+            String[] taskManagers, T[] clients, BiFunction<String, Integer, T> clientSupplier) throws IOException {
+        Map<String, Integer> portPerIP = new HashMap<>();
+        for (int i = 0; i < clients.length; i++) {
+            String tmAddress = taskManagers[i];
+            // in case of ubiquitous localServers
+            Integer port = portPerIP.get(tmAddress);
+            if (port == null) {
+                port = LOCAL_WAL_SERVER_PORT;
+            } else {
+                // we already got it
+                port++;
+            }
+            portPerIP.put(tmAddress, port);
+
+            clients[i] = clientSupplier.apply(taskManagers[i], port);
+
+            int tries = 1000;
+            boolean trying = true;
+
+            while (trying) {
+                try {
+                    clients[i].init();
+                    trying = false;
+                } catch (ConnectException ce) {
+                    if (tries == 0) {
+                        throw ce;
+                    }
+                    try {
+                        Thread.sleep(10);
+                    } catch (InterruptedException e) {
+                        throw new RuntimeException(
+                                "Interrupted while trying to connect to " + taskManagers[i] + ":" + port);
+                    }
+                    tries--;
+                }
+            }
+        }
     }
 
     public synchronized static <T extends AbstractServer> T openAsSingleton(

@@ -8,6 +8,9 @@ import it.polimi.affetti.tspoon.runtime.NetUtils;
 import it.polimi.affetti.tspoon.tgraph.*;
 import it.polimi.affetti.tspoon.tgraph.db.Object;
 import it.polimi.affetti.tspoon.tgraph.db.*;
+import it.polimi.affetti.tspoon.tgraph.durability.SnapshotService;
+import it.polimi.affetti.tspoon.tgraph.durability.WALEntry;
+import it.polimi.affetti.tspoon.tgraph.durability.WALService;
 import it.polimi.affetti.tspoon.tgraph.query.Query;
 import it.polimi.affetti.tspoon.tgraph.query.QueryResult;
 import it.polimi.affetti.tspoon.tgraph.twopc.*;
@@ -62,7 +65,8 @@ public abstract class StateOperator<T, V>
     protected transient SafeCollector<T> collector;
     private transient AbstractStateOperatorTransactionCloser transactionCloser;
     private transient TaskExecutor singlePartitionOperationExecutor;
-    private transient WAL wal;
+    private transient WALService walService;
+    private transient SnapshotService snapshotService;
 
     // Snapshotted state
     private ListState<Integer> snapshotShardID; // preserve the matching snapshotShardID-snapshot
@@ -109,12 +113,12 @@ public abstract class StateOperator<T, V>
         this.shardID = String.format(StateOperator.SHARD_ID_FORMAT, nameSpace, taskID);
         int numberOfTasks = getRuntimeContext().getNumberOfParallelSubtasks();
 
-        wal = tRuntimeContext.getWALFactory().getWAL(parameterTool);
-        wal.open();
+        walService = tRuntimeContext.getWALService();
+        snapshotService = tRuntimeContext.getSnapshotService(parameterTool);
 
         shard = new Shard<>(
                 nameSpace, taskID, numberOfTasks, maxNumberOfVersions,
-                tRuntimeContext.getIsolationLevel().gte(IsolationLevel.PL2), wal,
+                tRuntimeContext.getIsolationLevel().gte(IsolationLevel.PL2), walService,
                 ObjectFunction.fromStateFunction(stateFunction));
 
         if (tRuntimeContext.needWaitOnRead()) {
@@ -124,7 +128,7 @@ public abstract class StateOperator<T, V>
 
         if (tRuntimeContext.isDurabilityEnabled()) {
             getRuntimeContext().addAccumulator("recovery-time", recoveryTime);
-            getRuntimeContext().addAccumulator("number-of-wal-entries-replayed", numberOfWalEntriesReplayed);
+            getRuntimeContext().addAccumulator("number-of-walService-entries-replayed", numberOfWalEntriesReplayed);
         }
 
         long start = System.nanoTime();
@@ -157,7 +161,7 @@ public abstract class StateOperator<T, V>
         super.close();
         transactionCloser.close();
         singlePartitionOperationExecutor.interrupt();
-        wal.close();
+        walService.close();
         NetUtils.closeServerPool(NetUtils.ServerType.QUERY);
     }
 
@@ -271,7 +275,7 @@ public abstract class StateOperator<T, V>
     public void snapshotState(StateSnapshotContext context) throws Exception {
         super.snapshotState(context);
 
-        long wm = wal.getSnapshotInProgressWatermark();
+        long wm = snapshotService.getSnapshotInProgressWatermark();
         this.snapshotTimestamp.clear();
         this.snapshotTimestamp.add(wm);
 
@@ -307,11 +311,11 @@ public abstract class StateOperator<T, V>
     }
 
     /**
-     * Called on `open`, after that `wal` and `shard` are created.
-     * If not restoring, then the snapshot and the WAL are empty.
+     * Called on `open`, after that `walService` and `shard` are created.
+     * If not restoring, then the snapshot and the WALService are empty.
      *
      * @throws Exception
-     * @return number of entries replayed by the wal
+     * @return number of entries replayed by the walService
      */
     private int initState() throws Exception {
         Map<String, V> snapshot = null;
@@ -330,22 +334,22 @@ public abstract class StateOperator<T, V>
             LOG.info("Init state: snapshot installed [wm: " + wm + "]");
         }
 
-        // replay WAL
+        // replay WALService
         int numberOfEntries = 0;
-        Iterator<WAL.Entry> walIterator = wal.replay(shardID); // replay only the records for this partition
+        Iterator<WALEntry> walIterator = walService.replay(shardID); // replay only the records for this partition
         while (walIterator.hasNext()) {
-            WAL.Entry entry = walIterator.next();
+            WALEntry entry = walIterator.next();
             if (entry.vote == Vote.COMMIT && entry.timestamp > wm) {
                 Map<String, java.lang.Object> myUpdates = entry.updates.getUpdatesFor(nameSpace, taskID);
                 for (Map.Entry<String, java.lang.Object> update : myUpdates.entrySet()) {
-                    shard.recover(update.getKey(), (V) update.getValue());
+                    shard.recover(update.getKey(), (V) update.getValue(), entry.timestamp);
                 }
 
                 numberOfEntries++;
             }
         }
 
-        LOG.info("Init state: WAL Replayed");
+        LOG.info("Init state: WALService Replayed");
         shard.signalRecoveryComplete();
 
         return numberOfEntries;

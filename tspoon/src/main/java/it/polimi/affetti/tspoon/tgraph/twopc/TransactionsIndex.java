@@ -1,11 +1,11 @@
 package it.polimi.affetti.tspoon.tgraph.twopc;
 
 import it.polimi.affetti.tspoon.common.OrderedElements;
-import it.polimi.affetti.tspoon.common.TimestampUtils;
+import it.polimi.affetti.tspoon.common.TimestampGenerator;
 import it.polimi.affetti.tspoon.tgraph.Vote;
-import org.apache.flink.api.java.tuple.Tuple2;
 
 import java.io.Serializable;
+import java.sql.Time;
 import java.util.*;
 
 /**
@@ -20,23 +20,16 @@ public abstract class TransactionsIndex<T> implements Serializable {
     // transaction has to be replayed or not; on the other hand, I use the transaction ID
     // to track the dependencies among transactions (a dependency is specified only if the
     // conflicting transaction has a timestamp greater than the last version saved).
-    private long currentLogicalTimestamp;
-    private Tuple2<Long, Long> watermark;
-    protected final OrderedElements<Tuple2<Long, Long>> timestamps = new OrderedElements<>(t -> t.f0);
+    private TimestampGenerator timestampGenerator;
+    private long watermark;
+    protected final OrderedElements<Long> timestamps = new OrderedElements<>(l -> l);
     // tid -> tContext
     protected Map<Long, LocalTransactionContext> executions = new HashMap<>();
-    // realTs <-> logicTS
-    private Map<Long, Long> realLogicalTSMapping = new HashMap<>();
 
-    private final int sourceID;
-
-    public TransactionsIndex(long startingPoint, int sourceParallelism, int sourceID) {
-        this.tid = startingPoint;
-        this.currentLogicalTimestamp = startingPoint;
-        this.watermark = Tuple2.of(startingPoint, 0L);
-
-        this.sourceID = sourceID;
-        TimestampUtils.init(sourceParallelism);
+    public TransactionsIndex(long startingTid, TimestampGenerator timestampGenerator) {
+        this.tid = startingTid;
+        this.timestampGenerator = timestampGenerator;
+        this.watermark = timestampGenerator.toLogical(startingTid);
     }
 
     public long getCurrentTid() {
@@ -44,18 +37,18 @@ public abstract class TransactionsIndex<T> implements Serializable {
     }
 
     public long getCurrentWatermark() {
-        return watermark.f1;
+        return timestampGenerator.toReal(watermark);
     }
 
     public long updateWatermark(long timestamp, Vote vote) {
-        timestamps.addInOrder(Tuple2.of(realLogicalTSMapping.get(timestamp), timestamp));
-        List<Tuple2<Long, Long>> removed = timestamps.removeContiguousWith(watermark.f0);
+        timestamps.addInOrder(timestampGenerator.toLogical(timestamp));
+        List<Long> removed = timestamps.removeContiguousWith(watermark);
 
         if (!removed.isEmpty()) {
-            watermark = Collections.max(removed, Comparator.comparingLong(o -> o.f1));
+            watermark = Collections.max(removed);
         }
 
-        return watermark.f1;
+        return timestampGenerator.toReal(watermark);
     }
 
     public LocalTransactionContext getTransaction(long tid) {
@@ -96,21 +89,17 @@ public abstract class TransactionsIndex<T> implements Serializable {
     }
 
     public LocalTransactionContext newTransaction(T element, long tid) {
-        currentLogicalTimestamp++;
-        long realTS = TimestampUtils.getTimestamp(sourceID);
-        realLogicalTSMapping.put(realTS, currentLogicalTimestamp);
-
+        long timestamp = timestampGenerator.nextTimestamp();
         LocalTransactionContext localTransactionContext = new LocalTransactionContext();
         localTransactionContext.tid = tid;
-        localTransactionContext.timestamp = realTS;
+        localTransactionContext.timestamp = timestamp;
         localTransactionContext.element = element;
         executions.put(tid, localTransactionContext);
         return localTransactionContext;
     }
 
     public void deleteTransaction(long tid) {
-        long realTS = executions.remove(tid).timestamp;
-        realLogicalTSMapping.remove(realTS);
+        executions.remove(tid);
     }
 
     public class LocalTransactionContext {

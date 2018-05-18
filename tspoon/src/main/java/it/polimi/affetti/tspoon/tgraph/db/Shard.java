@@ -5,15 +5,14 @@ import it.polimi.affetti.tspoon.tgraph.Metadata;
 import it.polimi.affetti.tspoon.tgraph.TransactionResult;
 import it.polimi.affetti.tspoon.tgraph.Updates;
 import it.polimi.affetti.tspoon.tgraph.Vote;
+import it.polimi.affetti.tspoon.tgraph.durability.WALService;
 import it.polimi.affetti.tspoon.tgraph.query.PredicateQuery;
 import it.polimi.affetti.tspoon.tgraph.query.Query;
 import it.polimi.affetti.tspoon.tgraph.query.QueryResult;
 import it.polimi.affetti.tspoon.tgraph.query.QueryVisitor;
 import it.polimi.affetti.tspoon.tgraph.state.SinglePartitionUpdate;
-import it.polimi.affetti.tspoon.tgraph.twopc.WAL;
 import org.apache.log4j.Logger;
 
-import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -40,7 +39,7 @@ public class Shard<V> implements
     private final Map<Long, Transaction<V>> transactions;
     private Object.DeferredReadListener deferredReadListener;
 
-    private final transient WAL wal;
+    private final transient WALService wal;
     private final Semaphore recoverySemaphore = new Semaphore(0);
 
     public Shard(
@@ -49,7 +48,7 @@ public class Shard<V> implements
             int numberOfShards,
             int maxNumberOfVersions,
             boolean externalReadCommitted,
-            WAL wal,
+            WALService wal,
             ObjectFunction<V> objectFunction) {
         this.nameSpace = nameSpace;
         this.shardNumber = shardNumber;
@@ -143,13 +142,16 @@ public class Shard<V> implements
 
             if (vote == Vote.COMMIT) {
                 updates.addUpdate(nameSpace, key, handler.object);
-                wal.addEntry(new WAL.Entry(vote, tid, version, updates));
+                // TODO cannot add durability to single partition commands, for now...
+                // wal.addEntry(new WALService.Entry(vote, tid, version, updates));
                 object.installVersion(tid, version, handler.object);
             }
 
             return new TransactionResult(tid, version, update, vote, updates);
+            /*
         } catch (IOException e) {
-            throw new RuntimeException("Problem in adding an SPU entry to the WAL: " + e.getMessage());
+            throw new RuntimeException("Problem in adding an SPU entry to the WALService: " + e.getMessage());
+            */
         } finally {
             object.unlock();
         }
@@ -241,7 +243,7 @@ public class Shard<V> implements
         }
     }
 
-    public void recover(String key, V value) {
+    public void recover(String key, V value, long version) {
         boolean green = recoverySemaphore.tryAcquire();
 
         if (green) {
@@ -249,7 +251,7 @@ public class Shard<V> implements
         }
 
         Object<V> object = getObject(key);
-        object.installVersion(-1, 0, value);
+        object.installVersion(-1, version, value);
     }
 
     public void signalRecoveryComplete() {

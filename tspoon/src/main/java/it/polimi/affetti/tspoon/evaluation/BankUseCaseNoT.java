@@ -34,7 +34,7 @@ public class BankUseCaseNoT {
         EvalConfig config = EvalConfig.fromParams(parameters);
 
         NetUtils.launchJobControlServer(parameters);
-        StreamExecutionEnvironment env = EvalUtils.getFlinkEnv(config);
+        StreamExecutionEnvironment env = config.getFlinkEnv();
 
         TunableSource.TunableTransferSource tunableSource =
                 new TunableSource.TunableTransferSource(
@@ -43,10 +43,10 @@ public class BankUseCaseNoT {
 
         DataStreamSource<TransferID> dsSource = env.addSource(tunableSource);
         SingleOutputStreamOperator<TransferID> tidSource =
-                EvalUtils.addToSourcesSharingGroup(dsSource, "TunableParallelSource");
+                config.addToSourcesSharingGroup(dsSource, "TunableParallelSource");
         SingleOutputStreamOperator<Transfer> toTranfers = tidSource
-                .map(new TunableSource.ToTransfers(config.keySpaceSize, EvalUtils.startAmount));
-        DataStream<Transfer> transfers = EvalUtils.addToSourcesSharingGroup(toTranfers, "ToTransfers");
+                .map(new TunableSource.ToTransfers(config.keySpaceSize, EvalConfig.startAmount));
+        DataStream<Transfer> transfers = config.addToSourcesSharingGroup(toTranfers, "ToTransfers");
 
         DataStream<Movement> halves = transfers.flatMap(
                 new FlatMapFunction<Transfer, Movement>() {

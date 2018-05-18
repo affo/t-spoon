@@ -69,7 +69,7 @@ public class SPUBench {
 
         DataStream<Movement> halves = null;
         if (!singleSource) {
-            TransferSource transferSource = new TransferSource(Integer.MAX_VALUE, keySpaceSize, EvalUtils.startAmount);
+            TransferSource transferSource = new TransferSource(Integer.MAX_VALUE, keySpaceSize, EvalConfig.startAmount);
             transferSource.setMicroSleep(inputWaitPeriodMicro);
             DataStream<Transfer> transfers = env.addSource(transferSource).setParallelism(1);
             halves = transfers.flatMap(
@@ -85,7 +85,7 @@ public class SPUBench {
         }
 
         RandomSPUSupplier spuSupplier = new DepositsAndWithdrawalsGenerator(
-                "balances", Transfer.KEY_PREFIX, keySpaceSize, EvalUtils.startAmount
+                "balances", Transfer.KEY_PREFIX, keySpaceSize, EvalConfig.startAmount
         );
 
         DataStream<SinglePartitionUpdate> spuStream;

@@ -1,6 +1,6 @@
-package it.polimi.affetti.tspoon.tgraph.twopc;
+package it.polimi.affetti.tspoon.tgraph.durability;
 
-import it.polimi.affetti.tspoon.common.TimestampUtils;
+import it.polimi.affetti.tspoon.common.TimestampGenerator;
 import it.polimi.affetti.tspoon.tgraph.Vote;
 
 import java.io.*;
@@ -14,31 +14,40 @@ import java.util.function.Predicate;
  */
 public class FileWAL {
     private String fileName;
+    private final boolean overwrite;
     private File wal;
     private ObjectOutputStream out;
 
-    public FileWAL(String fileName) {
+    public FileWAL(String fileName, boolean overwrite) {
         this.fileName = fileName;
+        this.overwrite = overwrite;
     }
 
     public void open() throws IOException {
         wal = new File(fileName);
         wal.createNewFile();
-        out = new ObjectOutputStream(new FileOutputStream(wal, false));
+        // if overwrite, then not append
+        out = new ObjectOutputStream(new FileOutputStream(wal, !overwrite));
     }
 
     public void close() throws IOException {
         out.close();
     }
 
-    public void addEntry(WAL.Entry entry) {
+    public void rename(String newName) {
+        File newWAL = new File(newName);
+        wal.renameTo(newWAL);
+        wal = newWAL;
+    }
+
+    public void addEntry(WALEntry entry) {
         try {
             out.writeObject(entry);
             out.flush();
             out.reset();
         } catch (IOException e) {
-            // make it crash, we cannot avoid persisting the WAL
-            throw new RuntimeException("Cannot persist to WAL");
+            // make it crash, we cannot avoid persisting the WALService
+            throw new RuntimeException("Cannot persist to WALService");
         }
     }
 
@@ -48,10 +57,12 @@ public class FileWAL {
      * @return
      * @throws IOException
      */
-    public Iterator<WAL.Entry> replay(String namespace) throws IOException {
+    public Iterator<WALEntry> replay(String namespace) throws IOException {
         return replay(e -> (namespace == null || e.updates.isInvolved(namespace)));
     }
 
+    // cache the unit
+    private int unit = -1;
     /**
      * Only the entries for the provided source ID
      * @param sourceID
@@ -59,19 +70,21 @@ public class FileWAL {
      * @return
      * @throws IOException
      */
-    public Iterator<WAL.Entry> replay(int sourceID, int numberOfSources) throws IOException {
-        TimestampUtils.init(numberOfSources);
-        return replay(e -> TimestampUtils.checkTimestamp(sourceID, e.timestamp));
+    public Iterator<WALEntry> replay(int sourceID, int numberOfSources) throws IOException {
+        if (unit < 0) {
+            unit = TimestampGenerator.calcUnit(numberOfSources);
+        }
+        return replay(e -> TimestampGenerator.checkTimestamp(sourceID, e.timestamp, unit));
     }
 
-    private Iterator<WAL.Entry> replay(Predicate<WAL.Entry> predicate) throws IOException {
+    private Iterator<WALEntry> replay(Predicate<WALEntry> predicate) throws IOException {
         ObjectInputStream in = new ObjectInputStream(new FileInputStream(wal));
 
         try {
-            List<WAL.Entry> entries = new ArrayList<>();
+            List<WALEntry> entries = new ArrayList<>();
             while (true) {
                 try {
-                    WAL.Entry e = (WAL.Entry) in.readObject();
+                    WALEntry e = (WALEntry) in.readObject();
                     if (e.vote == Vote.COMMIT
                             && e.updates != null && predicate.test(e)) {
                         entries.add(e);
@@ -83,7 +96,7 @@ public class FileWAL {
 
             return entries.iterator();
         } catch (ClassNotFoundException ex) {
-            throw new RuntimeException("Cannot recover from WAL: " + ex.getMessage());
+            throw new RuntimeException("Cannot recover from WALService: " + ex.getMessage());
         } finally {
             in.close();
         }
@@ -93,7 +106,6 @@ public class FileWAL {
      * Empties the file
      */
     public void clear() throws IOException {
-        close();
-        open();
+        out = new ObjectOutputStream(new FileOutputStream(wal, false));
     }
 }

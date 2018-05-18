@@ -3,6 +3,7 @@ package it.polimi.affetti.tspoon.tgraph.twopc;
 import it.polimi.affetti.tspoon.common.Address;
 import it.polimi.affetti.tspoon.tgraph.Metadata;
 import it.polimi.affetti.tspoon.tgraph.TransactionEnvironment;
+import it.polimi.affetti.tspoon.tgraph.durability.NoWAL;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.junit.After;
 import org.junit.Before;
@@ -35,7 +36,7 @@ public abstract class SimpleTwoPCTest {
         stateOperatorTransactionCloser = tRuntimeContext.getAtStateTransactionCloser(0);
         stateOperatorTransactionCloser.open();
         sinkTransactionCloser = tRuntimeContext.getSinkTransactionCloser();
-        sinkTransactionCloser.open(new NoWAL());
+        sinkTransactionCloser.open(null);
     }
 
     protected abstract void configureTransactionalEnvironment(TransactionEnvironment tEnv);

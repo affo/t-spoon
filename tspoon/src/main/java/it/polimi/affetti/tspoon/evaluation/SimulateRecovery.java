@@ -1,8 +1,10 @@
 package it.polimi.affetti.tspoon.evaluation;
 
 import it.polimi.affetti.tspoon.runtime.NetUtils;
-import it.polimi.affetti.tspoon.tgraph.twopc.WAL;
-import it.polimi.affetti.tspoon.tgraph.twopc.WALClient;
+import it.polimi.affetti.tspoon.tgraph.durability.SnapshotClient;
+import it.polimi.affetti.tspoon.tgraph.durability.SnapshotService;
+import it.polimi.affetti.tspoon.tgraph.durability.WALClient;
+import it.polimi.affetti.tspoon.tgraph.durability.WALEntry;
 
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -16,26 +18,28 @@ import java.util.Map;
  */
 public class SimulateRecovery {
     public static void main(String[] args) throws Exception {
-        WALClient wal = new WALClient("localhost", NetUtils.WAL_SERVER_PORT);
-        wal.init();
+        String[] ips = {"localhost"};
+        WALClient wal = WALClient.get(ips);
+        SnapshotService snapshotService = new SnapshotClient("localhost", NetUtils.GLOBAL_WAL_SERVER_PORT);
+        snapshotService.open();
 
-        List<WAL.Entry> entries = new ArrayList<>();
+        List<WALEntry> entries = new ArrayList<>();
 
         long start = System.nanoTime();
-        Iterator<WAL.Entry> replayed = wal.replay(0, 1);
+        Iterator<WALEntry> replayed = wal.replay(0, 1);
         while (replayed.hasNext()) {
-            WAL.Entry next = replayed.next();
+            WALEntry next = replayed.next();
             entries.add(next);
         }
         double delta = (System.nanoTime() - start) / Math.pow(10, 6);
 
-        for (WAL.Entry entry : entries) {
+        for (WALEntry entry : entries) {
             System.out.println(entry);
             Map<String, Object> updates = entry.updates.getUpdatesFor("balances", 0);
             System.out.println(updates);
         }
 
-        long wm = wal.getSnapshotInProgressWatermark();
+        long wm = snapshotService.getSnapshotInProgressWatermark();
 
         System.out.println();
         System.out.println(">>> WM:\t\t" + wm);

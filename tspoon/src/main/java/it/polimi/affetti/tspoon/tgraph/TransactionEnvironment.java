@@ -2,6 +2,7 @@ package it.polimi.affetti.tspoon.tgraph;
 
 import it.polimi.affetti.tspoon.common.Address;
 import it.polimi.affetti.tspoon.common.ControlledSource;
+import it.polimi.affetti.tspoon.evaluation.EvalConfig;
 import it.polimi.affetti.tspoon.tgraph.query.*;
 import it.polimi.affetti.tspoon.tgraph.state.SinglePartitionUpdate;
 import it.polimi.affetti.tspoon.tgraph.twopc.*;
@@ -48,6 +49,7 @@ public class TransactionEnvironment {
     private int stateServerPoolSize = 1, openServerPoolSize = 1, queryServerPoolSize = 1;
     private boolean synchronous;
     private boolean baselineMode;
+    private String[] taskManagers;
 
     private int tGraphId = 0;
     private Map<Integer, DataStream<TransactionResult>> spuResultsPerTGraph = new HashMap<>();
@@ -63,6 +65,29 @@ public class TransactionEnvironment {
             instance = new TransactionEnvironment(env);
             instance.registerCustomSerializers();
             instance.sourcesParallelism = env.getParallelism();
+        }
+        return instance;
+    }
+
+    public synchronized static TransactionEnvironment fromConfig(EvalConfig config) throws IOException {
+        if (instance == null) {
+            instance = new TransactionEnvironment(config.getFlinkEnv());
+            instance.registerCustomSerializers();
+            instance.sourcesParallelism = instance.streamExecutionEnvironment.getParallelism();
+            instance.configIsolation(config.strategy, config.isolationLevel);
+            instance.setUseDependencyTracking(config.useDependencyTracking);
+            instance.setSynchronous(config.synchronous);
+            instance.setVerbose(false);
+            instance.setOpenServerPoolSize(config.openServerPoolSize);
+            instance.setStateServerPoolSize(config.stateServerPoolSize);
+            instance.setQueryServerPoolSize(config.queryServerPoolSize);
+            instance.setBaselineMode(config.baselineMode);
+            instance.setSourcesSharingGroup(EvalConfig.sourceSharingGroup, config.sourcePar);
+            instance.setTaskManagers(config.taskManagerIPs);
+
+            if (config.durable) {
+                instance.enableDurability();
+            }
         }
         return instance;
     }
@@ -242,6 +267,7 @@ public class TransactionEnvironment {
         runtimeContext.setStateServerPoolSize(stateServerPoolSize);
         runtimeContext.setQueryServerPoolSize(queryServerPoolSize);
         runtimeContext.setBaselineMode(baselineMode);
+        runtimeContext.setTaskManagers(taskManagers);
         return runtimeContext;
     }
 
@@ -336,6 +362,14 @@ public class TransactionEnvironment {
         }
 
         return results;
+    }
+
+    public void setTaskManagers(String[] taskManagers) {
+        this.taskManagers = taskManagers;
+    }
+
+    public String[] getTaskManagers() {
+        return taskManagers;
     }
 
     private static class LastStepAdder implements MapFunction<Metadata, Metadata> {

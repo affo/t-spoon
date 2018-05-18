@@ -22,8 +22,6 @@ import org.apache.flink.util.Preconditions;
 
 import java.util.Arrays;
 
-import static it.polimi.affetti.tspoon.evaluation.EvalUtils.startAmount;
-
 /**
  * Created by affo on 29/07/17.
  */
@@ -41,17 +39,13 @@ public class QueryEvaluation {
         Preconditions.checkArgument(averageQuerySize < config.keySpaceSize);
 
         NetUtils.launchJobControlServer(parameters);
-        StreamExecutionEnvironment env = EvalUtils.getFlinkEnv(config);
+        StreamExecutionEnvironment env = config.getFlinkEnv();
 
         final String nameSpace = "balances";
 
-        TransactionEnvironment tEnv = TransactionEnvironment.get(env);
-        tEnv.configIsolation(config.strategy, config.isolationLevel);
-        tEnv.setSynchronous(config.synchronous);
-        tEnv.setStateServerPoolSize(Runtime.getRuntime().availableProcessors());
-        EvalUtils.setSourcesSharingGroup(tEnv);
+        TransactionEnvironment tEnv = TransactionEnvironment.fromConfig(config);
 
-        TransferSource transferSource = new TransferSource(Integer.MAX_VALUE, config.keySpaceSize, startAmount);
+        TransferSource transferSource = new TransferSource(Integer.MAX_VALUE, config.keySpaceSize, config.startAmount);
         transferSource.setMicroSleep(waitPeriodMicro);
 
         TunableSource.TunableQuerySource tunableQuerySource = new TunableSource.TunableQuerySource(
@@ -60,7 +54,7 @@ public class QueryEvaluation {
         tunableQuerySource.enableBusyWait();
 
         SingleOutputStreamOperator<Query> queries = env.addSource(tunableQuerySource);
-        queries = EvalUtils.addToSourcesSharingGroup(queries, "TunableQuerySource");
+        queries = config.addToSourcesSharingGroup(queries, "TunableQuerySource");
 
         SingleOutputStreamOperator<MultiStateQuery> msQueries = queries.map(q -> {
             MultiStateQuery multiStateQuery = new MultiStateQuery();
@@ -68,12 +62,12 @@ public class QueryEvaluation {
             return multiStateQuery;
         });
 
-        msQueries = EvalUtils.addToSourcesSharingGroup(msQueries, "ToMultiStateQuery");
+        msQueries = config.addToSourcesSharingGroup(msQueries, "ToMultiStateQuery");
 
         tEnv.enableCustomQuerying(msQueries);
 
         DataStream<Transfer> transfers = env.addSource(transferSource)
-                .slotSharingGroup(EvalUtils.sourceSharingGroup).setParallelism(1);
+                .slotSharingGroup(EvalConfig.sourceSharingGroup).setParallelism(1);
 
         OpenStream<Transfer> open = tEnv.open(transfers);
 
@@ -85,7 +79,7 @@ public class QueryEvaluation {
                 new StateFunction<Movement, Double>() {
                     @Override
                     public Double defaultValue() {
-                        return startAmount;
+                        return EvalConfig.startAmount;
                     }
 
                     @Override

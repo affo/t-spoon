@@ -37,17 +37,13 @@ public class ConsistencyCheck {
         final double queryRate = parameters.getDouble("queryRate", 0.1);
         final String nameSpace = "balances";
         NetUtils.launchJobControlServer(parameters);
-        StreamExecutionEnvironment env = EvalUtils.getFlinkEnv(config);
+        StreamExecutionEnvironment env = config.getFlinkEnv();
 
 
         // ------------ Topology
-        TransactionEnvironment tEnv = TransactionEnvironment.get(env);
-        tEnv.configIsolation(config.strategy, config.isolationLevel);
-        tEnv.setSynchronous(config.synchronous);
-        tEnv.setStateServerPoolSize(Runtime.getRuntime().availableProcessors());
-        EvalUtils.setSourcesSharingGroup(tEnv);
+        TransactionEnvironment tEnv = TransactionEnvironment.fromConfig(config);
 
-        TransferSource transferSource = new TransferSource(numRecords, config.keySpaceSize, EvalUtils.startAmount);
+        TransferSource transferSource = new TransferSource(numRecords, config.keySpaceSize, config.startAmount);
         transferSource.setMicroSleep(waitPeriodMicro);
 
         // select * from balances
@@ -57,7 +53,7 @@ public class ConsistencyCheck {
                         queryRate), 1);
 
         DataStream<Transfer> transfers = env.addSource(transferSource)
-                .slotSharingGroup(EvalUtils.sourceSharingGroup)
+                .slotSharingGroup(EvalConfig.sourceSharingGroup)
                 .setParallelism(config.sourcePar);
         OpenStream<Transfer> open = tEnv.open(transfers);
 
@@ -69,7 +65,7 @@ public class ConsistencyCheck {
                 new StateFunction<Movement, Double>() {
                     @Override
                     public Double defaultValue() {
-                        return EvalUtils.startAmount;
+                        return EvalConfig.startAmount;
                     }
 
                     @Override
@@ -90,7 +86,7 @@ public class ConsistencyCheck {
                     }
                 }, config.partitioning);
 
-        balances.queryResults.addSink(new CheckOnQueryResult(EvalUtils.startAmount));
+        balances.queryResults.addSink(new CheckOnQueryResult(EvalConfig.startAmount));
 
         DataStream<TransactionResult> out = tEnv.close(balances.leftUnchanged);
 

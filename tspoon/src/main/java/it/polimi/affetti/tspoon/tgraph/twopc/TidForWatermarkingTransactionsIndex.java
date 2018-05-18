@@ -1,6 +1,7 @@
 package it.polimi.affetti.tspoon.tgraph.twopc;
 
 import it.polimi.affetti.tspoon.common.OrderedElements;
+import it.polimi.affetti.tspoon.common.TimestampGenerator;
 import it.polimi.affetti.tspoon.tgraph.Vote;
 
 import java.util.Collections;
@@ -17,10 +18,11 @@ public class TidForWatermarkingTransactionsIndex<T> extends StandardTransactions
     private OrderedElements<Long> watermarks = new OrderedElements<>(wm -> wm);
     private long watermark;
 
-    public TidForWatermarkingTransactionsIndex(long startingPoint, int sourceParallelism, int sourceID) {
-        super(startingPoint, sourceParallelism, sourceID);
-        this.watermark = startingPoint;
+    public TidForWatermarkingTransactionsIndex(long startingTid, TimestampGenerator timestampGenerator) {
+        super(startingTid, timestampGenerator);
+        this.watermark = startingTid;
     }
+
 
     @Override
     public long updateWatermark(long timestamp, Vote vote) {

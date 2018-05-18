@@ -3,6 +3,9 @@ package it.polimi.affetti.tspoon.tgraph.twopc;
 import it.polimi.affetti.tspoon.tgraph.Metadata;
 import it.polimi.affetti.tspoon.tgraph.TransactionResult;
 import it.polimi.affetti.tspoon.tgraph.Vote;
+import it.polimi.affetti.tspoon.tgraph.durability.LocalWALService;
+import it.polimi.affetti.tspoon.tgraph.durability.SnapshotService;
+import it.polimi.affetti.tspoon.tgraph.durability.WALEntry;
 import org.apache.flink.api.common.accumulators.IntCounter;
 import org.apache.flink.api.common.functions.RichFlatMapFunction;
 import org.apache.flink.api.java.utils.ParameterTool;
@@ -22,10 +25,11 @@ import java.util.List;
  * Created by affo on 18/07/17.
  */
 public class CloseFunction extends RichFlatMapFunction<Metadata, TransactionResult>
-        implements CheckpointListener {
+        implements CheckpointListener, CheckpointedFunction {
     private transient Logger LOG;
     private TRuntimeContext tRuntimeContext;
-    private transient WAL wal;
+    private transient SnapshotService snapshotService;
+    private transient LocalWALService localWALService;
     private transient AbstractCloseOperatorTransactionCloser transactionCloser;
 
     private List<TransactionResult> toReplay;
@@ -39,6 +43,13 @@ public class CloseFunction extends RichFlatMapFunction<Metadata, TransactionResu
     }
 
     @Override
+    public void initializeState(FunctionInitializationContext functionInitializationContext) throws Exception {
+        boolean restored = functionInitializationContext.isRestored();
+        // could be null
+        localWALService = tRuntimeContext.getLocalWALServer(restored);
+    }
+
+    @Override
     public void open(Configuration parameters) throws Exception {
         super.open(parameters);
         LOG = Logger.getLogger(getClass().getSimpleName());
@@ -47,15 +58,15 @@ public class CloseFunction extends RichFlatMapFunction<Metadata, TransactionResu
                 getRuntimeContext().getExecutionConfig().getGlobalJobParameters();
 
         transactionCloser = tRuntimeContext.getSinkTransactionCloser();
-        wal = tRuntimeContext.getWALFactory().getWAL(parameterTool);
-        transactionCloser.open(wal);
+        transactionCloser.open(localWALService);
 
-        // only the first task collects everything that is in the WAL,
-        // because it doen't know if it was processed downstream...
-        if (getRuntimeContext().getIndexOfThisSubtask() == 0) {
-            Iterator<WAL.Entry> replay = wal.replay("*");
+        snapshotService = tRuntimeContext.getSnapshotService(parameterTool);
+
+        // Collect what was in the WAL, if recovering
+        if (localWALService != null) {
+            Iterator<WALEntry> replay = localWALService.replay("*");
             while (replay.hasNext()) {
-                WAL.Entry next = replay.next();
+                WALEntry next = replay.next();
                 TransactionResult result = new TransactionResult(
                         next.tid, next.timestamp, null, next.vote, next.updates);
                 toReplay.add(result);
@@ -69,6 +80,10 @@ public class CloseFunction extends RichFlatMapFunction<Metadata, TransactionResu
     public void close() throws Exception {
         super.close();
         transactionCloser.close();
+        snapshotService.close();
+        if (localWALService != null) {
+            localWALService.close();
+        }
     }
 
     @Override
@@ -104,7 +119,14 @@ public class CloseFunction extends RichFlatMapFunction<Metadata, TransactionResu
 
     @Override
     public void notifyCheckpointComplete(long id) throws Exception {
-        wal.commitSnapshot();
-        LOG.info("committing snapshot - id " + id);
+        if (localWALService != null) {
+            localWALService.commitSnapshot();
+            LOG.info("committing snapshot - id " + id);
+        }
+    }
+
+    @Override
+    public void snapshotState(FunctionSnapshotContext functionSnapshotContext) throws Exception {
+        // does nothing
     }
 }
