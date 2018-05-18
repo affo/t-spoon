@@ -51,7 +51,7 @@ public class FileWAL {
         // if overwrite, then do not append
         mainOut = new ObjectOutputStream(new FileOutputStream(mainWAL, !overwrite));
         // TODO should check if there was a failure while swapping files...
-        // TODO for simplicity, we assume it is an atmoic operation
+        // TODO for simplicity, we assume it is an atomic operation
         slaveOut = new ObjectOutputStream(new FileOutputStream(slaveWal, false));
         tmpOut = new ObjectOutputStream(new FileOutputStream(tmpWal, false));
     }
@@ -63,10 +63,8 @@ public class FileWAL {
     }
 
     private void clearSlaveAndTmp() throws IOException {
-        slaveOut.close();
-        tmpOut.close();
-        slaveOut = new ObjectOutputStream(new FileOutputStream(slaveWal, false));
-        tmpOut = new ObjectOutputStream(new FileOutputStream(tmpWal, false));
+        new PrintWriter(slaveOut).close();
+        new PrintWriter(tmpOut).close();
     }
 
     public synchronized void compact(long timestamp) throws IOException {
