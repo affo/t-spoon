@@ -31,7 +31,7 @@ public class WALServiceTest {
 
         for (int i = 0; i < localWALServers.length; i++) {
             localWALServers[i] = NetUtils.getServer(NetUtils.ServerType.WAL,
-                    new LocalWALServer());
+                    new LocalWALServer(2));
         }
 
         // every local server manages 2 FileWALs
@@ -72,7 +72,7 @@ public class WALServiceTest {
 
         WALEntry entry = new WALEntry(Vote.COMMIT, -1, -1, updates);
         wals[0].addEntry(entry);
-        Iterator<WALEntry> entryIterator = localWALServers[0].getWrappedWALs().get(0).replay(namespace);
+        Iterator<WALEntry> entryIterator = localWALServers[0].getWrappedWALs()[0].replay(namespace);
 
         WALEntry nextAndLast = entryIterator.next();
 

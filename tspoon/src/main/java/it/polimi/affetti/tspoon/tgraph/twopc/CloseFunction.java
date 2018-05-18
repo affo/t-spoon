@@ -59,7 +59,9 @@ public class CloseFunction extends RichFlatMapFunction<Metadata, TransactionResu
                 getRuntimeContext().getExecutionConfig().getGlobalJobParameters();
 
         if (tRuntimeContext.isDurabilityEnabled()) {
-            localWALServer = tRuntimeContext.getLocalWALServer();
+            // TODO this is dirty...
+            int numberOfWals = getRuntimeContext().getNumberOfParallelSubtasks() / tRuntimeContext.getTaskManagers().length;
+            localWALServer = tRuntimeContext.getLocalWALServer(numberOfWals);
             String walName = String.format("tg%d_%d", tRuntimeContext.getGraphId(), getRuntimeContext().getIndexOfThisSubtask());
             wal = new FileWAL(walName, !restored);
             wal.open();

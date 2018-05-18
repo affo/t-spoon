@@ -188,10 +188,10 @@ public class TRuntimeContext implements Serializable {
         }
     }
 
-    public LocalWALServer getLocalWALServer() throws IOException {
+    public LocalWALServer getLocalWALServer(int numberOfWALs) throws IOException {
         synchronized (TRuntimeContext.class) {
             if (localWALServer == null) {
-                localWALServer = NetUtils.getServer(NetUtils.ServerType.WAL, new LocalWALServer());
+                localWALServer = NetUtils.getServer(NetUtils.ServerType.WAL, new LocalWALServer(numberOfWALs));
             }
 
             return localWALServer;

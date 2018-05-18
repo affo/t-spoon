@@ -5,12 +5,9 @@ import it.polimi.affetti.tspoon.runtime.ClientHandler;
 import it.polimi.affetti.tspoon.runtime.LoopingClientHandler;
 import it.polimi.affetti.tspoon.runtime.ObjectClientHandler;
 
-import java.io.File;
 import java.io.IOException;
 import java.net.Socket;
 import java.util.Iterator;
-import java.util.LinkedList;
-import java.util.List;
 import java.util.function.Function;
 
 /**
@@ -22,12 +19,24 @@ import java.util.function.Function;
  * Only one per machine
  */
 public class LocalWALServer extends AbstractServer {
-    private List<FileWAL> wals = new LinkedList<>();
+    private final FileWAL[] wals;
+    private int index = 0;
     private boolean snapshotInProgress = false;
     private long inProgressWatermark = -1;
 
+    public LocalWALServer(int numberOfWALs) {
+        wals = new FileWAL[numberOfWALs];
+    }
+
     public synchronized void addWAL(FileWAL wal) {
-        wals.add(wal);
+        wals[index++] = wal;
+        notifyAll();
+    }
+
+    private synchronized void waitForWALs() throws InterruptedException {
+        while (index < wals.length) {
+            wait();
+        }
     }
 
     private void startSnapshot(long wm) throws IOException, InterruptedException {
@@ -46,14 +55,14 @@ public class LocalWALServer extends AbstractServer {
 
     public synchronized void commitSnapshot() throws IOException {
         LOG.info("Snapshot finished - wm: " + inProgressWatermark);
-        for (FileWAL wal: wals) {
+        for (FileWAL wal : wals) {
             wal.compact(inProgressWatermark);
         }
         snapshotInProgress = false;
     }
 
     // Only for testing
-    List<FileWAL> getWrappedWALs() {
+    FileWAL[] getWrappedWALs() {
         return wals;
     }
 
@@ -103,6 +112,8 @@ public class LocalWALServer extends AbstractServer {
                         }
                     };
                 }
+
+                waitForWALs();
 
                 // replay all files
                 for (FileWAL wal : wals) {
