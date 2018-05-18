@@ -42,7 +42,7 @@ public class RecoveryExperiment {
 
         DataStream<Transfer> transfers = env.addSource(transferSource)
                 .slotSharingGroup(EvalConfig.sourceSharingGroup)
-                .setParallelism(1);
+                .setParallelism(config.sourcePar);
         OpenStream<Transfer> open = tEnv.open(transfers);
 
         TStream<Movement> halves = open.opened.flatMap(
