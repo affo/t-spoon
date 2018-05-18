@@ -3,9 +3,7 @@ package it.polimi.affetti.tspoon.tgraph.twopc;
 import it.polimi.affetti.tspoon.common.Address;
 import it.polimi.affetti.tspoon.runtime.StringClientsCache;
 import it.polimi.affetti.tspoon.tgraph.Metadata;
-import it.polimi.affetti.tspoon.tgraph.Updates;
-import it.polimi.affetti.tspoon.tgraph.Vote;
-import it.polimi.affetti.tspoon.tgraph.durability.LocalWALService;
+import it.polimi.affetti.tspoon.tgraph.durability.FileWAL;
 import it.polimi.affetti.tspoon.tgraph.durability.WALEntry;
 
 import java.io.IOException;
@@ -16,14 +14,14 @@ import java.util.Collections;
  */
 public abstract class AbstractCloseOperatorTransactionCloser {
     protected transient StringClientsCache clients;
-    private transient LocalWALService wal;
+    private transient FileWAL wal;
 
     /**
      *
      * @param wal could be null in case durability is not enabled
      * @throws Exception
      */
-    public void open(LocalWALService wal) throws Exception {
+    public void open(FileWAL wal) throws Exception {
         clients = new StringClientsCache();
         this.wal = wal;
     }
@@ -32,20 +30,10 @@ public abstract class AbstractCloseOperatorTransactionCloser {
         clients.clear();
     }
 
-    /**
-     * No effect if durability is not enabled
-     *
-     * @param timestamp
-     * @param vote
-     * @param updates
-     */
-    public void writeToWAL(long tid, long timestamp, Vote vote, Updates updates) throws IOException {
-        wal.addEntry(new WALEntry(vote, tid, timestamp, updates));
-    }
-
     public void onMetadata(Metadata metadata) throws Exception {
+        // write before applying protocol
         if (wal != null) {
-            writeToWAL(metadata.tid, metadata.timestamp, metadata.vote, metadata.updates); // write before applying protocol
+            wal.addEntry(new WALEntry(metadata.vote, metadata.tid, metadata.timestamp, metadata.updates));
         }
         applyProtocolOnMetadata(metadata);
     }

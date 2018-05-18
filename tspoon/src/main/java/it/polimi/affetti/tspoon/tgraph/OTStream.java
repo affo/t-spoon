@@ -38,7 +38,7 @@ public class OTStream<T> extends AbstractTStream<T> {
             String nameSpace, StateFunction<T, V> stateFunction, KeySelector<T, String> ks) {
         return new OptimisticStateOperator<>(
                 tGraphID, nameSpace, stateFunction, ks,
-                getTransactionEnvironment().createTransactionalRuntimeContext()
+                getTransactionEnvironment().createTransactionalRuntimeContext(tGraphID)
         );
     }
 }

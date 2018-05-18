@@ -132,19 +132,21 @@ public class OpenOperator<T>
             jobControlClient = null;
         }
 
-        WALService walService = tRuntimeContext.getWALService();
+        WALService wal = tRuntimeContext.getWALClient();
         snapshotService = tRuntimeContext.getSnapshotService(parameterTool);
+
 
         if (tRuntimeContext.isDurabilityEnabled()) {
             getRuntimeContext().addAccumulator("recovery-time", recoveryTime);
             getRuntimeContext().addAccumulator("number-of-wal-entries-replayed", numberOfWalEntriesReplayed);
         }
 
-        long start = System.nanoTime();
         // restore completedTids in the lastSnapshot
         int numberOfWalEntries = 0;
         long maxTimestamp = -1;
-        Iterator<WALEntry> replay = walService.replay(sourceID, numberOfSources); // the entries for my source ID
+        long start = System.nanoTime();
+
+        Iterator<WALEntry> replay = wal.replay(sourceID, numberOfSources); // the entries for my source ID
         while (replay.hasNext()) {
             WALEntry walEntry = replay.next();
             intraEpochTids.add(walEntry.tid);
@@ -154,7 +156,7 @@ public class OpenOperator<T>
         double delta = (System.nanoTime() - start) / Math.pow(10, 6); // ms
         recoveryTime.add(delta);
         numberOfWalEntriesReplayed.add((double) numberOfWalEntries);
-        walService.close();
+        wal.close();
 
         if (maxTimestamp < 0) {
             maxTimestamp = sourceID;

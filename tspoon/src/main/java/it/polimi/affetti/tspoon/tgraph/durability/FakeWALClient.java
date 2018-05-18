@@ -4,11 +4,9 @@ import java.io.IOException;
 import java.util.Iterator;
 
 /**
- * Created by affo on 17/01/18.
- *
- * Does nothing
+ * Created by affo on 18/05/18.
  */
-public class NoWAL implements WALService {
+public class FakeWALClient implements WALService {
     @Override
     public void open() throws IOException {
 
@@ -34,7 +32,7 @@ public class NoWAL implements WALService {
     }
 
     @Override
-    public Iterator<WALEntry> replay(String namespace) {
+    public Iterator<WALEntry> replay(String namespace) throws IOException {
         return emptyItr();
     }
 

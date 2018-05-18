@@ -5,7 +5,6 @@ import it.polimi.affetti.tspoon.tgraph.Metadata;
 import it.polimi.affetti.tspoon.tgraph.TransactionResult;
 import it.polimi.affetti.tspoon.tgraph.Updates;
 import it.polimi.affetti.tspoon.tgraph.Vote;
-import it.polimi.affetti.tspoon.tgraph.durability.WALService;
 import it.polimi.affetti.tspoon.tgraph.query.PredicateQuery;
 import it.polimi.affetti.tspoon.tgraph.query.Query;
 import it.polimi.affetti.tspoon.tgraph.query.QueryResult;
@@ -39,7 +38,6 @@ public class Shard<V> implements
     private final Map<Long, Transaction<V>> transactions;
     private Object.DeferredReadListener deferredReadListener;
 
-    private final transient WALService wal;
     private final Semaphore recoverySemaphore = new Semaphore(0);
 
     public Shard(
@@ -48,13 +46,11 @@ public class Shard<V> implements
             int numberOfShards,
             int maxNumberOfVersions,
             boolean externalReadCommitted,
-            WALService wal,
             ObjectFunction<V> objectFunction) {
         this.nameSpace = nameSpace;
         this.shardNumber = shardNumber;
         this.numberOfShards = numberOfShards;
         this.externalReadCommitted = externalReadCommitted;
-        this.wal = wal;
         this.objectFunction = objectFunction;
         Object.maxNumberOfVersions = maxNumberOfVersions;
 

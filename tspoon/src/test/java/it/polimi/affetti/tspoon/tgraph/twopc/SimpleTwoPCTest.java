@@ -3,7 +3,6 @@ package it.polimi.affetti.tspoon.tgraph.twopc;
 import it.polimi.affetti.tspoon.common.Address;
 import it.polimi.affetti.tspoon.tgraph.Metadata;
 import it.polimi.affetti.tspoon.tgraph.TransactionEnvironment;
-import it.polimi.affetti.tspoon.tgraph.durability.NoWAL;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.junit.After;
 import org.junit.Before;
@@ -26,8 +25,8 @@ public abstract class SimpleTwoPCTest {
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
 
         configureTransactionalEnvironment(TransactionEnvironment.get(env));
-        
-        tRuntimeContext = TransactionEnvironment.get(env).createTransactionalRuntimeContext();
+
+        tRuntimeContext = TransactionEnvironment.get(env).createTransactionalRuntimeContext(0);
         tRuntimeContext.resetTransactionClosers();
         // TODO develop a strategy for implementing tests for different subscription modes
         tRuntimeContext.setSubscriptionMode(AbstractTwoPCParticipant.SubscriptionMode.GENERIC);

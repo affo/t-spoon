@@ -19,20 +19,31 @@ import java.util.stream.IntStream;
  */
 public class WALServiceTest {
     private ProxyWALServer server;
-    private static final int numberOfClose = 4;
-    private final String[] ips = {"localhost", "localhost", "localhost", "localhost"};
-    private LocalWALService[] localWALServices;
+    private final String[] ips = {"localhost", "localhost"};
+    private final int numberOfClose = ips.length * 2;
+    private LocalWALServer[] localWALServers;
+    private FileWAL[] wals;
     private WALClient client;
 
     @Before
     public void before() throws IOException, InterruptedException {
-        localWALServices = new LocalWALService[numberOfClose];
+        localWALServers = new LocalWALServer[ips.length];
+
+        for (int i = 0; i < localWALServers.length; i++) {
+            localWALServers[i] = NetUtils.getServer(NetUtils.ServerType.WAL,
+                    new LocalWALServer());
+        }
+
+        // every local server manages 2 FileWALs
+        wals = new FileWAL[numberOfClose];
+        for (int i = 0; i < wals.length; i++) {
+            wals[i] = new FileWAL("testwal" + i, true);
+            wals[i].open();
+            localWALServers[i % localWALServers.length].addWAL(wals[i]);
+        }
+
         server = NetUtils.launchWALServer(ParameterTool.fromMap(new HashMap<>()), 2, ips);
 
-        for (int i = 0; i < localWALServices.length; i++) {
-            localWALServices[i] = NetUtils.getServer(NetUtils.ServerType.WAL,
-                    new LocalWALService(false, "tm" + i + "_"));
-        }
         client = WALClient.get(ips);
         server.waitForOpenCompletion();
     }
@@ -41,6 +52,14 @@ public class WALServiceTest {
     public void after() throws Exception {
         client.close();
         server.close();
+
+        for (LocalWALServer srv: localWALServers) {
+            srv.close();
+        }
+
+        for (FileWAL wal: wals) {
+            wal.close();
+        }
     }
 
     @Test
@@ -52,8 +71,8 @@ public class WALServiceTest {
         updates.addUpdate(namespace, "k2", 0.44);
 
         WALEntry entry = new WALEntry(Vote.COMMIT, -1, -1, updates);
-        localWALServices[0].addEntry(entry);
-        Iterator<WALEntry> entryIterator = localWALServices[0].getWrappedWAL().replay(namespace);
+        wals[0].addEntry(entry);
+        Iterator<WALEntry> entryIterator = localWALServers[0].getWrappedWALs().get(0).replay(namespace);
 
         WALEntry nextAndLast = entryIterator.next();
 
@@ -114,14 +133,14 @@ public class WALServiceTest {
                 .collect(Collectors.toList());
 
         // an entry to everybody
-        int serverIndex = 0;
+        int walIndex = 0;
         for (WALEntry entry : entries) {
-            LocalWALService currentService = localWALServices[serverIndex];
+            FileWAL currenWAL = wals[walIndex];
 
-            currentService.addEntry(entry);
-            serverIndex++;
-            if (serverIndex == localWALServices.length) {
-                serverIndex = 0;
+            currenWAL.addEntry(entry);
+            walIndex++;
+            if (walIndex == wals.length) {
+                walIndex = 0;
             }
         }
 
@@ -174,16 +193,18 @@ public class WALServiceTest {
         // 5 records more
         expected.addAll(fillWALs(15, 20));
 
-        // 2 sinks commit
-        localWALServices[0].commitSnapshot();
-        localWALServices[1].commitSnapshot();
+        // some sink commit
+        for (int i = 0; i < localWALServers.length / 2; i++) {
+            localWALServers[i].commitSnapshot();
+        }
 
         // 5 records more
         expected.addAll(fillWALs(20, 25));
 
-        // lastCommit, ok the snapshot is complete!
-        localWALServices[2].commitSnapshot();
-        localWALServices[3].commitSnapshot();
+        // lastCommits, ok the snapshot is complete!
+        for (int i = localWALServers.length / 2; i < localWALServers.length; i++) {
+            localWALServers[i].commitSnapshot();
+        }
 
         Iterator<WALEntry> replay = stateOp.replay("*");
         List<WALEntry> actual = new ArrayList<>();

@@ -1,9 +1,9 @@
 package it.polimi.affetti.tspoon.evaluation;
 
 import it.polimi.affetti.tspoon.runtime.NetUtils;
+import it.polimi.affetti.tspoon.tgraph.durability.WALClient;
 import it.polimi.affetti.tspoon.tgraph.durability.SnapshotClient;
 import it.polimi.affetti.tspoon.tgraph.durability.SnapshotService;
-import it.polimi.affetti.tspoon.tgraph.durability.WALClient;
 import it.polimi.affetti.tspoon.tgraph.durability.WALEntry;
 
 import java.util.ArrayList;

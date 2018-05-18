@@ -113,12 +113,12 @@ public abstract class StateOperator<T, V>
         this.shardID = String.format(StateOperator.SHARD_ID_FORMAT, nameSpace, taskID);
         int numberOfTasks = getRuntimeContext().getNumberOfParallelSubtasks();
 
-        walService = tRuntimeContext.getWALService();
+        walService = tRuntimeContext.getWALClient();
         snapshotService = tRuntimeContext.getSnapshotService(parameterTool);
 
         shard = new Shard<>(
                 nameSpace, taskID, numberOfTasks, maxNumberOfVersions,
-                tRuntimeContext.getIsolationLevel().gte(IsolationLevel.PL2), walService,
+                tRuntimeContext.getIsolationLevel().gte(IsolationLevel.PL2),
                 ObjectFunction.fromStateFunction(stateFunction));
 
         if (tRuntimeContext.needWaitOnRead()) {
@@ -128,7 +128,7 @@ public abstract class StateOperator<T, V>
 
         if (tRuntimeContext.isDurabilityEnabled()) {
             getRuntimeContext().addAccumulator("recovery-time", recoveryTime);
-            getRuntimeContext().addAccumulator("number-of-walService-entries-replayed", numberOfWalEntriesReplayed);
+            getRuntimeContext().addAccumulator("number-of-walClient-entries-replayed", numberOfWalEntriesReplayed);
         }
 
         long start = System.nanoTime();
@@ -311,11 +311,11 @@ public abstract class StateOperator<T, V>
     }
 
     /**
-     * Called on `open`, after that `walService` and `shard` are created.
+     * Called on `open`, after that `walClient` and `shard` are created.
      * If not restoring, then the snapshot and the WALService are empty.
      *
      * @throws Exception
-     * @return number of entries replayed by the walService
+     * @return number of entries replayed by the walClient
      */
     private int initState() throws Exception {
         Map<String, V> snapshot = null;

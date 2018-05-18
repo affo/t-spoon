@@ -256,8 +256,8 @@ public class TransactionEnvironment {
         return sourcesSharingGroup;
     }
 
-    public TRuntimeContext createTransactionalRuntimeContext() {
-        TRuntimeContext runtimeContext = new TRuntimeContext();
+    public TRuntimeContext createTransactionalRuntimeContext(int tGraphId) {
+        TRuntimeContext runtimeContext = new TRuntimeContext(tGraphId);
         runtimeContext.setSynchronous(synchronous);
         runtimeContext.setDurabilityEnabled(isDurabilityEnabled);
         runtimeContext.setIsolationLevel(isolationLevel);
@@ -350,7 +350,7 @@ public class TransactionEnvironment {
 
         DataStream<TransactionResult> fromSPU = spuResultsPerTGraph.get(tGraphID);
         DataStream<TransactionResult> results = secondMerged
-                .flatMap(new CloseFunction(createTransactionalRuntimeContext()))
+                .flatMap(new CloseFunction(createTransactionalRuntimeContext(tGraphID)))
                 .name("CloseFunction")
                 .union(fromSPU);
 

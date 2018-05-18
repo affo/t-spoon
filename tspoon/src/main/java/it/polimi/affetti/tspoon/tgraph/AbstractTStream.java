@@ -63,7 +63,7 @@ public abstract class AbstractTStream<T> implements TStream<T> {
             DataStream<T> dataStream, DataStream<MultiStateQuery> inputQueryStream, int tGraphId) {
         TypeInformation<Enriched<T>> type = Enriched.getTypeInfo(dataStream.getType());
         OpenOperator<T> openOperator = new OpenOperator<>(
-                transactionEnvironment.createTransactionalRuntimeContext(), tGraphId);
+                transactionEnvironment.createTransactionalRuntimeContext(tGraphId), tGraphId);
 
         int openParallelism;
         if (transactionEnvironment.getIsolationLevel() == IsolationLevel.PL4) {

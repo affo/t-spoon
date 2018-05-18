@@ -38,7 +38,6 @@ public class FSTest {
         }
 
         System.out.println(metric);
-        wal.clear();
         wal.close();
     }
 }

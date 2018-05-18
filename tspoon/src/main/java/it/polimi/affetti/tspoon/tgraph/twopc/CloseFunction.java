@@ -3,7 +3,8 @@ package it.polimi.affetti.tspoon.tgraph.twopc;
 import it.polimi.affetti.tspoon.tgraph.Metadata;
 import it.polimi.affetti.tspoon.tgraph.TransactionResult;
 import it.polimi.affetti.tspoon.tgraph.Vote;
-import it.polimi.affetti.tspoon.tgraph.durability.LocalWALService;
+import it.polimi.affetti.tspoon.tgraph.durability.FileWAL;
+import it.polimi.affetti.tspoon.tgraph.durability.LocalWALServer;
 import it.polimi.affetti.tspoon.tgraph.durability.SnapshotService;
 import it.polimi.affetti.tspoon.tgraph.durability.WALEntry;
 import org.apache.flink.api.common.accumulators.IntCounter;
@@ -29,8 +30,10 @@ public class CloseFunction extends RichFlatMapFunction<Metadata, TransactionResu
     private transient Logger LOG;
     private TRuntimeContext tRuntimeContext;
     private transient SnapshotService snapshotService;
-    private transient LocalWALService localWALService;
+    private transient LocalWALServer localWALServer;
+    private transient FileWAL wal;
     private transient AbstractCloseOperatorTransactionCloser transactionCloser;
+    private boolean restored;
 
     private List<TransactionResult> toReplay;
 
@@ -44,9 +47,7 @@ public class CloseFunction extends RichFlatMapFunction<Metadata, TransactionResu
 
     @Override
     public void initializeState(FunctionInitializationContext functionInitializationContext) throws Exception {
-        boolean restored = functionInitializationContext.isRestored();
-        // could be null
-        localWALService = tRuntimeContext.getLocalWALServer(restored);
+        this.restored = functionInitializationContext.isRestored();
     }
 
     @Override
@@ -57,14 +58,15 @@ public class CloseFunction extends RichFlatMapFunction<Metadata, TransactionResu
         ParameterTool parameterTool = (ParameterTool)
                 getRuntimeContext().getExecutionConfig().getGlobalJobParameters();
 
-        transactionCloser = tRuntimeContext.getSinkTransactionCloser();
-        transactionCloser.open(localWALService);
+        if (tRuntimeContext.isDurabilityEnabled()) {
+            localWALServer = tRuntimeContext.getLocalWALServer();
+            String walName = String.format("tg%d_%d", tRuntimeContext.getGraphId(), getRuntimeContext().getIndexOfThisSubtask());
+            wal = new FileWAL(walName, !restored);
+            wal.open();
+            localWALServer.addWAL(wal);
 
-        snapshotService = tRuntimeContext.getSnapshotService(parameterTool);
-
-        // Collect what was in the WAL, if recovering
-        if (localWALService != null) {
-            Iterator<WALEntry> replay = localWALService.replay("*");
+            // Collect what was in the WALService, if recovering
+            Iterator<WALEntry> replay = wal.replay("*");
             while (replay.hasNext()) {
                 WALEntry next = replay.next();
                 TransactionResult result = new TransactionResult(
@@ -72,6 +74,11 @@ public class CloseFunction extends RichFlatMapFunction<Metadata, TransactionResu
                 toReplay.add(result);
             }
         }
+
+        transactionCloser = tRuntimeContext.getSinkTransactionCloser();
+        transactionCloser.open(wal);
+
+        snapshotService = tRuntimeContext.getSnapshotService(parameterTool);
 
         getRuntimeContext().addAccumulator("replays-at-sink", replays);
     }
@@ -81,8 +88,9 @@ public class CloseFunction extends RichFlatMapFunction<Metadata, TransactionResu
         super.close();
         transactionCloser.close();
         snapshotService.close();
-        if (localWALService != null) {
-            localWALService.close();
+        wal.close();
+        if (localWALServer != null) {
+            localWALServer.close();
         }
     }
 
@@ -119,8 +127,8 @@ public class CloseFunction extends RichFlatMapFunction<Metadata, TransactionResu
 
     @Override
     public void notifyCheckpointComplete(long id) throws Exception {
-        if (localWALService != null) {
-            localWALService.commitSnapshot();
+        if (localWALServer != null) {
+            localWALServer.commitSnapshot();
             LOG.info("committing snapshot - id " + id);
         }
     }

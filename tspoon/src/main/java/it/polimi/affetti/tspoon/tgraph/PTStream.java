@@ -39,7 +39,7 @@ public class PTStream<T> extends AbstractTStream<T> {
             String nameSpace, StateFunction<T, V> stateFunction, KeySelector<T, String> ks) {
         return new PessimisticStateOperator<>(
                 tGraphID, nameSpace, stateFunction, ks,
-                getTransactionEnvironment().createTransactionalRuntimeContext());
+                getTransactionEnvironment().createTransactionalRuntimeContext(tGraphID));
     }
 
     @Override

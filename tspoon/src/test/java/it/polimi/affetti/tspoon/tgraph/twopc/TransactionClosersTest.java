@@ -22,7 +22,7 @@ public class TransactionClosersTest {
     public void setUp() throws Exception {
         tRuntimeContext = TransactionEnvironment
                 .get(StreamExecutionEnvironment.getExecutionEnvironment())
-                .createTransactionalRuntimeContext();
+                .createTransactionalRuntimeContext(0);
         coordinator = tRuntimeContext.getSourceTransactionCloser(0);
         stateOp = tRuntimeContext.getAtStateTransactionCloser(0);
     }

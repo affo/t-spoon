@@ -26,7 +26,7 @@ import java.io.Serializable;
 public class TRuntimeContext implements Serializable {
     private static AbstractOpenOperatorTransactionCloser[] openOperatorTransactionCloserPool;
     private static AbstractStateOperatorTransactionCloser[] stateOperatorTransactionCloserPool;
-    private static LocalWALService localWALServer;
+    private static LocalWALServer localWALServer;
 
     private AbstractTwoPCParticipant.SubscriptionMode subscriptionMode = AbstractTwoPCParticipant.SubscriptionMode.GENERIC;
     public boolean durable, useDependencyTracking;
@@ -36,6 +36,15 @@ public class TRuntimeContext implements Serializable {
     private boolean synchronous;
     private boolean baselineMode;
     private String[] taskManagers;
+    private int tGraphId;
+
+    public TRuntimeContext(int tGraphId) {
+        this.tGraphId = tGraphId;
+    }
+
+    public int getGraphId() {
+        return tGraphId;
+    }
 
     public void setDurabilityEnabled(boolean durable) {
         this.durable = durable;
@@ -179,26 +188,22 @@ public class TRuntimeContext implements Serializable {
         }
     }
 
-    public LocalWALService getLocalWALServer(boolean restored) throws IOException {
-        if (isDurabilityEnabled()) {
-            synchronized (TRuntimeContext.class) {
-                if (localWALServer == null) {
-                    localWALServer = NetUtils.getServer(NetUtils.ServerType.WAL, new LocalWALService(restored));
-                }
-
-                return localWALServer;
+    public LocalWALServer getLocalWALServer() throws IOException {
+        synchronized (TRuntimeContext.class) {
+            if (localWALServer == null) {
+                localWALServer = NetUtils.getServer(NetUtils.ServerType.WAL, new LocalWALServer());
             }
-        }
 
-        return null;
+            return localWALServer;
+        }
     }
 
-    public WALService getWALService() throws IOException {
+    public WALService getWALClient() throws IOException {
         if (isDurabilityEnabled()) {
             return WALClient.get(this);
         }
 
-        return new NoWAL();
+        return new FakeWALClient();
     }
 
     public SnapshotService getSnapshotService(ParameterTool params) throws IOException {

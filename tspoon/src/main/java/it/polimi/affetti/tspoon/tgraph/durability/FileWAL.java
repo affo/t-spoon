@@ -2,6 +2,7 @@ package it.polimi.affetti.tspoon.tgraph.durability;
 
 import it.polimi.affetti.tspoon.common.TimestampGenerator;
 import it.polimi.affetti.tspoon.tgraph.Vote;
+import org.apache.flink.shaded.com.google.common.io.Files;
 
 import java.io.*;
 import java.util.ArrayList;
@@ -13,18 +14,25 @@ import java.util.function.Predicate;
  * Created by affo on 31/07/17.
  */
 public class FileWAL {
+    public static final String WAL_DIR = "wals/";
+    public static final String WAL_SUFFIX = "_wal.log";
+    public static final String WAL_TMP_SUFFIX = "_wal.log.tmp";
+
     private String fileName;
+    private String tmpFileName;
     private final boolean overwrite;
     private File wal;
     private ObjectOutputStream out;
 
-    public FileWAL(String fileName, boolean overwrite) {
-        this.fileName = fileName;
+    public FileWAL(String id, boolean overwrite) {
+        this.fileName = WAL_DIR + id + WAL_SUFFIX;
+        this.tmpFileName = WAL_DIR + id + WAL_TMP_SUFFIX;
         this.overwrite = overwrite;
     }
 
     public void open() throws IOException {
         wal = new File(fileName);
+        wal.getParentFile().mkdirs();
         wal.createNewFile();
         // if overwrite, then not append
         out = new ObjectOutputStream(new FileOutputStream(wal, !overwrite));
@@ -34,13 +42,24 @@ public class FileWAL {
         out.close();
     }
 
-    public void rename(String newName) {
-        File newWAL = new File(newName);
-        wal.renameTo(newWAL);
-        wal = newWAL;
+    public synchronized void compact(long timestamp) throws IOException {
+        File tmpWAL = new File(tmpFileName);
+        tmpWAL.createNewFile();
+
+        // write everything after the timestamp
+        ObjectOutputStream os = new ObjectOutputStream(new FileOutputStream(tmpWAL, false));
+        Iterator<WALEntry> replay = replay(e -> e.timestamp > timestamp);
+        while (replay.hasNext()) {
+            os.writeObject(replay.next());
+        }
+
+        // delete original wal and substitute with temporary
+        out.close();
+        Files.move(tmpWAL, wal);
+        out = os;
     }
 
-    public void addEntry(WALEntry entry) {
+    public synchronized void addEntry(WALEntry entry) {
         try {
             out.writeObject(entry);
             out.flush();
@@ -63,6 +82,7 @@ public class FileWAL {
 
     // cache the unit
     private int unit = -1;
+
     /**
      * Only the entries for the provided source ID
      * @param sourceID
@@ -100,12 +120,5 @@ public class FileWAL {
         } finally {
             in.close();
         }
-    }
-
-    /**
-     * Empties the file
-     */
-    public void clear() throws IOException {
-        out = new ObjectOutputStream(new FileOutputStream(wal, false));
     }
 }
