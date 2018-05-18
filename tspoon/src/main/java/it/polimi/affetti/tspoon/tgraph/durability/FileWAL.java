@@ -8,6 +8,10 @@ import java.io.*;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.function.Predicate;
 
 /**
@@ -15,55 +19,103 @@ import java.util.function.Predicate;
  */
 public class FileWAL {
     public static final String WAL_DIR = "wals/";
-    public static final String WAL_SUFFIX = "_wal.log";
-    public static final String WAL_TMP_SUFFIX = "_wal.log.tmp";
+    public static final String MAIN_WAL_SUFFIX = "_wal.log";
+    public static final String SLAVE_WAL_SUFFIX = "_swal.log";
+    public static final String TMP_WAL_SUFFIX = "_wal.log.tmp";
 
-    private String fileName;
-    private String tmpFileName;
+    private String mainName, slaveName, tmpName;
     private final boolean overwrite;
-    private File wal;
-    private ObjectOutputStream out;
+    private File mainWAL, slaveWal, tmpWal;
+    private ObjectOutputStream mainOut, slaveOut, tmpOut;
+    private boolean compactionRunning = false;
+    private BlockingQueue<WALEntry> pendingEntries = new LinkedBlockingQueue<>();
+
+    private ExecutorService pool = Executors.newCachedThreadPool();
 
     public FileWAL(String id, boolean overwrite) {
-        this.fileName = WAL_DIR + id + WAL_SUFFIX;
-        this.tmpFileName = WAL_DIR + id + WAL_TMP_SUFFIX;
+        this.mainName = WAL_DIR + id + MAIN_WAL_SUFFIX;
+        this.slaveName = WAL_DIR + id + SLAVE_WAL_SUFFIX;
+        this.tmpName = WAL_DIR + id + TMP_WAL_SUFFIX;
         this.overwrite = overwrite;
     }
 
     public void open() throws IOException {
-        wal = new File(fileName);
-        wal.getParentFile().mkdirs();
-        wal.createNewFile();
-        // if overwrite, then not append
-        out = new ObjectOutputStream(new FileOutputStream(wal, !overwrite));
+        mainWAL = new File(mainName);
+        slaveWal = new File(slaveName);
+        tmpWal = new File(tmpName);
+
+        mainWAL.getParentFile().mkdirs();
+        mainWAL.createNewFile();
+        slaveWal.createNewFile();
+        tmpWal.createNewFile();
+        // if overwrite, then do not append
+        mainOut = new ObjectOutputStream(new FileOutputStream(mainWAL, !overwrite));
+        // TODO should check if there was a failure while swapping files...
+        // TODO for simplicity, we assume it is an atmoic operation
+        slaveOut = new ObjectOutputStream(new FileOutputStream(slaveWal, false));
+        tmpOut = new ObjectOutputStream(new FileOutputStream(tmpWal, false));
     }
 
     public void close() throws IOException {
-        out.close();
+        mainOut.close();
+        slaveOut.close();
+        tmpOut.close();
+    }
+
+    private void clearSlaveAndTmp() throws IOException {
+        slaveOut.close();
+        tmpOut.close();
+        slaveOut = new ObjectOutputStream(new FileOutputStream(slaveWal, false));
+        tmpOut = new ObjectOutputStream(new FileOutputStream(tmpWal, false));
     }
 
     public synchronized void compact(long timestamp) throws IOException {
-        File tmpWAL = new File(tmpFileName);
-        tmpWAL.createNewFile();
+        compactionRunning = true;
+        pool.submit(() -> {
+            try {
+                // write everything after the timestamp
+                Iterator<WALEntry> replay = replay(e -> e.timestamp > timestamp);
+                while (replay.hasNext()) {
+                    tmpOut.writeObject(replay.next());
+                }
+                tmpOut.flush();
+                tmpOut.reset();
 
-        // write everything after the timestamp
-        ObjectOutputStream os = new ObjectOutputStream(new FileOutputStream(tmpWAL, false));
-        Iterator<WALEntry> replay = replay(e -> e.timestamp > timestamp);
-        while (replay.hasNext()) {
-            os.writeObject(replay.next());
+                drainPending();
+            } catch (IOException ioe) {
+                throw new RuntimeException("IOE while compacting: " + ioe.getMessage());
+            }
+        });
+    }
+
+    private synchronized void drainPending() throws IOException {
+        for (WALEntry entry : pendingEntries) {
+            // write them on tmp
+            tmpOut.writeObject(entry);
         }
+        tmpOut.flush();
+        tmpOut.reset();
+        pendingEntries.clear();
 
-        // delete original wal and substitute with temporary
-        out.close();
-        Files.move(tmpWAL, wal);
-        out = os;
+        Files.copy(tmpWal, mainWAL);
+        clearSlaveAndTmp();
+        compactionRunning = false;
+        notifyAll();
     }
 
     public synchronized void addEntry(WALEntry entry) {
+        ObjectOutputStream os;
+        if (compactionRunning) {
+            os = slaveOut;
+            pendingEntries.add(entry);
+        } else {
+            os = mainOut;
+        }
+
         try {
-            out.writeObject(entry);
-            out.flush();
-            out.reset();
+            os.writeObject(entry);
+            os.flush();
+            os.reset();
         } catch (IOException e) {
             // make it crash, we cannot avoid persisting the WALService
             throw new RuntimeException("Cannot persist to WALService");
@@ -77,6 +129,7 @@ public class FileWAL {
      * @throws IOException
      */
     public Iterator<WALEntry> replay(String namespace) throws IOException {
+        waitForCompactionFinish();
         return replay(e -> (namespace == null || e.updates.isInvolved(namespace)));
     }
 
@@ -91,14 +144,25 @@ public class FileWAL {
      * @throws IOException
      */
     public Iterator<WALEntry> replay(int sourceID, int numberOfSources) throws IOException {
+        waitForCompactionFinish();
         if (unit < 0) {
             unit = TimestampGenerator.calcUnit(numberOfSources);
         }
         return replay(e -> TimestampGenerator.checkTimestamp(sourceID, e.timestamp, unit));
     }
 
+    private synchronized void waitForCompactionFinish() {
+        while (compactionRunning) {
+            try {
+                wait();
+            } catch (InterruptedException e) {
+                throw new RuntimeException("Interrupted while compacting");
+            }
+        }
+    }
+
     private Iterator<WALEntry> replay(Predicate<WALEntry> predicate) throws IOException {
-        ObjectInputStream in = new ObjectInputStream(new FileInputStream(wal));
+        ObjectInputStream in = new ObjectInputStream(new FileInputStream(mainWAL));
 
         try {
             List<WALEntry> entries = new ArrayList<>();
