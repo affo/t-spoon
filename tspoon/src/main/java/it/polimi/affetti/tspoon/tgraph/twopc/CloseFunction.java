@@ -1,5 +1,6 @@
 package it.polimi.affetti.tspoon.tgraph.twopc;
 
+import it.polimi.affetti.tspoon.metrics.MetricAccumulator;
 import it.polimi.affetti.tspoon.tgraph.Metadata;
 import it.polimi.affetti.tspoon.tgraph.TransactionResult;
 import it.polimi.affetti.tspoon.tgraph.Vote;
@@ -66,6 +67,11 @@ public class CloseFunction extends RichFlatMapFunction<Metadata, TransactionResu
             wal = new FileWAL(walName, !restored);
             wal.open();
             localWALServer.addWAL(wal);
+
+            MetricAccumulator loadWALTime = new MetricAccumulator();
+            loadWALTime.add((double) wal.getLoadWALTime());
+
+            getRuntimeContext().addAccumulator("load-wal-time", loadWALTime);
 
             // Collect what was in the WALService, if recovering
             Iterator<WALEntry> replay = wal.replay("*");

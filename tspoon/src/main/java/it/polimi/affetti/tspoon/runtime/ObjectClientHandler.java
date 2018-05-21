@@ -9,8 +9,8 @@ import java.net.Socket;
  * Created by affo on 02/08/17.
  */
 public abstract class ObjectClientHandler extends ClientHandler {
-    private ObjectInputStream in;
-    private ObjectOutputStream out;
+    protected ObjectInputStream in;
+    protected ObjectOutputStream out;
     private int noMessagesSent = 0;
 
     public ObjectClientHandler(Socket s) {

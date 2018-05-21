@@ -30,6 +30,7 @@ public class FileWAL {
     private boolean compactionRunning = false;
     private BlockingQueue<WALEntry> pendingEntries = new LinkedBlockingQueue<>();
     private List<WALEntry> walContent;
+    private long loadWALTime;
 
     private ExecutorService pool = Executors.newFixedThreadPool(1);
 
@@ -56,13 +57,17 @@ public class FileWAL {
         slaveOut = new ObjectOutputStream(new FileOutputStream(slaveWAL, false));
         tmpOut = new ObjectOutputStream(new FileOutputStream(tmpWAL, false));
 
-        walContent = loadWAL();
+        this.loadWALTime = forceReload();
     }
 
     public void close() throws IOException {
         mainOut.close();
         slaveOut.close();
         tmpOut.close();
+    }
+
+    public long getLoadWALTime() {
+        return loadWALTime;
     }
 
     private void resetTemporaryWALs() throws IOException {
@@ -183,11 +188,14 @@ public class FileWAL {
     }
 
     /**
-     * Debug & testing only
+     * Also for debug & testing
      * @throws IOException
+     * @return the time (ms) spent to load the WAL
      */
-    protected void forceReload() throws IOException {
+    protected long forceReload() throws IOException {
+        long start = System.nanoTime();
         walContent = loadWAL();
+        return Math.round((System.nanoTime() - start) * Math.pow(10, -6));
     }
 
     /**

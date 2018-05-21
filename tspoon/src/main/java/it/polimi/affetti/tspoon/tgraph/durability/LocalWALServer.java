@@ -123,6 +123,7 @@ public class LocalWALServer extends AbstractServer {
                     }
                 }
                 send(new WALEntry(null, -1, -1, null)); // finished
+                out.flush();
             }
         });
     }

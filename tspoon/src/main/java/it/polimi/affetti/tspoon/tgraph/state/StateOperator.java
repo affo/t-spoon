@@ -128,7 +128,7 @@ public abstract class StateOperator<T, V>
 
         if (tRuntimeContext.isDurabilityEnabled()) {
             getRuntimeContext().addAccumulator("recovery-time", recoveryTime);
-            getRuntimeContext().addAccumulator("number-of-walClient-entries-replayed", numberOfWalEntriesReplayed);
+            getRuntimeContext().addAccumulator("number-of-wal-entries-replayed", numberOfWalEntriesReplayed);
         }
 
         long start = System.nanoTime();
@@ -349,7 +349,7 @@ public abstract class StateOperator<T, V>
             }
         }
 
-        LOG.info("Init state: WALService Replayed");
+        LOG.info("Init state: WAL Replayed");
         shard.signalRecoveryComplete();
 
         return numberOfEntries;
