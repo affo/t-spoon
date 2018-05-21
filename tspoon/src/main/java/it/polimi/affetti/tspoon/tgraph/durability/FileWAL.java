@@ -52,11 +52,19 @@ public class FileWAL {
         tmpWAL.createNewFile();
 
         // if overwrite, then do not append
-        mainOut = new NoHeaderObjectOutputStream(new FileOutputStream(mainWAL, !overwrite));
+        FileOutputStream fos = new FileOutputStream(mainWAL, !overwrite);
+        if (overwrite) {
+            // new file, we need a header at the beginning
+            mainOut = new ObjectOutputStream(fos);
+        } else {
+            // appending, we MUST NOT write the header
+            mainOut = new NoHeaderObjectOutputStream(fos);
+        }
         // TODO should check if there was a failure while swapping files...
         // TODO for simplicity, we assume it is an atomic operation
-        slaveOut = new NoHeaderObjectOutputStream(new FileOutputStream(slaveWAL, false));
-        tmpOut = new NoHeaderObjectOutputStream(new FileOutputStream(tmpWAL, false));
+        // always need a header when creating new file
+        slaveOut = new ObjectOutputStream(new FileOutputStream(slaveWAL, false));
+        tmpOut = new ObjectOutputStream(new FileOutputStream(tmpWAL, false));
 
         this.loadWALTime = forceReload();
     }
@@ -72,8 +80,8 @@ public class FileWAL {
     }
 
     private void resetTemporaryWALs() throws IOException {
-        slaveOut = new NoHeaderObjectOutputStream(new FileOutputStream(slaveWAL, false));
-        tmpOut = new NoHeaderObjectOutputStream(new FileOutputStream(tmpWAL, false));
+        slaveOut = new ObjectOutputStream(new FileOutputStream(slaveWAL, false));
+        tmpOut = new ObjectOutputStream(new FileOutputStream(tmpWAL, false));
     }
 
     public synchronized void compact(long timestamp) throws IOException {
@@ -209,7 +217,7 @@ public class FileWAL {
         List<WALEntry> entries = new ArrayList<>();
 
         try {
-            in = new NoHeaderObjectInputStream(new FileInputStream(mainWAL));
+            in = new ObjectInputStream(new FileInputStream(mainWAL));
 
             while (true) {
                 WALEntry e = (WALEntry) in.readObject();
@@ -246,16 +254,5 @@ public class FileWAL {
             reset();
         }
 
-    }
-
-    private static class NoHeaderObjectInputStream extends ObjectInputStream {
-        public NoHeaderObjectInputStream(InputStream in) throws IOException {
-            super(in);
-        }
-
-        @Override
-        protected void readStreamHeader() throws IOException {
-            // do not read a header to avoid a StreamCorruptedException on read!
-        }
     }
 }
