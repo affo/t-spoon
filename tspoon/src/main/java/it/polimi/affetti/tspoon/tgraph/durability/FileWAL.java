@@ -50,14 +50,15 @@ public class FileWAL {
         mainWAL.createNewFile();
         slaveWAL.createNewFile();
         tmpWAL.createNewFile();
-        // if overwrite, then do not append
-        mainOut = new ObjectOutputStream(new FileOutputStream(mainWAL, !overwrite));
-        // TODO should check if there was a failure while swapping files...
-        // TODO for simplicity, we assume it is an atomic operation
-        slaveOut = new ObjectOutputStream(new FileOutputStream(slaveWAL, false));
-        tmpOut = new ObjectOutputStream(new FileOutputStream(tmpWAL, false));
 
         this.loadWALTime = forceReload();
+
+        // if overwrite, then do not append
+        mainOut = new NoHeaderObjectOutputStream(new FileOutputStream(mainWAL, !overwrite));
+        // TODO should check if there was a failure while swapping files...
+        // TODO for simplicity, we assume it is an atomic operation
+        slaveOut = new NoHeaderObjectOutputStream(new FileOutputStream(slaveWAL, false));
+        tmpOut = new NoHeaderObjectOutputStream(new FileOutputStream(tmpWAL, false));
     }
 
     public void close() throws IOException {
@@ -71,8 +72,8 @@ public class FileWAL {
     }
 
     private void resetTemporaryWALs() throws IOException {
-        slaveOut = new ObjectOutputStream(new FileOutputStream(slaveWAL, false));
-        tmpOut = new ObjectOutputStream(new FileOutputStream(tmpWAL, false));
+        slaveOut = new NoHeaderObjectOutputStream(new FileOutputStream(slaveWAL, false));
+        tmpOut = new NoHeaderObjectOutputStream(new FileOutputStream(tmpWAL, false));
     }
 
     public synchronized void compact(long timestamp) throws IOException {
@@ -208,7 +209,7 @@ public class FileWAL {
         List<WALEntry> entries = new ArrayList<>();
 
         try {
-            in = new ObjectInputStream(new FileInputStream(mainWAL));
+            in = new NoHeaderObjectInputStream(new FileInputStream(mainWAL));
 
             while (true) {
                 WALEntry e = (WALEntry) in.readObject();
@@ -227,5 +228,34 @@ public class FileWAL {
         }
 
         return entries;
+    }
+
+    /**
+     * Credits to https://stackoverflow.com/questions/1194656/appending-to-an-objectoutputstream
+     * for the solution :)
+     */
+    private static class NoHeaderObjectOutputStream extends ObjectOutputStream {
+        public NoHeaderObjectOutputStream(OutputStream out) throws IOException {
+            super(out);
+        }
+
+        @Override
+        protected void writeStreamHeader() throws IOException {
+            // do not write a header, but reset
+            // to avoid a StreamCorruptedException on read!
+            reset();
+        }
+
+    }
+
+    private static class NoHeaderObjectInputStream extends ObjectInputStream {
+        public NoHeaderObjectInputStream(InputStream in) throws IOException {
+            super(in);
+        }
+
+        @Override
+        protected void readStreamHeader() throws IOException {
+            // do not read a header to avoid a StreamCorruptedException on read!
+        }
     }
 }
