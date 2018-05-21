@@ -53,12 +53,19 @@ public class WALServiceTest {
         client.close();
         server.close();
 
-        for (LocalWALServer srv: localWALServers) {
+        for (LocalWALServer srv : localWALServers) {
             srv.close();
         }
 
-        for (FileWAL wal: wals) {
+        for (FileWAL wal : wals) {
             wal.close();
+        }
+    }
+
+    private void forceReload() throws IOException {
+        for (FileWAL wal : wals) {
+            wal.waitForCompactionToFinish();
+            wal.forceReload();
         }
     }
 
@@ -72,6 +79,8 @@ public class WALServiceTest {
 
         WALEntry entry = new WALEntry(Vote.COMMIT, -1, -1, updates);
         wals[0].addEntry(entry);
+
+        forceReload();
         Iterator<WALEntry> entryIterator = localWALServers[0].getWrappedWALs()[0].replay(namespace);
 
         WALEntry nextAndLast = entryIterator.next();
@@ -132,6 +141,12 @@ public class WALServiceTest {
                 .mapToObj(this::standardEntry)
                 .collect(Collectors.toList());
 
+        fillWALs(entries);
+
+        return entries;
+    }
+
+    private void fillWALs(List<WALEntry> entries) throws IOException {
         // an entry to everybody
         int walIndex = 0;
         for (WALEntry entry : entries) {
@@ -143,8 +158,6 @@ public class WALServiceTest {
                 walIndex = 0;
             }
         }
-
-        return entries;
     }
 
     private WALEntry standardEntry(int i) {
@@ -154,6 +167,7 @@ public class WALServiceTest {
     }
 
     private void testReplay(WALClient client, List<WALEntry> expected) throws IOException {
+        forceReload();
         Iterator<WALEntry> actualIterator = client.replay("*");
 
         List<WALEntry> actualEntries = new ArrayList<>();
@@ -206,6 +220,7 @@ public class WALServiceTest {
             localWALServers[i].commitSnapshot();
         }
 
+        forceReload();
         Iterator<WALEntry> replay = stateOp.replay("*");
         List<WALEntry> actual = new ArrayList<>();
         while (replay.hasNext()) {
@@ -218,6 +233,71 @@ public class WALServiceTest {
             WALEntry first = expected.remove(0);
             ts = first.timestamp;
         } while (ts < snapshotWM);
+
+        Assert.assertEquals(expected, actual);
+    }
+
+    /**
+     * Tests snapshot while concurrently writing
+     */
+    @Test
+    public void snapshotIntensiveTest() throws IOException, InterruptedException {
+        SnapshotClient openOp1 = new SnapshotClient("localhost", NetUtils.GLOBAL_WAL_SERVER_PORT);
+        SnapshotClient openOp2 = new SnapshotClient("localhost", NetUtils.GLOBAL_WAL_SERVER_PORT);
+        openOp1.open();
+        openOp2.open();
+
+        long snapshotWM = 4242;
+        int numberOfRecords = 10000;
+
+        // concurrently update wals and snapshot
+        fillWALs(0, (int) (snapshotWM + 1));
+        List<WALEntry> expected = IntStream.range((int) (snapshotWM + 1), numberOfRecords)
+                .mapToObj(this::standardEntry)
+                .collect(Collectors.toList());
+
+        Thread filler = new Thread(() -> {
+            try {
+                fillWALs(expected);
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        });
+        Thread snapshotter = new Thread(() -> {
+            try {
+                new Thread(() -> {
+                    try {
+                        openOp1.startSnapshot(snapshotWM);
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                }).start();
+                openOp2.startSnapshot(snapshotWM);
+
+                for (LocalWALServer localWALServer : localWALServers) {
+                    localWALServer.commitSnapshot();
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        });
+
+        filler.start();
+        snapshotter.start();
+        filler.join();
+        snapshotter.join();
+
+        for (FileWAL wal : wals) {
+            wal.close();
+        }
+
+        // manually loadWALs in FileWALs
+        List<WALEntry> actual = new ArrayList<>();
+        for (FileWAL wal : wals) {
+            wal.waitForCompactionToFinish();
+            actual.addAll(wal.loadWAL());
+        }
+        actual.sort(Comparator.comparing(e -> e.timestamp));
 
         Assert.assertEquals(expected, actual);
     }

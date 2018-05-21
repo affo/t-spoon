@@ -2,7 +2,6 @@ package it.polimi.affetti.tspoon.tgraph.durability;
 
 import it.polimi.affetti.tspoon.common.TimestampGenerator;
 import it.polimi.affetti.tspoon.tgraph.Vote;
-import org.apache.flink.shaded.com.google.common.io.Files;
 
 import java.io.*;
 import java.util.ArrayList;
@@ -13,6 +12,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.function.Predicate;
+import java.util.stream.Collectors;
 
 /**
  * Created by affo on 31/07/17.
@@ -25,12 +25,13 @@ public class FileWAL {
 
     private String mainName, slaveName, tmpName;
     private final boolean overwrite;
-    private File mainWAL, slaveWal, tmpWal;
+    private File mainWAL, slaveWAL, tmpWAL;
     private ObjectOutputStream mainOut, slaveOut, tmpOut;
     private boolean compactionRunning = false;
     private BlockingQueue<WALEntry> pendingEntries = new LinkedBlockingQueue<>();
+    private List<WALEntry> walContent;
 
-    private ExecutorService pool = Executors.newCachedThreadPool();
+    private ExecutorService pool = Executors.newFixedThreadPool(1);
 
     public FileWAL(String id, boolean overwrite) {
         this.mainName = WAL_DIR + id + MAIN_WAL_SUFFIX;
@@ -41,19 +42,21 @@ public class FileWAL {
 
     public void open() throws IOException {
         mainWAL = new File(mainName);
-        slaveWal = new File(slaveName);
-        tmpWal = new File(tmpName);
+        slaveWAL = new File(slaveName);
+        tmpWAL = new File(tmpName);
 
         mainWAL.getParentFile().mkdirs();
         mainWAL.createNewFile();
-        slaveWal.createNewFile();
-        tmpWal.createNewFile();
+        slaveWAL.createNewFile();
+        tmpWAL.createNewFile();
         // if overwrite, then do not append
         mainOut = new ObjectOutputStream(new FileOutputStream(mainWAL, !overwrite));
         // TODO should check if there was a failure while swapping files...
         // TODO for simplicity, we assume it is an atomic operation
-        slaveOut = new ObjectOutputStream(new FileOutputStream(slaveWal, false));
-        tmpOut = new ObjectOutputStream(new FileOutputStream(tmpWal, false));
+        slaveOut = new ObjectOutputStream(new FileOutputStream(slaveWAL, false));
+        tmpOut = new ObjectOutputStream(new FileOutputStream(tmpWAL, false));
+
+        walContent = loadWAL();
     }
 
     public void close() throws IOException {
@@ -62,9 +65,9 @@ public class FileWAL {
         tmpOut.close();
     }
 
-    private void clearSlaveAndTmp() throws IOException {
-        new PrintWriter(slaveOut).close();
-        new PrintWriter(tmpOut).close();
+    private void resetTemporaryWALs() throws IOException {
+        slaveOut = new ObjectOutputStream(new FileOutputStream(slaveWAL, false));
+        tmpOut = new ObjectOutputStream(new FileOutputStream(tmpWAL, false));
     }
 
     public synchronized void compact(long timestamp) throws IOException {
@@ -72,9 +75,11 @@ public class FileWAL {
         pool.submit(() -> {
             try {
                 // write everything after the timestamp
-                Iterator<WALEntry> replay = replay(e -> e.timestamp > timestamp);
-                while (replay.hasNext()) {
-                    tmpOut.writeObject(replay.next());
+                List<WALEntry> entries = loadWAL();
+                for (WALEntry entry : entries) {
+                    if (entry.timestamp > timestamp) {
+                        tmpOut.writeObject(entry);
+                    }
                 }
                 tmpOut.flush();
                 tmpOut.reset();
@@ -95,8 +100,15 @@ public class FileWAL {
         tmpOut.reset();
         pendingEntries.clear();
 
-        Files.copy(tmpWal, mainWAL);
-        clearSlaveAndTmp();
+        tmpWAL.renameTo(mainWAL);
+        tmpWAL.createNewFile();
+
+        // NOTE:
+        // tmp now points to main, if we want to still write to main,
+        // we should use tmp stream
+        mainOut = tmpOut;
+        resetTemporaryWALs();
+
         compactionRunning = false;
         notifyAll();
     }
@@ -127,8 +139,8 @@ public class FileWAL {
      * @throws IOException
      */
     public Iterator<WALEntry> replay(String namespace) throws IOException {
-        waitForCompactionFinish();
-        return replay(e -> (namespace == null || e.updates.isInvolved(namespace)));
+        waitForCompactionToFinish();
+        return replay(e -> (namespace == null || e.updates.isInvolved(namespace))).iterator();
     }
 
     // cache the unit
@@ -142,14 +154,18 @@ public class FileWAL {
      * @throws IOException
      */
     public Iterator<WALEntry> replay(int sourceID, int numberOfSources) throws IOException {
-        waitForCompactionFinish();
+        waitForCompactionToFinish();
         if (unit < 0) {
             unit = TimestampGenerator.calcUnit(numberOfSources);
         }
-        return replay(e -> TimestampGenerator.checkTimestamp(sourceID, e.timestamp, unit));
+        return replay(e -> TimestampGenerator.checkTimestamp(sourceID, e.timestamp, unit))
+                .iterator();
     }
 
-    private synchronized void waitForCompactionFinish() {
+    /**
+     * Testing and debugging
+     */
+    protected synchronized void waitForCompactionToFinish() {
         while (compactionRunning) {
             try {
                 wait();
@@ -159,28 +175,49 @@ public class FileWAL {
         }
     }
 
-    private Iterator<WALEntry> replay(Predicate<WALEntry> predicate) throws IOException {
-        ObjectInputStream in = new ObjectInputStream(new FileInputStream(mainWAL));
+    private List<WALEntry> replay(Predicate<WALEntry> predicate) throws IOException {
+        if (walContent == null) {
+            throw new IllegalStateException("WalContent has not been loaded, cannot replay");
+        }
+        return walContent.stream().filter(predicate).collect(Collectors.toList());
+    }
+
+    /**
+     * Debug & testing only
+     * @throws IOException
+     */
+    protected void forceReload() throws IOException {
+        walContent = loadWAL();
+    }
+
+    /**
+     * Debug & testing only
+     * @return
+     * @throws IOException
+     */
+    protected List<WALEntry> loadWAL() throws IOException {
+        ObjectInputStream in = null;
+        List<WALEntry> entries = new ArrayList<>();
 
         try {
-            List<WALEntry> entries = new ArrayList<>();
+            in = new ObjectInputStream(new FileInputStream(mainWAL));
+
             while (true) {
-                try {
-                    WALEntry e = (WALEntry) in.readObject();
-                    if (e.vote == Vote.COMMIT
-                            && e.updates != null && predicate.test(e)) {
-                        entries.add(e);
-                    }
-                } catch (EOFException eof) {
-                    break;
+                WALEntry e = (WALEntry) in.readObject();
+                if (e.vote == Vote.COMMIT && e.updates != null) {
+                    entries.add(e);
                 }
             }
-
-            return entries.iterator();
         } catch (ClassNotFoundException ex) {
             throw new RuntimeException("Cannot recover from WALService: " + ex.getMessage());
+        } catch (EOFException eof) {
+            // does nothing
         } finally {
-            in.close();
+            if (in != null) {
+                in.close();
+            }
         }
+
+        return entries;
     }
 }
