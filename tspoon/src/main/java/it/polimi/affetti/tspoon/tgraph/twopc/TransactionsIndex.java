@@ -29,7 +29,7 @@ public abstract class TransactionsIndex<T> implements Serializable {
     public TransactionsIndex(long startingTid, TimestampGenerator timestampGenerator) {
         this.tid = startingTid;
         this.timestampGenerator = timestampGenerator;
-        this.watermark = timestampGenerator.toLogical(startingTid);
+        this.watermark = timestampGenerator.toLogical(timestampGenerator.getTimestamp());
     }
 
     public long getCurrentTid() {

@@ -51,14 +51,14 @@ public class FileWAL {
         slaveWAL.createNewFile();
         tmpWAL.createNewFile();
 
-        this.loadWALTime = forceReload();
-
         // if overwrite, then do not append
         mainOut = new NoHeaderObjectOutputStream(new FileOutputStream(mainWAL, !overwrite));
         // TODO should check if there was a failure while swapping files...
         // TODO for simplicity, we assume it is an atomic operation
         slaveOut = new NoHeaderObjectOutputStream(new FileOutputStream(slaveWAL, false));
         tmpOut = new NoHeaderObjectOutputStream(new FileOutputStream(tmpWAL, false));
+
+        this.loadWALTime = forceReload();
     }
 
     public void close() throws IOException {

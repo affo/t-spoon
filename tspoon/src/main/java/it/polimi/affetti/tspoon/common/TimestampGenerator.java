@@ -21,6 +21,10 @@ public class TimestampGenerator {
         Preconditions.checkArgument(startTs % unit == sourceNumber);
     }
 
+    public long getTimestamp() {
+        return startTs;
+    }
+
     public long nextTimestamp() {
         startTs += unit;
         return startTs;
