@@ -50,7 +50,7 @@ public class TransferSource extends ControlledSource<Transfer>
         // discard the first `offset` elements
         while (count < offset) {
             Transfer.generateTransfer(
-                    new TransferID(0, (long) count), noAccounts, startAmount);
+                    new TransferID(taskId, (long) count), noAccounts, startAmount);
             count++;
         }
     }
@@ -66,7 +66,7 @@ public class TransferSource extends ControlledSource<Transfer>
                 transfer = elements.get(count);
             } else {
                 transfer = Transfer.generateTransfer(
-                        new TransferID(0, (long) count), noAccounts, startAmount);
+                        new TransferID(taskId, (long) count), noAccounts, startAmount);
             }
 
             synchronized (lock) {
