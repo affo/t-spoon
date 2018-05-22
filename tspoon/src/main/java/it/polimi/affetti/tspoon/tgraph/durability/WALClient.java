@@ -34,7 +34,7 @@ public class WALClient implements WALService {
 
     @Override
     public void open() throws IOException {
-        NetUtils.fillWALClients(taskManagers, localWALServers, ObjectClient::new);
+        NetUtils.fillWALClients(taskManagers, localWALServers);
     }
 
     @Override

@@ -3,6 +3,7 @@ package it.polimi.affetti.tspoon.runtime;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
+import java.net.Socket;
 
 /**
  * Created by affo on 02/08/17.
@@ -12,8 +13,14 @@ public class ObjectClient extends AbstractClient {
     private ObjectOutputStream out;
     private int noMessagesSent = 0;
 
-    public ObjectClient(String addr, int port) {
-        super(addr, port);
+    public ObjectClient(String address, int port) {
+        super(address, port);
+    }
+
+    public ObjectClient(Socket socket, ObjectInputStream in, ObjectOutputStream out) {
+        super(socket, in, out);
+        this.in = in;
+        this.out = out;
     }
 
     @Override

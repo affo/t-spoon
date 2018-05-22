@@ -1,5 +1,6 @@
 package it.polimi.affetti.tspoon.runtime;
 
+import it.polimi.affetti.tspoon.common.Address;
 import it.polimi.affetti.tspoon.evaluation.EvalConfig;
 import it.polimi.affetti.tspoon.tgraph.durability.ProxyWALServer;
 import org.apache.flink.api.java.utils.ParameterTool;
@@ -10,7 +11,6 @@ import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.function.BiFunction;
 import java.util.function.Supplier;
 
 /**
@@ -93,8 +93,18 @@ public class NetUtils {
                 new ProxyWALServer(numberOfOpens, taskManagerIPs));
     }
 
-    public static <T extends ObjectClient> void fillWALClients(
-            String[] taskManagers, T[] clients, BiFunction<String, Integer, T> clientSupplier) throws IOException {
+    public static Address getProxyWALServerAddress(ParameterTool parameters) throws IllegalArgumentException {
+        if (parameters != null && parameters.has("WALServerIP")) {
+            String ip = parameters.get("WALServerIP");
+            int port = parameters.getInt("WALServerPort");
+            return Address.of(ip, port);
+        } else {
+            throw new IllegalArgumentException("Cannot get WALClient without address set in configuration");
+        }
+    }
+
+    public static void fillWALClients(
+            String[] taskManagers, ObjectClient[] clients) throws IOException {
         Map<String, Integer> portPerIP = new HashMap<>();
         for (int i = 0; i < clients.length; i++) {
             String tmAddress = taskManagers[i];
@@ -108,7 +118,7 @@ public class NetUtils {
             }
             portPerIP.put(tmAddress, port);
 
-            clients[i] = clientSupplier.apply(taskManagers[i], port);
+            clients[i] = new ObjectClient(taskManagers[i], port);
 
             int tries = 1000;
             boolean trying = true;

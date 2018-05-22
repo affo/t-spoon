@@ -1,5 +1,6 @@
 package it.polimi.affetti.tspoon.tgraph.twopc;
 
+import it.polimi.affetti.tspoon.common.Address;
 import it.polimi.affetti.tspoon.common.TimestampGenerator;
 import it.polimi.affetti.tspoon.runtime.NetUtils;
 import it.polimi.affetti.tspoon.tgraph.IsolationLevel;
@@ -188,10 +189,12 @@ public class TRuntimeContext implements Serializable {
         }
     }
 
-    public LocalWALServer getLocalWALServer(int numberOfWALs) throws IOException {
+    public LocalWALServer getLocalWALServer(int numberOfWALs, ParameterTool parameterTool) throws IOException {
+        Address proxyWALServerAddress = NetUtils.getProxyWALServerAddress(parameterTool);
         synchronized (TRuntimeContext.class) {
             if (localWALServer == null) {
-                localWALServer = NetUtils.getServer(NetUtils.ServerType.WAL, new LocalWALServer(numberOfWALs));
+                localWALServer = NetUtils.getServer(NetUtils.ServerType.WAL,
+                        new LocalWALServer(numberOfWALs, proxyWALServerAddress.ip, proxyWALServerAddress.port));
             }
 
             return localWALServer;

@@ -6,11 +6,10 @@ import it.polimi.affetti.tspoon.tgraph.Vote;
 import java.io.*;
 import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.LinkedList;
 import java.util.List;
-import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.LinkedBlockingQueue;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
@@ -28,7 +27,7 @@ public class FileWAL {
     private File mainWAL, slaveWAL, tmpWAL;
     private ObjectOutputStream mainOut, slaveOut, tmpOut;
     private boolean compactionRunning = false;
-    private BlockingQueue<WALEntry> pendingEntries = new LinkedBlockingQueue<>();
+    private List<WALEntry> pendingEntries = new LinkedList<>();
     private List<WALEntry> walContent;
     private long loadWALTime;
 
@@ -79,11 +78,6 @@ public class FileWAL {
         return loadWALTime;
     }
 
-    private void resetTemporaryWALs() throws IOException {
-        slaveOut = new ObjectOutputStream(new FileOutputStream(slaveWAL, false));
-        tmpOut = new ObjectOutputStream(new FileOutputStream(tmpWAL, false));
-    }
-
     public synchronized void compact(long timestamp) throws IOException {
         compactionRunning = true;
         pool.submit(() -> {
@@ -120,8 +114,10 @@ public class FileWAL {
         // NOTE:
         // tmp now points to main, if we want to still write to main,
         // we should use tmp stream
+        mainOut.close();
         mainOut = tmpOut;
-        resetTemporaryWALs();
+        slaveOut = new ObjectOutputStream(new FileOutputStream(slaveWAL, false));
+        tmpOut = new ObjectOutputStream(new FileOutputStream(tmpWAL, false));
 
         compactionRunning = false;
         notifyAll();

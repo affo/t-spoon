@@ -2,9 +2,7 @@ package it.polimi.affetti.tspoon.runtime;
 
 import org.apache.log4j.Logger;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
+import java.io.*;
 import java.net.Socket;
 
 /**
@@ -21,13 +19,40 @@ public abstract class AbstractClient {
     protected InputStream in;
     protected OutputStream out;
 
+    /**
+     * Connects to a server
+     * @param address
+     * @param port
+     */
     public AbstractClient(String address, int port) {
         this.address = address;
         this.port = port;
     }
 
-    public void init() throws IOException {
-        if (s != null) {
+    /**
+     * Reuses an already generated connection
+     * @param socket
+     * @param in
+     * @param out
+     */
+    public AbstractClient(Socket socket, InputStream in, OutputStream out) {
+        this.s = socket;
+        this.in = in;
+        this.out = out;
+        this.address = socket.getInetAddress().getHostAddress();
+        this.port = socket.getPort();
+    }
+
+    /**
+     * If the client has been created to reuse a previous connection,
+     * this will throw an IllegalStateException
+     *
+     * @throws IOException
+     * @throws IllegalStateException if inited more than once or if built
+     * to reuse a connection
+     */
+    public void init() throws IOException, IllegalStateException {
+        if (s != null || in != null || out != null) {
             throw new IllegalStateException("Cannot init more than once");
         }
 

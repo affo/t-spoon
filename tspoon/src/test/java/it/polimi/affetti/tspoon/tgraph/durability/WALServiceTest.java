@@ -27,11 +27,13 @@ public class WALServiceTest {
 
     @Before
     public void before() throws IOException, InterruptedException {
+        server = NetUtils.launchWALServer(ParameterTool.fromMap(new HashMap<>()), 2, ips);
+
         localWALServers = new LocalWALServer[ips.length];
 
         for (int i = 0; i < localWALServers.length; i++) {
             localWALServers[i] = NetUtils.getServer(NetUtils.ServerType.WAL,
-                    new LocalWALServer(2));
+                    new LocalWALServer(2, server.getIP(), server.getPort()));
         }
 
         // every local server manages 2 FileWALs
@@ -42,10 +44,8 @@ public class WALServiceTest {
             localWALServers[i % localWALServers.length].addWAL(wals[i]);
         }
 
-        server = NetUtils.launchWALServer(ParameterTool.fromMap(new HashMap<>()), 2, ips);
-
         client = WALClient.get(ips);
-        server.waitForOpenCompletion();
+        server.waitForJoinCompletion();
     }
 
     @After

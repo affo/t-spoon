@@ -1,10 +1,8 @@
 package it.polimi.affetti.tspoon.tgraph.durability;
 
-import it.polimi.affetti.tspoon.runtime.AbstractServer;
-import it.polimi.affetti.tspoon.runtime.ClientHandler;
-import it.polimi.affetti.tspoon.runtime.LoopingClientHandler;
-import it.polimi.affetti.tspoon.runtime.ObjectClientHandler;
+import it.polimi.affetti.tspoon.runtime.*;
 
+import java.io.EOFException;
 import java.io.IOException;
 import java.net.Socket;
 import java.util.Iterator;
@@ -20,12 +18,30 @@ import java.util.function.Function;
  */
 public class LocalWALServer extends AbstractServer {
     private final FileWAL[] wals;
+    private final ObjectClient toProxyWAL;
     private int index = 0;
     private boolean snapshotInProgress = false;
     private long inProgressWatermark = -1;
+    private Thread snapshotter;
 
-    public LocalWALServer(int numberOfWALs) {
-        wals = new FileWAL[numberOfWALs];
+    public LocalWALServer(int numberOfWALs, String proxyWALIp, int proxyWALPort) {
+        this.wals = new FileWAL[numberOfWALs];
+        this.toProxyWAL = new ObjectClient(proxyWALIp, proxyWALPort);
+    }
+
+    @Override
+    protected void open() throws IOException {
+        super.open();
+        toProxyWAL.init();
+        snapshotter = new Thread(new SnapshotMessageHandler(toProxyWAL));
+        snapshotter.start();
+    }
+
+    @Override
+    public void close() throws Exception {
+        super.close();
+        snapshotter.interrupt();
+        toProxyWAL.close();
     }
 
     public synchronized void addWAL(FileWAL wal) {
@@ -79,14 +95,6 @@ public class LocalWALServer extends AbstractServer {
 
                 String strRequest = (String) request;
 
-                if (strRequest.startsWith(ProxyWALServer.startSnapshotPattern)) {
-                    long newWM = Long.parseLong(strRequest.split(",")[1]);
-                    startSnapshot(newWM);
-                    send("ACK"); // the begin phase has completed
-                    return;
-                }
-
-
                 Function<FileWAL, Iterator<WALEntry>> iteratorSupplier;
                 if (strRequest.startsWith(ProxyWALServer.replaySourcePattern)) {
                     String[] tokens = strRequest.split(",");
@@ -126,6 +134,45 @@ public class LocalWALServer extends AbstractServer {
                 out.flush();
             }
         });
+    }
+
+    private class SnapshotMessageHandler implements Runnable {
+        private final ObjectClient toWALProxy;
+
+        public SnapshotMessageHandler(ObjectClient toWALProxy) {
+            this.toWALProxy = toWALProxy;
+        }
+
+        @Override
+        public void run() {
+            try {
+                String myIp = LocalWALServer.this.getIP();
+                int myPort = LocalWALServer.this.getPort();
+                toWALProxy.send(String.format(ProxyWALServer.joinFormat, myIp, myPort));
+
+                while (true) {
+                    Object request = toWALProxy.receive();
+
+                    if (request == null) {
+                        throw new IOException("Request is null...");
+                    }
+
+                    String strRequest = (String) request;
+
+                    if (strRequest.startsWith(ProxyWALServer.startSnapshotPattern)) {
+                        long newWM = Long.parseLong(strRequest.split(",")[1]);
+                        startSnapshot(newWM);
+                        toWALProxy.send("ACK"); // the begin phase has completed
+                    }
+                }
+            } catch (EOFException eof) {
+                LOG.error("EOF");
+            } catch (IOException e) {
+                LOG.error("Error while receiving from ProxyWAL: " + e.getMessage());
+            } catch (InterruptedException e) {
+                LOG.error("Interrupted while receiving messages from ProxyWAL");
+            }
+        }
     }
 }
 
