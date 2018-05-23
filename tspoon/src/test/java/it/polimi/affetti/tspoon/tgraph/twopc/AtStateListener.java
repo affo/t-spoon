@@ -39,11 +39,6 @@ public class AtStateListener extends AbstractListener<StateOperatorTransactionCl
     }
 
     @Override
-    public String getUpdatesRepresentation(long timestamp) {
-        return "[updates_for_transaction_" + timestamp;
-    }
-
-    @Override
     public Address getCoordinatorAddressForTransaction(long timestamp) {
         return coordinatorAddress;
     }

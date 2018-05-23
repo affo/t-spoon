@@ -46,7 +46,6 @@ public abstract class StateOperator<T, V>
 
     protected final int tGraphID;
     protected final String nameSpace;
-    //protected final String snapshotShardID;
     public final OutputTag<QueryResult> queryResultTag = new OutputTag<QueryResult>("queryResult") {
     };
     public final OutputTag<TransactionResult> singlePartitionTag = new OutputTag<TransactionResult>("singlePartition") {
@@ -251,11 +250,6 @@ public abstract class StateOperator<T, V>
         LOG.error(errorMessage);
         // errors on closing transactions must not happen
         throw new RuntimeException(new Exception(errorMessage, error));
-    }
-
-    @Override
-    public String getUpdatesRepresentation(long timestamp) {
-        return shard.getTransaction(timestamp).getUpdates().toString();
     }
 
     @Override

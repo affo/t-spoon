@@ -4,7 +4,6 @@ import it.polimi.affetti.tspoon.common.Address;
 import it.polimi.affetti.tspoon.runtime.AbstractServer;
 import it.polimi.affetti.tspoon.runtime.NetUtils;
 import it.polimi.affetti.tspoon.runtime.ProcessRequestServer;
-import it.polimi.affetti.tspoon.tgraph.Vote;
 
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -45,23 +44,12 @@ public abstract class AbstractStateOperatorTransactionCloser
             Iterable<StateOperatorTransactionCloseListener> listeners = getListeners(notification)
                     .filter(l -> l.isInterestedIn(timestamp)).collect(Collectors.toList());
 
-
             Address coordinatorAddress = null;
-            StringBuilder updatesRepresentation = new StringBuilder();
-
             for (StateOperatorTransactionCloseListener listener : listeners) {
                 coordinatorAddress = listener.getCoordinatorAddressForTransaction(timestamp);
-                if (notification.vote == Vote.COMMIT) {
-                    updatesRepresentation.append(listener.getUpdatesRepresentation(timestamp));
-                }
             }
 
-            String repr = updatesRepresentation.toString();
-            if (repr.isEmpty()) {
-                repr = "[]";
-            }
-
-            onClose(coordinatorAddress, request + "," + repr,
+            onClose(coordinatorAddress, request,
                     aVoid -> {
                         for (StateOperatorTransactionCloseListener listener : listeners) {
                             listener.onTransactionClosedSuccess(notification);
