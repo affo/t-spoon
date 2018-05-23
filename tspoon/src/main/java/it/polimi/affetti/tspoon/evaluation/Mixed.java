@@ -89,8 +89,11 @@ public class Mixed {
                 .name("Top10")
                 .slotSharingGroup("default");
 
+        /*
+        // The Delayer distributes the records and avoid bursty input to the tgraph
         topBottom = topBottom.flatMap(new Delayer(fixedSlide.toMilliseconds(), numberOfAreas))
                 .setParallelism(analyticsPar).name("Delayer");
+                */
 
         topBottom.addSink(new MeasureThroughput<>("before-tgraph"))
                 .setParallelism(1).name("MeasureTGraphInputRate");
@@ -395,12 +398,10 @@ public class Mixed {
     }
 
     private static class Delayer extends RichFlatMapFunction<Tuple3<String, String, Boolean>, Tuple3<String, String, Boolean>> {
-        private final long timeDelta;
         private final double timeSlice;
         private transient Timer timer;
 
         public Delayer(long timeDelta, int areas) {
-            this.timeDelta = timeDelta;
             this.timeSlice = ((double) timeDelta) / areas;
         }
 

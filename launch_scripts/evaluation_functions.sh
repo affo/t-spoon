@@ -234,13 +234,33 @@ function launch_suite_scalability {
 }
 
 function launch_suite_mixed {
-    local slide=100
+    # increase size with fixed slide
+    local $slide=100
+    # with tgraph
     launch_mixed 30 $slide false
-    launch_mixed 30 $slide true
     launch_mixed 60 $slide false
-    launch_mixed 60 $slide true
     launch_mixed 90 $slide false
-    launch_mixed 90 $slide true
     launch_mixed 120 $slide false
+    launch_mixed 150 $slide false
+    # without tgraph
+    launch_mixed 30 $slide true
+    launch_mixed 60 $slide true
+    launch_mixed 90 $slide true
     launch_mixed 120 $slide true
+    launch_mixed 150 $slide true
+
+    # decrease slide with fixed size
+    local $size=30
+    # with tgraph
+    launch_mixed $size 100 false
+    launch_mixed $size 80 false
+    launch_mixed $size 60 false
+    launch_mixed $size 40 false
+    launch_mixed $size 20 false
+    # without tgraph
+    launch_mixed $size 100 true
+    launch_mixed $size 80 true
+    launch_mixed $size 60 true
+    launch_mixed $size 40 true
+    launch_mixed $size 20 true
 }
