@@ -41,6 +41,10 @@ public class ObjectClient extends AbstractClient {
         }
     }
 
+    public void flush() throws IOException {
+        out.flush();
+    }
+
     public Object receive() throws IOException {
         try {
             return in.readUnshared();

@@ -86,6 +86,7 @@ public class WALClient implements WALService {
             currentCli = localWALServers[cliIndex];
             try {
                 currentCli.send(request);
+                currentCli.flush();
             } catch (Exception ex) {
                 throw new RuntimeException("Problem while initing ObjectClient: " + ex.getMessage());
             }
