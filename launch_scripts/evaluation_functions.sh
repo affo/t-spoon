@@ -190,7 +190,7 @@ function launch_mixed {
     local wslide=$2
     local analytics=$3
 
-    launch "mixed_$wsize"_"$slide"_"$analytics" $MIXED_CLASS \
+    launch "mixed_$wsize"_"$wslide"_"$analytics" $MIXED_CLASS \
       --windowSizeSeconds $wsize \
       --windowSlideMilliseconds $wslide \
       --analyticsOnly $analytics "${@:4}"
