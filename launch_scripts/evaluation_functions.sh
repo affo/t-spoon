@@ -235,7 +235,7 @@ function launch_suite_scalability {
 
 function launch_suite_mixed {
     # increase size with fixed slide
-    local $slide=100
+    local slide=1000
     # with tgraph
     launch_mixed 30 $slide false
     launch_mixed 60 $slide false
@@ -250,17 +250,17 @@ function launch_suite_mixed {
     launch_mixed 150 $slide true
 
     # decrease slide with fixed size
-    local $size=30
+    local size=30
     # with tgraph
-    launch_mixed $size 100 false
-    launch_mixed $size 80 false
-    launch_mixed $size 60 false
-    launch_mixed $size 40 false
-    launch_mixed $size 20 false
+    launch_mixed $size 1000 false
+    launch_mixed $size 800 false
+    launch_mixed $size 600 false
+    launch_mixed $size 400 false
+    launch_mixed $size 200 false
     # without tgraph
-    launch_mixed $size 100 true
-    launch_mixed $size 80 true
-    launch_mixed $size 60 true
-    launch_mixed $size 40 true
-    launch_mixed $size 20 true
+    launch_mixed $size 1000 true
+    launch_mixed $size 800 true
+    launch_mixed $size 600 true
+    launch_mixed $size 400 true
+    launch_mixed $size 200 true
 }
