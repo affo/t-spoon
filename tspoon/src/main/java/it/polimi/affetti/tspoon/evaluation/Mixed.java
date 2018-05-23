@@ -10,6 +10,7 @@ import it.polimi.affetti.tspoon.tgraph.TransactionEnvironment;
 import it.polimi.affetti.tspoon.tgraph.TransactionResult;
 import it.polimi.affetti.tspoon.tgraph.db.ObjectHandler;
 import it.polimi.affetti.tspoon.tgraph.state.StateFunction;
+import org.apache.flink.api.common.accumulators.IntCounter;
 import org.apache.flink.api.common.functions.RichFlatMapFunction;
 import org.apache.flink.api.common.functions.RichMapFunction;
 import org.apache.flink.api.java.functions.KeySelector;
@@ -45,7 +46,7 @@ public class Mixed {
     public static void main(String[] args) throws Exception {
         ParameterTool parameters = ParameterTool.fromArgs(args);
         EvalConfig config = EvalConfig.fromParams(parameters);
-        final int numRecords = parameters.getInt("nRec", 500000);
+        final int runtimeSeconds = parameters.getInt("runtimeSeconds", 180);
         final int windowSizeSeconds = parameters.getInt("windowSizeSeconds");
         final int windowSlideMilliseconds = parameters.getInt("windowSlideMilliseconds");
 
@@ -64,7 +65,7 @@ public class Mixed {
 
         TransactionEnvironment tEnv = TransactionEnvironment.fromConfig(config);
 
-        SingleOutputStreamOperator<Vote> votes = env.addSource(new VotesSource(numRecords, numberOfAreas));
+        SingleOutputStreamOperator<Vote> votes = env.addSource(new VotesSource(runtimeSeconds, numberOfAreas));
         votes = config.addToSourcesSharingGroup(votes, "RandomVotes");
 
         votes.addSink(new MeasureThroughput<>("input"))
@@ -238,14 +239,15 @@ public class Mixed {
     private static class VotesSource extends RichParallelSourceFunction<Vote> {
         private boolean stop = false;
         private transient VoteGenerator generator;
-        private int numberOfRecords;
+        private int runtimeSeconds;
         private int areas;
+        private IntCounter generatedRecords = new IntCounter();
         private transient JobControlClient jobControlClient;
 
         private transient TransientPeriod transientPeriod;
 
-        public VotesSource(int numberOfRecords, int areas) {
-            this.numberOfRecords = numberOfRecords;
+        public VotesSource(int runtimeSeconds, int areas) {
+            this.runtimeSeconds = runtimeSeconds;
             this.areas = areas;
         }
 
@@ -254,16 +256,11 @@ public class Mixed {
             super.open(parameters);
             generator = new VoteGenerator(getRuntimeContext().getIndexOfThisSubtask(), areas);
 
-            int realNumberOfRecords = numberOfRecords / getRuntimeContext().getNumberOfParallelSubtasks();
-            if (getRuntimeContext().getIndexOfThisSubtask() == 0) {
-                realNumberOfRecords += numberOfRecords % getRuntimeContext().getNumberOfParallelSubtasks();
-            }
-            this.numberOfRecords = realNumberOfRecords;
+            getRuntimeContext().addAccumulator("collected-records", generatedRecords);
 
             ParameterTool parameterTool = (ParameterTool)
                     getRuntimeContext().getExecutionConfig().getGlobalJobParameters();
             jobControlClient = JobControlClient.get(parameterTool);
-
 
             transientPeriod = new TransientPeriod();
             transientPeriod.start(parameterTool);
@@ -277,14 +274,26 @@ public class Mixed {
 
         @Override
         public void run(SourceContext<Vote> sourceContext) throws Exception {
-            int count = 0;
-            while (!stop && count < numberOfRecords) {
+            Timer timer = null;
+            while (!stop) {
                 sourceContext.collect(generator.generate());
                 if (transientPeriod.hasFinished()) {
-                    count++;
+                    generatedRecords.add(1);
+                    if (timer == null) {
+                        // start the elapsedTime for the job
+                        timer = new Timer();
+                        timer.schedule(new TimerTask() {
+                            @Override
+                            public void run() {
+                                stop = true;
+                            }
+                        }, runtimeSeconds * 1000);
+                    }
                 }
             }
 
+            timer.cancel();
+            timer.purge();
             jobControlClient.publishFinishMessage();
         }
 
