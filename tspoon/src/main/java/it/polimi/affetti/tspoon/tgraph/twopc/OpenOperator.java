@@ -162,6 +162,9 @@ public class OpenOperator<T>
             maxTimestamp = sourceID;
         }
 
+        LOG.info("SourceID: " + sourceID + " start TID: " + restoredTid);
+        LOG.info("SourceID: " + sourceID + " start TS: " + maxTimestamp);
+
         timestampGenerator = new TimestampGenerator(sourceID, numberOfSources, maxTimestamp);
         transactionsIndex = tRuntimeContext.getTransactionsIndex(restoredTid, timestampGenerator);
 
@@ -192,14 +195,14 @@ public class OpenOperator<T>
     @Override
     public synchronized void processElement(StreamRecord<T> sr) throws Exception {
         T element = sr.getValue();
-        TransactionsIndex<T>.LocalTransactionContext tContext = transactionsIndex.newTransaction(element);
 
+        long nextTid = transactionsIndex.getCurrentTid();
         // if in recovery mode we discard the transaction and update directly
-        // if it was logged on the WALService
-        if (intraEpochTids.remove(tContext.tid)) {
-            transactionsIndex.updateWatermark(tContext.timestamp, Vote.COMMIT);
-            transactionsIndex.deleteTransaction(tContext.tid);
+        // in the case that it was logged on the WALService
+        if (intraEpochTids.remove(nextTid)) {
+            transactionsIndex.skipTid();
         } else {
+            TransactionsIndex<T>.LocalTransactionContext tContext = transactionsIndex.newTransaction(element);
             collect(tContext);
         }
     }
@@ -410,7 +413,5 @@ public class OpenOperator<T>
         for (Long tid : startTid.get()) {
             restoredTid = tid;
         }
-
-        LOG.info("Restored tid: " + restoredTid);
     }
 }

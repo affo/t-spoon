@@ -83,6 +83,13 @@ public abstract class TransactionsIndex<T> implements Serializable {
 
     protected abstract Long getTransactionId(long timestamp);
 
+    /**
+     * Use on recovery
+     */
+    public void skipTid() {
+        tid++;
+    }
+
     public LocalTransactionContext newTransaction(T element) {
         tid++;
         return this.newTransaction(element, tid);
