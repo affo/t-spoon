@@ -6,12 +6,12 @@ import it.polimi.affetti.tspoon.tgraph.Updates;
 import it.polimi.affetti.tspoon.tgraph.backed.Movement;
 import it.polimi.affetti.tspoon.tgraph.backed.Transfer;
 import it.polimi.affetti.tspoon.tgraph.backed.TransferID;
+import it.polimi.affetti.tspoon.tgraph.backed.TransferSource;
 import org.apache.flink.api.common.functions.FlatMapFunction;
 import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.api.java.functions.KeySelector;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.streaming.api.datastream.DataStream;
-import org.apache.flink.streaming.api.datastream.DataStreamSource;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.util.Collector;
@@ -32,21 +32,38 @@ public class BankUseCaseNoT {
     public static void main(String[] args) throws Exception {
         ParameterTool parameters = ParameterTool.fromArgs(args);
         EvalConfig config = EvalConfig.fromParams(parameters);
+        // defaults to max throughput
+        final double inputFrequency = parameters.getDouble("inputRate", -1);
+        final long waitPeriodMicro = Evaluation.getWaitPeriodInMicroseconds(inputFrequency);
+        final int runtimeSeconds = parameters.getInt("runtimeSeconds", 180);
+        final int transientSpan = parameters.getInt("transient", 10);
+        final TransientPeriod transientPeriod = new TransientPeriod(transientSpan);
 
         NetUtils.launchJobControlServer(parameters);
         StreamExecutionEnvironment env = config.getFlinkEnv();
 
-        TunableSource.TunableTransferSource tunableSource =
-                new TunableSource.TunableTransferSource(
-                        config.startInputRate, config.resolution, config.batchSize, RECORD_TRACKING_SERVER_NAME);
-        tunableSource.enableBusyWait();
+        TransferSource transferSource = new TransferSource(
+                Integer.MAX_VALUE, config.keySpaceSize, EvalConfig.startAmount);
+        transferSource.setMicroSleep(waitPeriodMicro);
 
-        DataStreamSource<TransferID> dsSource = env.addSource(tunableSource);
-        SingleOutputStreamOperator<TransferID> tidSource =
-                config.addToSourcesSharingGroup(dsSource, "TunableParallelSource");
-        SingleOutputStreamOperator<Transfer> toTranfers = tidSource
-                .map(new TunableSource.ToTransfers(config.keySpaceSize, EvalConfig.startAmount));
-        DataStream<Transfer> transfers = config.addToSourcesSharingGroup(toTranfers, "ToTransfers");
+        SingleOutputStreamOperator<Transfer> transfers = env.addSource(transferSource);
+        config.addToSourcesSharingGroup(transfers, "TransferSource")
+                .slotSharingGroup(EvalConfig.sourceSharingGroup)
+                .setParallelism(config.sourcePar);
+
+        transfers
+                .map(t -> t.f0)
+                .returns(TransferID.class)
+                .slotSharingGroup("default")
+                .addSink(new LatencyTrackerStart<>(RECORD_TRACKING_SERVER_NAME, transientPeriod))
+                .name("LatencyTrackerStart")
+                .setParallelism(1);
+
+        transfers
+                .slotSharingGroup("default")
+                .addSink(new JobTerminator<>(transientPeriod, runtimeSeconds))
+                .name("JobTerminator")
+                .setParallelism(1);
 
         DataStream<Movement> halves = transfers.flatMap(
                 new FlatMapFunction<Transfer, Movement>() {
@@ -73,12 +90,17 @@ public class BankUseCaseNoT {
                 }).flatMap(new MergeMovements()).name("MergeMovements");
 
         output
+                .addSink(
+                        new ThroughputMeter<>("throughput", transientPeriod))
+                .name("ThroughputMeter")
+                .setParallelism(1);
+
+        output
                 .map(tr -> (TransferID) tr.f2)
                 .returns(TransferID.class)
                 .addSink(
-                        new FinishOnBackPressure<>(0.1, config.batchSize, config.startInputRate,
-                                config.resolution, -1, RECORD_TRACKING_SERVER_NAME))
-                .name("FinishOnBackPressure")
+                        new LatencyTrackerEnd<>(RECORD_TRACKING_SERVER_NAME, "latency"))
+                .name("LatencyTrackerEnd")
                 .setParallelism(1);
 
         env.execute("Pure Flink bank example (no guarantees)");

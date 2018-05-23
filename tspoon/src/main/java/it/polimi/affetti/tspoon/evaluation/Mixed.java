@@ -1,10 +1,9 @@
 package it.polimi.affetti.tspoon.evaluation;
 
-import it.polimi.affetti.tspoon.common.Address;
 import it.polimi.affetti.tspoon.common.ComposedID;
 import it.polimi.affetti.tspoon.metrics.MetricAccumulator;
-import it.polimi.affetti.tspoon.metrics.TimeDelta;
-import it.polimi.affetti.tspoon.runtime.*;
+import it.polimi.affetti.tspoon.runtime.JobControlClient;
+import it.polimi.affetti.tspoon.runtime.NetUtils;
 import it.polimi.affetti.tspoon.tgraph.TStream;
 import it.polimi.affetti.tspoon.tgraph.TransactionEnvironment;
 import it.polimi.affetti.tspoon.tgraph.TransactionResult;
@@ -20,7 +19,6 @@ import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
-import org.apache.flink.streaming.api.functions.sink.RichSinkFunction;
 import org.apache.flink.streaming.api.functions.source.RichParallelSourceFunction;
 import org.apache.flink.streaming.api.functions.windowing.RichWindowFunction;
 import org.apache.flink.streaming.api.functions.windowing.WindowFunction;
@@ -55,6 +53,8 @@ public class Mixed {
         final int anomalyThreshold = parameters.getInt("anomalyThreshold", 10000);
         final int analyticsPar = parameters.getInt("analyticsPar", config.parallelism);
         final int numberOfAreas = parameters.getInt("areas", 100);
+        final int transientSpan = parameters.getInt("transient", 30);
+        final TransientPeriod transientPeriod = new TransientPeriod(transientSpan);
 
         final Time fixedSlide = Time.milliseconds(windowSlideMilliseconds);
         final Time anomalyDetectionWindowSize = Time.seconds(10);
@@ -65,10 +65,11 @@ public class Mixed {
 
         TransactionEnvironment tEnv = TransactionEnvironment.fromConfig(config);
 
-        SingleOutputStreamOperator<Vote> votes = env.addSource(new VotesSource(runtimeSeconds, numberOfAreas));
+        SingleOutputStreamOperator<Vote> votes = env
+                .addSource(new VotesSource(runtimeSeconds, numberOfAreas, transientPeriod));
         votes = config.addToSourcesSharingGroup(votes, "RandomVotes");
 
-        votes.addSink(new MeasureThroughput<>("input"))
+        votes.addSink(new ThroughputMeter<>("input-throughput", transientPeriod))
                 .setParallelism(1).name("MeasureInputRate")
                 .slotSharingGroup("default");
 
@@ -96,7 +97,10 @@ public class Mixed {
                 .setParallelism(analyticsPar).name("Delayer");
                 */
 
-        topBottom.addSink(new MeasureThroughput<>("before-tgraph"))
+        topBottom
+                .addSink(
+                        new ThroughputMeter<>("before-tgraph-throughput",
+                                transientPeriod))
                 .setParallelism(1).name("MeasureTGraphInputRate");
 
         // if only analytics the job is over
@@ -105,7 +109,7 @@ public class Mixed {
                     .slotSharingGroup("default");
 
             // tracker to measure latency and throughput of the tgraph
-            points.addSink(new TrackStart<>(TRACKER_SERVER))
+            points.addSink(new LatencyTrackerStart<>(TRACKER_SERVER, transientPeriod))
                     .setParallelism(1).name("StartTracker");
 
             TStream<Point> opened = tEnv.open(points).opened;
@@ -121,7 +125,7 @@ public class Mixed {
                     .map(tr -> ((Point) tr.f2).id)
                     .name("ToID")
                     .returns(ComposedID.class)
-                    .addSink(new LatencyTracker<>(TRACKER_SERVER))
+                    .addSink(new LatencyTrackerEnd<>(TRACKER_SERVER, "tgraph-latency"))
                     .name("EndTracker").setParallelism(1);
         }
 
@@ -244,11 +248,12 @@ public class Mixed {
         private IntCounter generatedRecords = new IntCounter();
         private transient JobControlClient jobControlClient;
 
-        private transient TransientPeriod transientPeriod;
+        private TransientPeriod transientPeriod;
 
-        public VotesSource(int runtimeSeconds, int areas) {
+        public VotesSource(int runtimeSeconds, int areas, TransientPeriod transientPeriod) {
             this.runtimeSeconds = runtimeSeconds;
             this.areas = areas;
+            this.transientPeriod = transientPeriod;
         }
 
         @Override
@@ -262,8 +267,7 @@ public class Mixed {
                     getRuntimeContext().getExecutionConfig().getGlobalJobParameters();
             jobControlClient = JobControlClient.get(parameterTool);
 
-            transientPeriod = new TransientPeriod();
-            transientPeriod.start(parameterTool);
+            transientPeriod.start();
         }
 
         @Override
@@ -437,161 +441,6 @@ public class Mixed {
                     collector.collect(t);
                 }
             }, delay);
-        }
-    }
-
-    private static class MeasureThroughput<T> extends RichSinkFunction<T> {
-        private int count = 0;
-        private long start = -1;
-        private final String label;
-
-        private transient TransientPeriod transientPeriod;
-        private MetricAccumulator throughput = new MetricAccumulator();
-
-        public MeasureThroughput(String label) {
-            this.label = label;
-        }
-
-        @Override
-        public void open(Configuration parameters) throws Exception {
-            super.open(parameters);
-            getRuntimeContext().addAccumulator(label + "-throughput", throughput);
-
-            transientPeriod = new TransientPeriod();
-            transientPeriod.start((ParameterTool) getRuntimeContext().getExecutionConfig().getGlobalJobParameters());
-        }
-
-        @Override
-        public void invoke(T element) throws Exception {
-            if (!transientPeriod.hasFinished()) {
-                return;
-            }
-
-            count++;
-
-            if (start < 0) {
-                start = System.nanoTime();
-            }
-
-            long end = System.nanoTime();
-            long delta = end - start;
-            if (delta >= 10 * Math.pow(10, 9)) { // every 10 seconds
-                double throughput = count / (delta * Math.pow(10, -9));
-                this.throughput.add(throughput);
-                count = 0;
-                start = end;
-            }
-        }
-    }
-
-    private static class TrackStart<T extends UniquelyRepresentableForTracking> extends RichSinkFunction<T> {
-        private transient StringClient requestTrackerClient;
-        private transient JobControlClient jobControlClient;
-        private String trackingServerNameForDiscovery;
-
-        private transient TransientPeriod transientPeriod;
-
-        private TrackStart(String trackingServerNameForDiscovery) {
-            this.trackingServerNameForDiscovery = trackingServerNameForDiscovery;
-        }
-
-        @Override
-        public void open(Configuration parameters) throws Exception {
-            super.open(parameters);
-            ParameterTool parameterTool = (ParameterTool)
-                    getRuntimeContext().getExecutionConfig().getGlobalJobParameters();
-            jobControlClient = JobControlClient.get(parameterTool);
-
-            Address address = jobControlClient.discoverServer(trackingServerNameForDiscovery);
-            requestTrackerClient = new StringClient(address.ip, address.port);
-            requestTrackerClient.init();
-
-            transientPeriod = new TransientPeriod();
-            transientPeriod.start(parameterTool);
-        }
-
-        @Override
-        public void close() throws Exception {
-            super.close();
-            jobControlClient.close();
-            requestTrackerClient.close();
-        }
-
-        @Override
-        public void invoke(T element) throws Exception {
-            if (transientPeriod.hasFinished()) {
-                requestTrackerClient.send(element.getUniqueRepresentation());
-            }
-        }
-    }
-
-    private static class LatencyTracker<T extends UniquelyRepresentableForTracking> extends RichSinkFunction<T> {
-        private transient WithServer requestTracker;
-        private transient JobControlClient jobControlClient;
-        private final String trackingServerName;
-        private TimeDelta currentLatency;
-        private boolean firstStart = false;
-
-        private LatencyTracker(String trackingServerName) {
-            this.trackingServerName = trackingServerName;
-            this.currentLatency = new TimeDelta();
-        }
-
-        @Override
-        public void open(Configuration parameters) throws Exception {
-            super.open(parameters);
-            ParameterTool parameterTool = (ParameterTool)
-                    getRuntimeContext().getExecutionConfig().getGlobalJobParameters();
-            jobControlClient = JobControlClient.get(parameterTool);
-
-            requestTracker = new WithServer(new ProcessRequestServer() {
-                @Override
-                protected void parseRequest(String recordID) {
-                    start(recordID);
-                }
-            });
-            requestTracker.open();
-            jobControlClient.registerServer(trackingServerName, requestTracker.getMyAddress());
-
-            getRuntimeContext().addAccumulator("tgraph-latency", currentLatency.getNewAccumulator());
-        }
-
-        @Override
-        public void close() throws Exception {
-            super.close();
-            requestTracker.close();
-            jobControlClient.close();
-        }
-
-        @Override
-        public synchronized void invoke(T t) throws Exception {
-            if (firstStart) {
-                currentLatency.end(t.getUniqueRepresentation());
-            }
-        }
-
-        private synchronized void start(String recordID) {
-            currentLatency.start(recordID);
-            firstStart = true;
-        }
-    }
-
-    private static class TransientPeriod {
-        private boolean end = false;
-
-        private void start(ParameterTool parameterTool) {
-            int secondsTransient = parameterTool.getInt("transient", 30);
-            Timer timer = new Timer();
-            timer.schedule(new TimerTask() {
-                @Override
-                public void run() {
-                    end = true;
-                }
-            }, secondsTransient * 1000);
-        }
-
-        public boolean hasFinished() {
-            return end;
         }
     }
 }
