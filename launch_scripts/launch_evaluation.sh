@@ -66,7 +66,7 @@ done
 
 # some experiments run only for 1 isolation level
 
-export IS_OPTIMISTIC=true
+export IS_OPTIMISTIC=false
 export ISOLATION=3
 export RESULTS_DIR=$BASE_RESULTS_DIR/querying
 mkdir -p $RESULTS_DIR
@@ -75,7 +75,7 @@ echo "Launching querying..."
 sleep 2
 launch_suite_query
 
-export IS_OPTIMISTIC=true
+export IS_OPTIMISTIC=false
 export ISOLATION=3
 export RESULTS_DIR=$BASE_RESULTS_DIR/durability
 mkdir -p $RESULTS_DIR
@@ -84,7 +84,7 @@ echo "Launching durability..."
 sleep 2
 launch_durability
 
-export IS_OPTIMISTIC=true
+export IS_OPTIMISTIC=false
 export ISOLATION=3
 export RESULTS_DIR=$BASE_RESULTS_DIR/scalability
 mkdir -p $RESULTS_DIR

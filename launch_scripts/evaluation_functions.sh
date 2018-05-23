@@ -145,7 +145,12 @@ function launch_bank_example {
 }
 
 function launch_bank_example_pure {
-    launch pure_flink $BANK_EXAMPLE_NOT_CLASS "$@"
+    launch pure_flink_tp $BANK_EXAMPLE_NOT_CLASS "$@"
+    sleep 1
+
+    # run for calculating latency
+    launch pure_flink_lat $BANK_EXAMPLE_NOT_CLASS \
+      --inputRate 10000 --runtimeSeconds 90 "$@"
     sleep 1
 }
 
@@ -237,30 +242,30 @@ function launch_suite_mixed {
     # increase size with fixed slide
     local slide=1000
     # with tgraph
-    launch_mixed 30 $slide false
-    launch_mixed 60 $slide false
     launch_mixed 90 $slide false
     launch_mixed 120 $slide false
     launch_mixed 150 $slide false
+    launch_mixed 180 $slide false
+    launch_mixed 210 $slide false
     # without tgraph
-    launch_mixed 30 $slide true
-    launch_mixed 60 $slide true
     launch_mixed 90 $slide true
     launch_mixed 120 $slide true
     launch_mixed 150 $slide true
+    launch_mixed 180 $slide true
+    launch_mixed 210 $slide true
 
     # decrease slide with fixed size
-    local size=30
+    local size=90
     # with tgraph
-    launch_mixed $size 1000 false
     launch_mixed $size 800 false
     launch_mixed $size 600 false
     launch_mixed $size 400 false
     launch_mixed $size 200 false
+    launch_mixed $size 100 false
     # without tgraph
-    launch_mixed $size 1000 true
     launch_mixed $size 800 true
     launch_mixed $size 600 true
     launch_mixed $size 400 true
     launch_mixed $size 200 true
+    launch_mixed $size 100 true
 }
