@@ -96,7 +96,9 @@ public class CloseFunction extends RichFlatMapFunction<Metadata, TransactionResu
         super.close();
         transactionCloser.close();
         snapshotService.close();
-        wal.close();
+        if (wal != null) {
+            wal.close();
+        }
         if (localWALServer != null) {
             localWALServer.close();
         }
