@@ -2,7 +2,9 @@ package it.polimi.affetti.tspoon.runtime;
 
 import org.apache.log4j.Logger;
 
-import java.io.*;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.Socket;
 
 /**

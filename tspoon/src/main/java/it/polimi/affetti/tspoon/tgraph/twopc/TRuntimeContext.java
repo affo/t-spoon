@@ -38,6 +38,7 @@ public class TRuntimeContext implements Serializable {
     private boolean baselineMode;
     private String[] taskManagers;
     private int tGraphId;
+    private int closeBatchSize;
 
     public TRuntimeContext(int tGraphId) {
         this.tGraphId = tGraphId;
@@ -142,6 +143,14 @@ public class TRuntimeContext implements Serializable {
         return taskManagers;
     }
 
+    public int getCloseBatchSize() {
+        return closeBatchSize;
+    }
+
+    public void setCloseBatchSize(int closeBatchSize) {
+        this.closeBatchSize = closeBatchSize;
+    }
+
     // ---------------------- These methods are called upon deserialization
 
     public AbstractOpenOperatorTransactionCloser getSourceTransactionCloser(int taskNumber) {
@@ -228,9 +237,9 @@ public class TRuntimeContext implements Serializable {
     // no singleton
     public AbstractCloseOperatorTransactionCloser getSinkTransactionCloser() {
         if (isSynchronous()) {
-            return new SynchronousSinkTransactionCloser();
+            return new SynchronousSinkTransactionCloser(getCloseBatchSize());
         }
 
-        return new AsynchronousSinkTransactionCloser();
+        return new AsynchronousSinkTransactionCloser(getCloseBatchSize());
     }
 }

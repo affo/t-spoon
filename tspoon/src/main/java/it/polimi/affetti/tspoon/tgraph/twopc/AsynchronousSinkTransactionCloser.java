@@ -8,6 +8,10 @@ import java.util.Collections;
  * Created by affo on 10/11/17.
  */
 public class AsynchronousSinkTransactionCloser extends AbstractCloseOperatorTransactionCloser {
+    public AsynchronousSinkTransactionCloser(int closeBatchSize) {
+        super(closeBatchSize);
+    }
+
     @Override
     public void applyProtocolOnMetadata(Metadata metadata) throws Exception {
         long dependency;

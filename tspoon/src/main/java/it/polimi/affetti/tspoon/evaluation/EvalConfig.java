@@ -41,6 +41,8 @@ public class EvalConfig {
     public String propertiesFile;
     public boolean isLocal;
     public String[] taskManagerIPs;
+    public int closeBatchSize;
+
     private StreamExecutionEnvironment flinkEnv;
 
     public static EvalConfig fromParams(ParameterTool parameters) throws IOException {
@@ -82,6 +84,8 @@ public class EvalConfig {
         config.startInputRate = getStartRateFromProps(config);
         String ipsCsv = parameters.get("taskmanagers", "localhost");
         config.taskManagerIPs = ipsCsv.split(",");
+        config.closeBatchSize = parameters.getInt("closeBatchSize", 0);
+
 
         // debugging stuff
         config.printPlan = parameters.getBoolean("printPlan", false);

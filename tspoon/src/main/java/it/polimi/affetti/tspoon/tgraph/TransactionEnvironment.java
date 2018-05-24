@@ -55,6 +55,7 @@ public class TransactionEnvironment {
     private Map<Integer, DataStream<TransactionResult>> spuResultsPerTGraph = new HashMap<>();
     private String sourcesSharingGroup = "default";
     private int sourcesParallelism;
+    private int closeBatchSize;
 
     private TransactionEnvironment(StreamExecutionEnvironment env) {
         this.streamExecutionEnvironment = env;
@@ -84,6 +85,7 @@ public class TransactionEnvironment {
             instance.setBaselineMode(config.baselineMode);
             instance.setSourcesSharingGroup(EvalConfig.sourceSharingGroup, config.sourcePar);
             instance.setTaskManagers(config.taskManagerIPs);
+            instance.setCloseBatchSize(config.closeBatchSize);
 
             if (config.durable) {
                 instance.enableDurability();
@@ -268,6 +270,7 @@ public class TransactionEnvironment {
         runtimeContext.setQueryServerPoolSize(queryServerPoolSize);
         runtimeContext.setBaselineMode(baselineMode);
         runtimeContext.setTaskManagers(taskManagers);
+        runtimeContext.setCloseBatchSize(closeBatchSize);
         return runtimeContext;
     }
 
@@ -370,6 +373,14 @@ public class TransactionEnvironment {
 
     public String[] getTaskManagers() {
         return taskManagers;
+    }
+
+    public void setCloseBatchSize(int closeBatchSize) {
+        this.closeBatchSize = closeBatchSize;
+    }
+
+    public int getCloseBatchSize() {
+        return closeBatchSize;
     }
 
     private static class LastStepAdder implements MapFunction<Metadata, Metadata> {
