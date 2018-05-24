@@ -63,6 +63,17 @@ public class Mixed {
         NetUtils.launchJobControlServer(parameters);
         StreamExecutionEnvironment env = config.getFlinkEnv();
 
+        // about parallelism
+        int tgPar = analyticsPar;
+        String analyticGroup = "default";
+
+        if (analyticsPar < config.parallelism) {
+            //separate into 2 slotSharing groups
+            analyticGroup = "analytic";
+            tgPar = config.parallelism - analyticsPar;
+            env.setParallelism(tgPar);
+        }
+
         TransactionEnvironment tEnv = TransactionEnvironment.fromConfig(config);
 
         SingleOutputStreamOperator<Vote> votes = env
@@ -80,16 +91,16 @@ public class Mixed {
                     .apply(new AnomalyDetection(anomalyThreshold))
                     .name("AnomalyDetection - " + anomalyThreshold)
                     .setParallelism(analyticsPar)
-                    .slotSharingGroup("default");
+                    .slotSharingGroup(analyticGroup);
         }
 
         DataStream<Tuple3<String, String, Boolean>> topBottom = votes
                 .keyBy(v -> v.geographicArea)
                 .timeWindow(topKWindowSize, fixedSlide)
                 .apply(new TopK(10))
-                .setParallelism(analyticsPar)
                 .name("Top10")
-                .slotSharingGroup("default");
+                .setParallelism(analyticsPar)
+                .slotSharingGroup(analyticGroup);
 
         /*
         // The Delayer distributes the records and avoid bursty input to the tgraph
@@ -116,7 +127,7 @@ public class Mixed {
 
             KeySelector<Point, String> ks = p -> p.assignee; // key by participant
             TStream<Point> afterState = opened
-                    .state("votes", ks, new VotesState(), config.partitioning)
+                    .state("votes", ks, new VotesState(), tgPar)
                     .leftUnchanged;
 
             DataStream<TransactionResult> results = tEnv.close(afterState);
