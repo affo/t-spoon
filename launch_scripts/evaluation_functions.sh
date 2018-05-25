@@ -239,31 +239,27 @@ function launch_suite_scalability {
 }
 
 function launch_suite_mixed {
+    if [[ "$#" -lt 1 ]]; then
+        echo "Input: <base_window_slide_milliseconds> <params...>"
+        return 1
+    fi
+
     # increase size with fixed slide
-    local slide=2000
-    # with tgraph
-    launch_mixed 90 $slide false "$@"
-    launch_mixed 120 $slide false "$@"
-    launch_mixed 150 $slide false "$@"
-    launch_mixed 180 $slide false "$@"
-    launch_mixed 210 $slide false "$@"
-    # without tgraph
-    launch_mixed 90 $slide true "$@"
-    launch_mixed 120 $slide true "$@"
-    launch_mixed 150 $slide true "$@"
-    launch_mixed 180 $slide true "$@"
-    launch_mixed 210 $slide true "$@"
+    local slide=$1
+    for analytics in false true; do
+      launch_mixed 90 $slide $analytics "${@:2}"
+      launch_mixed 120 $slide $analytics "${@:2}"
+      launch_mixed 150 $slide $analytics "${@:2}"
+      launch_mixed 180 $slide $analytics "${@:2}"
+      launch_mixed 210 $slide $analytics "${@:2}"
+    done
 
     # decrease slide with fixed size
     local size=90
-    # with tgraph
-    launch_mixed $size 1500 false "$@"
-    launch_mixed $size 1000 false "$@"
-    launch_mixed $size 500 false "$@"
-    launch_mixed $size 200 false "$@"
-    # without tgraph
-    launch_mixed $size 1500 true "$@"
-    launch_mixed $size 1000 true "$@"
-    launch_mixed $size 500 true "$@"
-    launch_mixed $size 200 true "$@"
+    for analytics in false true; do
+      launch_mixed $size $(($slide - 500)) $analytics "${@:2}"
+      launch_mixed $size $(($slide - 1000)) $analytics "${@:2}"
+      launch_mixed $size $(($slide - 1500)) $analytics "${@:2}"
+      launch_mixed $size $(($slide - 2000)) $analytics "${@:2}"
+    done
 }
