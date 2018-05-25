@@ -33,7 +33,8 @@ import java.util.*;
  * It's important to tune the slide in order to make the computation for the tgraph less heavy
  * than the analytical part.
  * Every closed window outputs ~20 records (10 top + 10 bottom). If the slide is 1ms, you will get a
- * tgraph input-rate of around 2000r/s and, probably, the source will be back-pressured because the
+ * tgraph input-rate of around 2000r/s (* number of windows closed = number of areas)
+ * and, probably, the source will be back-pressured because the
  * topK window can't cope with the slide (it needs maybe 3 ms to get processed, which is 3 times the slide).
  * You need a slide wide enough to allow the source to go faster than the window throughput.
  */
@@ -49,6 +50,7 @@ public class Mixed {
         final int windowSlideMilliseconds = parameters.getInt("windowSlideMilliseconds");
 
         final boolean analyticsOnly = parameters.getBoolean("analyticsOnly", false);
+        final boolean enableDelayer = parameters.getBoolean("enableDelayer", false);
         final boolean enableAnomalyDetector = parameters.getBoolean("enableAnomaly", false);
         final int anomalyThreshold = parameters.getInt("anomalyThreshold", 10000);
         final int analyticsPar = parameters.getInt("analyticsPar", config.parallelism);
@@ -102,11 +104,13 @@ public class Mixed {
                 .setParallelism(analyticsPar)
                 .slotSharingGroup(analyticGroup);
 
-        /*
-        // The Delayer distributes the records and avoid bursty input to the tgraph
-        topBottom = topBottom.flatMap(new Delayer(fixedSlide.toMilliseconds(), numberOfAreas))
-                .setParallelism(analyticsPar).name("Delayer");
-                */
+        if (enableDelayer) {
+            // The Delayer distributes the records and avoid bursty input to the tgraph
+            topBottom = topBottom.flatMap(new Delayer(fixedSlide.toMilliseconds(), numberOfAreas))
+                    .setParallelism(analyticsPar)
+                    .slotSharingGroup(analyticGroup)
+                    .name("Delayer");
+        }
 
         topBottom
                 .addSink(

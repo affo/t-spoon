@@ -240,31 +240,30 @@ function launch_suite_scalability {
 
 function launch_suite_mixed {
     # increase size with fixed slide
-    ((an_par=($TOTAL_SLOTS - $SOURCE_SLOTS) / 2))
     local slide=2000
     # with tgraph
-    launch_mixed 90 $slide false --analyticsPar $an_par
-    launch_mixed 120 $slide false --analyticsPar $an_par
-    launch_mixed 150 $slide false --analyticsPar $an_par
-    launch_mixed 180 $slide false --analyticsPar $an_par
-    launch_mixed 210 $slide false --analyticsPar $an_par
+    launch_mixed 90 $slide false "$@"
+    launch_mixed 120 $slide false "$@"
+    launch_mixed 150 $slide false "$@"
+    launch_mixed 180 $slide false "$@"
+    launch_mixed 210 $slide false "$@"
     # without tgraph
-    launch_mixed 90 $slide true --analyticsPar $an_par
-    launch_mixed 120 $slide true --analyticsPar $an_par
-    launch_mixed 150 $slide true --analyticsPar $an_par
-    launch_mixed 180 $slide true --analyticsPar $an_par
-    launch_mixed 210 $slide true --analyticsPar $an_par
+    launch_mixed 90 $slide true "$@"
+    launch_mixed 120 $slide true "$@"
+    launch_mixed 150 $slide true "$@"
+    launch_mixed 180 $slide true "$@"
+    launch_mixed 210 $slide true "$@"
 
     # decrease slide with fixed size
     local size=90
     # with tgraph
-    launch_mixed $size 1500 false --analyticsPar $an_par
-    launch_mixed $size 1000 false --analyticsPar $an_par
-    launch_mixed $size 500 false --analyticsPar $an_par
-    launch_mixed $size 200 false --analyticsPar $an_par
+    launch_mixed $size 1500 false "$@"
+    launch_mixed $size 1000 false "$@"
+    launch_mixed $size 500 false "$@"
+    launch_mixed $size 200 false "$@"
     # without tgraph
-    launch_mixed $size 1500 true --analyticsPar $an_par
-    launch_mixed $size 1000 true --analyticsPar $an_par
-    launch_mixed $size 500 true --analyticsPar $an_par
-    launch_mixed $size 200 true --analyticsPar $an_par
+    launch_mixed $size 1500 true "$@"
+    launch_mixed $size 1000 true "$@"
+    launch_mixed $size 500 true "$@"
+    launch_mixed $size 200 true "$@"
 }
