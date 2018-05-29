@@ -160,7 +160,14 @@ function launch_flink_wordcount {
 }
 
 function launch_recovery {
-    launch recovery $RECOVERY_CLASS "${@:1}"
+    if [[ "$#" -lt 1 ]]; then
+        echo "Input: <csv_list_of_ips_in_cluster> <params...>"
+        return 1
+    fi
+
+    local csv_ips=$1
+
+    launch recovery $RECOVERY_CLASS --taskmanagers $csv_ips "${@:2}"
     sleep 1
 }
 
