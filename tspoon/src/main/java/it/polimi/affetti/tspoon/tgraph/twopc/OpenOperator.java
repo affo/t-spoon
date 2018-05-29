@@ -135,7 +135,6 @@ public class OpenOperator<T>
         WALService wal = tRuntimeContext.getWALClient();
         snapshotService = tRuntimeContext.getSnapshotService(parameterTool);
 
-
         if (tRuntimeContext.isDurabilityEnabled()) {
             getRuntimeContext().addAccumulator("recovery-time", recoveryTime);
             getRuntimeContext().addAccumulator("number-of-wal-entries-replayed", numberOfWalEntriesReplayed);
@@ -265,6 +264,13 @@ public class OpenOperator<T>
 
     @Override
     public synchronized void onCloseTransaction(CloseTransactionNotification notification) {
+        if (transactionsIndex == null) {
+            // during the recovery phase, it could be that some other open operator has started
+            // before this one has finished with `open`, and so a notification can come even when
+            // the transactionIndex has not yet been obtained!
+            return;
+        }
+
         TransactionsIndex<T>.LocalTransactionContext localTransactionContext = transactionsIndex
                 .getTransactionByTimestamp(notification.timestamp);
 
