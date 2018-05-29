@@ -107,14 +107,14 @@ public class EvalConfig {
             if (config.propertiesFile != null) {
                 ParameterTool fromProps = ParameterTool.fromPropertiesFile(config.propertiesFile);
 
-                // try to use only the label first
-                startInputRate = fromProps.getInt(config.label, -1);
+                // try to use the composite key first
+                String strStrategy = config.strategy == Strategy.OPTIMISTIC ? "TB" : "LB"; // timestamp-based or lock-based
+                String key = String.format("%s.%s.%s", config.label, strStrategy, config.isolationLevel.toString());
+                startInputRate = fromProps.getInt(key, -1);
 
-                // use the composite key otherwise
+                // use only the label otherwise
                 if (startInputRate < 0) {
-                    String strStrategy = config.strategy == Strategy.OPTIMISTIC ? "TB" : "LB"; // timestamp-based or lock-based
-                    String key = String.format("%s.%s.%s", config.label, strStrategy, config.isolationLevel.toString());
-                    startInputRate = fromProps.getInt(key, -1);
+                    startInputRate = fromProps.getInt(config.label, -1);
                 }
             }
 
