@@ -9,6 +9,8 @@ import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 
 import java.io.IOException;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * Created by affo on 02/05/18.
@@ -116,10 +118,22 @@ public class EvalConfig {
                 if (startInputRate < 0) {
                     startInputRate = fromProps.getInt(config.label, -1);
                 }
+
+                // fallback to a property that is like the label
+                if (startInputRate < 0 && config.label != null) {
+                    Set<Map.Entry<Object, Object>> entries = fromProps.getProperties().entrySet();
+                    for (Map.Entry<Object, Object> entry : entries) {
+                        String k = (String) entry.getKey();
+                        if (config.label.startsWith(k)) {
+                            startInputRate = Integer.parseInt((String) entry.getValue());
+                            break;
+                        }
+                    }
+                }
             }
 
             if (startInputRate < 0) {
-                startInputRate = 1000; // set to default
+                startInputRate = 100; // set to default
             }
         }
 
