@@ -16,7 +16,10 @@ import java.util.function.Function;
  *
  * Only one per machine
  */
-public class LocalWALServer extends AbstractServer {
+public class LocalWALServer extends AbstractServer{
+    // for multiple servers on the same machine (mainly for testing)
+    private static int id = 0;
+    private final int localWALServerID;
     private final FileWAL[] wals;
     private final ObjectClient toProxyWAL;
     private int index = 0;
@@ -27,6 +30,8 @@ public class LocalWALServer extends AbstractServer {
     public LocalWALServer(int numberOfWALs, String proxyWALIp, int proxyWALPort) {
         this.wals = new FileWAL[numberOfWALs];
         this.toProxyWAL = new ObjectClient(proxyWALIp, proxyWALPort);
+        this.localWALServerID = id;
+        id++;
     }
 
     @Override
@@ -47,6 +52,15 @@ public class LocalWALServer extends AbstractServer {
     public synchronized void addWAL(FileWAL wal) {
         wals[index++] = wal;
         notifyAll();
+    }
+
+    public synchronized FileWAL addAndCreateWAL(int tGraphID, boolean overwrite) throws IOException {
+        String walName = String.format("lws%d_tg%d_%d", localWALServerID, tGraphID, index);
+        FileWAL wal = new FileWAL(walName, overwrite);
+        wal.open();
+        wals[index++] = wal;
+        notifyAll();
+        return wal;
     }
 
     private synchronized void waitForWALs() throws InterruptedException {

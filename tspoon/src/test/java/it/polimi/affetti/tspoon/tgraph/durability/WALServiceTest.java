@@ -39,9 +39,7 @@ public class WALServiceTest {
         // every local server manages 2 FileWALs
         wals = new FileWAL[numberOfClose];
         for (int i = 0; i < wals.length; i++) {
-            wals[i] = new FileWAL("testwal" + i, true);
-            wals[i].open();
-            localWALServers[i % localWALServers.length].addWAL(wals[i]);
+            wals[i] = localWALServers[i % localWALServers.length].addAndCreateWAL(0, true);
         }
 
         client = WALClient.get(ips);
