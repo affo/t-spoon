@@ -135,6 +135,15 @@ public class EvalConfig {
             if (startInputRate < 0) {
                 startInputRate = 100; // set to default
             }
+
+            // cover limit cases in which resolution is bigger then input rate
+            if (startInputRate <= config.resolution) {
+                config.resolution = startInputRate / 2;
+                if (config.resolution == 0) {
+                    throw new IllegalArgumentException("Cannot set proper resolution given startInputRate: "
+                            + startInputRate + ", " + config.resolution);
+                }
+            }
         }
 
         return startInputRate;
