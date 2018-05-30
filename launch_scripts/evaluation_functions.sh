@@ -238,11 +238,11 @@ function launch_suite_query {
 }
 
 function launch_suite_scalability {
-    launch_scalability 8 --sourcePar 4 # the real parallelism is 8 - 4
-    launch_scalability 12 --sourcePar 4
-    launch_scalability 20 --sourcePar 4
-    launch_scalability 36 --sourcePar 4
-    launch_scalability 50 --sourcePar 4
+    launch_scalability $TOTAL_SLOTS --sourcePar 4 # the real parallelism is 8 - 4
+    launch_scalability $(($TOTAL_SLOTS / 2)) --sourcePar 4
+    launch_scalability $(($TOTAL_SLOTS / 2 - 4)) --sourcePar 4
+    launch_scalability $(($TOTAL_SLOTS / 2 - 8)) --sourcePar 4
+    launch_scalability $(($TOTAL_SLOTS / 2 - 12)) --sourcePar 4
 }
 
 function launch_suite_mixed {
