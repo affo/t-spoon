@@ -63,8 +63,9 @@ public class Evaluation {
         // in case of parallel tgraphs, split the original stream for load balancing
         SplitStream<Transfer> splitTransfers = null;
         if (!config.seriesOrParallel) {
+            final int noTGraphs = config.noTGraphs;
             splitTransfers = transfers.split(
-                    t -> Collections.singletonList(String.valueOf(t.f0.f1 % config.noTGraphs)));
+                    t -> Collections.singletonList(String.valueOf(t.f0.f1 % noTGraphs)));
         }
 
         // ---------------------------- Composing
