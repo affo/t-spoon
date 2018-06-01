@@ -6,65 +6,83 @@ if [[ "$#" -lt 1 ]]; then
     exit 1
 fi
 
-export RESULTS_DIR=$RESULTS_DIR/$1
+exp_label="$1"
+
+function launch_topologies {
+  BASE_RESULTS_DIR=$1
+
+  opt_isolation=(2 3 4)
+  pess_isolation=(3 4)
+
+  for opt in true false; do
+      export IS_OPTIMISTIC=$opt
+
+      isolation=()
+      strategy_name=""
+      if [[ $opt = true ]]; then
+          isolation=${opt_isolation[*]}
+          strategy_name=OPT
+      else
+          isolation=${pess_isolation[*]}
+          strategy_name=PESS
+      fi
+
+      for level in $isolation; do
+
+          export ISOLATION=$level
+          export RESULTS_DIR=$BASE_RESULTS_DIR/$strategy_name/PL$level
+          mkdir -p $RESULTS_DIR
+
+          echo; echo ">>> Strategy: $strategy_name, Isolation level: $ISOLATION"
+          echo ">>> Saving results to $RESULTS_DIR"
+
+          echo; echo; echo;
+          echo "Launching series..."
+          sleep 2
+          launch_suite_series_1tg
+
+          echo; echo; echo;
+          echo "Launching series (separated TG)..."
+          sleep 2
+          launch_suite_series_ntg
+
+          echo; echo; echo;
+          echo "Launching parallel"
+          sleep 2
+          launch_suite_parallel_1tg
+
+          echo; echo; echo;
+          echo "Launching parallel (separated TG)..."
+          sleep 2
+          launch_suite_parallel_ntg
+
+          echo; echo; echo;
+          echo "Launching keyspace..."
+          sleep 2
+          launch_suite_keyspace
+      done
+  done
+}
+
+export RESULTS_DIR=$RESULTS_DIR/$exp_label
 BASE_RESULTS_DIR=$RESULTS_DIR
 
 rm -r $RESULTS_DIR
 mkdir -p $RESULTS_DIR
 
-opt_isolation=(2 3 4)
-pess_isolation=(3 4)
+# launch normal experiments
+launch_topologies $BASE_RESULTS_DIR
+# launch latencies
 
-for opt in true false; do
-    export IS_OPTIMISTIC=$opt
-
-    isolation=()
-    strategy_name=""
-    if [[ $opt = true ]]; then
-        isolation=${opt_isolation[*]}
-        strategy_name=OPT
-    else
-        isolation=${pess_isolation[*]}
-        strategy_name=PESS
-    fi
-
-    for level in $isolation; do
-
-        export ISOLATION=$level
-        export RESULTS_DIR=$BASE_RESULTS_DIR/$strategy_name/PL$level
-        mkdir -p $RESULTS_DIR
-
-        echo; echo ">>> Strategy: $strategy_name, Isolation level: $ISOLATION"
-        echo ">>> Saving results to $RESULTS_DIR"
-
-        echo; echo; echo;
-        echo "Launching series..."
-        sleep 2
-        launch_suite_series_1tg
-
-        echo; echo; echo;
-        echo "Launching series (separated TG)..."
-        sleep 2
-        launch_suite_series_ntg
-
-        echo; echo; echo;
-        echo "Launching parallel"
-        sleep 2
-        launch_suite_parallel_1tg
-
-        echo; echo; echo;
-        echo "Launching parallel (separated TG)..."
-        sleep 2
-        launch_suite_parallel_ntg
-
-        echo; echo; echo;
-        echo "Launching keyspace..."
-        sleep 2
-        launch_suite_keyspace
-    done
-done
+echo;
+echo "Launching latency experiments"
+echo;
+sleep 2
+export DEFAULT="$DEFAULT --numberOfBatches 1 --startInputRate 50 --batchSize 50000"
+launch_topologies "$BASE_RESULTS_DIR/latencies"
 
 # some experiments run only for 1 isolation level
+# we'll see later what to do with latencies...
 
 export IS_OPTIMISTIC=false
 export ISOLATION=3
