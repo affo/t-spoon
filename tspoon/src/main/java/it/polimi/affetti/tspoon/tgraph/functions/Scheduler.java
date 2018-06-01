@@ -28,11 +28,11 @@ public class Scheduler<T> extends RichFlatMapFunction<Enriched<T>, Enriched<T>> 
 
     @Override
     public void flatMap(Enriched<T> enriched, Collector<Enriched<T>> collector) throws Exception {
-        long timestamp = enriched.metadata.timestamp;
+        long newTid = enriched.metadata.tid;
         BatchID batchID = enriched.metadata.batchID;
 
-        cachedRecords.put(getMappingKey(timestamp, batchID), enriched);
-        totalOrderEnforcer.addElement(timestamp, batchID);
+        cachedRecords.put(getMappingKey(newTid, batchID), enriched);
+        totalOrderEnforcer.addElement(newTid, batchID);
 
         for (Map.Entry<Long, List<BatchID>> bids : totalOrderEnforcer.next().entrySet()) {
             long ts = bids.getKey();
