@@ -21,6 +21,8 @@ import org.apache.log4j.Logger;
 
 import java.util.Optional;
 import java.util.Random;
+import java.util.Timer;
+import java.util.TimerTask;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.Semaphore;
@@ -133,10 +135,35 @@ public abstract class TunableSource<T extends UniquelyRepresentableForTracking>
     }
 
     /**
-     * Sperate thread not affected by the back-pressure mechanism.
+     * Separate thread not affected by the back-pressure mechanism.
      * It puts the elements in a queue keeping a defined rate
      */
     private class Tracker implements Runnable {
+        // As for FinishOnBackpressure, we make the source die if it is waiting too
+        // much for a new batch to start
+        private static final long ABORT_THRESHOLD = 3 * 60 * 1000; // [ms]
+        private static final String abortExceptionMessage = "The job has entered a deadlock status. " +
+                "This means that the source had been blocked waiting to start a new batch for " + ABORT_THRESHOLD + "[ms].";
+        private transient Timer timer = new Timer("AbortTime");
+        private transient TimerTask abortTask;
+
+        private void scheduleAbortTask() {
+            abortTask = new TimerTask() {
+                @Override
+                public void run() {
+                    jobControlClient.terminateJobExceptionally(abortExceptionMessage);
+                }
+            };
+            timer.schedule(abortTask, ABORT_THRESHOLD);
+        }
+
+        private void cancelAbortTask() {
+            if (abortTask != null) {
+                abortTask.cancel();
+            }
+            timer.purge();
+        }
+
         @Override
         public void run() {
             try {
@@ -147,6 +174,7 @@ public abstract class TunableSource<T extends UniquelyRepresentableForTracking>
                             "local-size: " + numberOfRecordsPerTask + "[records], " +
                             "local-rate: " + currentRate + "[records/s]";
 
+                    cancelAbortTask();
                     LOG.info("Starting with batch: " + batchDescription);
                     do {
                         T next = getNext(count);
@@ -166,12 +194,15 @@ public abstract class TunableSource<T extends UniquelyRepresentableForTracking>
                         loopLocalCount++;
                     } while (!stop && loopLocalCount < numberOfRecordsPerTask);
                     LOG.info("Finished with batch: " + batchDescription);
+
+                    scheduleAbortTask();
                     newBatchSemaphore.acquire();
                 }
             } catch (InterruptedException e) {
                 LOG.error("Interrupted: " + e.getMessage());
             } finally {
                 elements.add(Optional.empty());
+                timer.cancel();
             }
         }
 
