@@ -66,6 +66,7 @@ public class TransactionEnvironment {
             instance = new TransactionEnvironment(env);
             instance.registerCustomSerializers();
             instance.openTransactionParallelism = env.getParallelism();
+            instance.sourcesParallelism = env.getParallelism();
         }
         return instance;
     }

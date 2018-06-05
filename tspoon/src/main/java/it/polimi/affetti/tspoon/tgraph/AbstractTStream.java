@@ -70,9 +70,12 @@ public abstract class AbstractTStream<T> implements TStream<T> {
             // the open operator must have parallelism 1, if not it can't
             // follow the ingestion order...
             openParallelism = 1;
-        } else {
+        } else if (transactionEnvironment.getOpenTransactionParallelism() <= 0) {
             // the open operator has parallelism equal to sources
             openParallelism = dataStream.getParallelism();
+        } else {
+            // the tEnv imposes a parallelism, apply it
+            openParallelism = transactionEnvironment.getOpenTransactionParallelism();
         }
 
         SingleOutputStreamOperator<Enriched<T>> enriched = dataStream
