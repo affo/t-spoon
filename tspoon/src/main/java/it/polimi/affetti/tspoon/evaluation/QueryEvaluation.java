@@ -67,7 +67,7 @@ public class QueryEvaluation {
         tEnv.enableCustomQuerying(msQueries);
 
         DataStream<Transfer> transfers = env.addSource(transferSource)
-                .slotSharingGroup(EvalConfig.sourceSharingGroup).setParallelism(1);
+                .slotSharingGroup(config.sourcesSharingGroup).setParallelism(1);
 
         OpenStream<Transfer> open = tEnv.open(transfers);
 

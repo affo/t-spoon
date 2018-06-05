@@ -54,7 +54,7 @@ public class TransactionEnvironment {
     private int tGraphId = 0;
     private Map<Integer, DataStream<TransactionResult>> spuResultsPerTGraph = new HashMap<>();
     private String sourcesSharingGroup = "default";
-    private int sourcesParallelism;
+    private int openTransactionParallelism, sourcesParallelism;
     private int closeBatchSize;
 
     private TransactionEnvironment(StreamExecutionEnvironment env) {
@@ -65,7 +65,7 @@ public class TransactionEnvironment {
         if (instance == null) {
             instance = new TransactionEnvironment(env);
             instance.registerCustomSerializers();
-            instance.sourcesParallelism = env.getParallelism();
+            instance.openTransactionParallelism = env.getParallelism();
         }
         return instance;
     }
@@ -74,7 +74,9 @@ public class TransactionEnvironment {
         if (instance == null) {
             instance = new TransactionEnvironment(config.getFlinkEnv());
             instance.registerCustomSerializers();
-            instance.sourcesParallelism = instance.streamExecutionEnvironment.getParallelism();
+            instance.sourcesParallelism = config.sourcePar;
+            instance.openTransactionParallelism = config.openTransactionPar;
+            instance.sourcesSharingGroup = config.sourcesSharingGroup;
             instance.configIsolation(config.strategy, config.isolationLevel);
             instance.setUseDependencyTracking(config.useDependencyTracking);
             instance.setSynchronous(config.synchronous);
@@ -83,7 +85,6 @@ public class TransactionEnvironment {
             instance.setStateServerPoolSize(config.stateServerPoolSize);
             instance.setQueryServerPoolSize(config.queryServerPoolSize);
             instance.setBaselineMode(config.baselineMode);
-            instance.setSourcesSharingGroup(EvalConfig.sourceSharingGroup, config.sourcePar);
             instance.setTaskManagers(config.taskManagerIPs);
             instance.setCloseBatchSize(config.closeBatchSize);
 
@@ -238,20 +239,8 @@ public class TransactionEnvironment {
         return baselineMode;
     }
 
-    /**
-     *
-     * @param sourcesSharingGroup "default" if no separation
-     * @param sourcePar <= 0 if you want to preserve global setting
-     */
-    public void setSourcesSharingGroup(String sourcesSharingGroup, int sourcePar) {
-        this.sourcesSharingGroup = sourcesSharingGroup;
-        if (sourcePar > 0) {
-            this.sourcesParallelism = sourcePar;
-        }
-    }
-
-    public int getSourcesParallelism() {
-        return sourcesParallelism;
+    public int getOpenTransactionParallelism() {
+        return openTransactionParallelism;
     }
 
     public String getSourcesSharingGroup() {

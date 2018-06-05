@@ -51,7 +51,9 @@ public class Evaluation {
         TunableSource.TunableTransferSource tunableSource =
                 new TunableSource.TunableTransferSource(
                         config.startInputRate, config.resolution, config.batchSize, RECORD_TRACKING_SERVER_NAME);
-        tunableSource.enableBusyWait();
+        if (!config.singleSharingGroup) {
+            tunableSource.enableBusyWait();
+        }
 
         DataStreamSource<TransferID> dsSource = env.addSource(tunableSource);
         SingleOutputStreamOperator<TransferID> tidSource =
@@ -112,7 +114,7 @@ public class Evaluation {
         endTracking // attach only to end tracking, we use a server for begin requests.
                 .addSink(
                         new FinishOnBackPressure<>(
-                                0.1, config.batchSize, config.startInputRate, config.resolution,
+                                0.25, config.batchSize, config.startInputRate, config.resolution,
                                 config.maxNumberOfBatches, RECORD_TRACKING_SERVER_NAME))
                 .setParallelism(1).name("FinishOnBackPressure");
 

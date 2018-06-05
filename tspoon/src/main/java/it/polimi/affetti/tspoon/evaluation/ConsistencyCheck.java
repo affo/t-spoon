@@ -53,7 +53,7 @@ public class ConsistencyCheck {
                         queryRate), 1);
 
         DataStream<Transfer> transfers = env.addSource(transferSource)
-                .slotSharingGroup(EvalConfig.sourceSharingGroup)
+                .slotSharingGroup(config.sourcesSharingGroup)
                 .setParallelism(config.sourcePar);
         OpenStream<Transfer> open = tEnv.open(transfers);
 

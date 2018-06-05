@@ -17,11 +17,12 @@ import java.util.Set;
  */
 public class EvalConfig {
     public static final double startAmount = 100d;
-    public static final String sourceSharingGroup = "sources";
 
     public ParameterTool params;
     public String label;
-    public int sourcePar;
+    public int sourcePar, openTransactionPar;
+    public String sourcesSharingGroup;
+    public boolean singleSharingGroup = false;
     public IsolationLevel isolationLevel;
     public int parallelism;
     public int partitioning;
@@ -53,10 +54,22 @@ public class EvalConfig {
         config.label = parameters.get("label");
         config.isLocal = config.label == null || config.label.startsWith("local");
         config.propertiesFile = parameters.get("propsFile", null);
+        // specify "default" to merge the groups
+        config.sourcesSharingGroup = parameters.get("sourcesSharingGroup", "sources");
         config.sourcePar = parameters.getInt("sourcePar", 1);
+
         // let the real source parallelism affect the overall parallelism
-        config.parallelism = parameters.getInt("par", 4) - config.sourcePar;
-        config.partitioning = parameters.getInt("partitioning", 4) - config.sourcePar;
+        // only if in 2 separate sharing groups
+        int subtract = config.sourcePar;
+        config.openTransactionPar = config.sourcePar;
+        if (config.sourcesSharingGroup.equals("default")) {
+            config.singleSharingGroup = true;
+            subtract = 0;
+            config.openTransactionPar = 1;
+        }
+
+        config.parallelism = parameters.getInt("par", 4) - subtract;
+        config.partitioning = parameters.getInt("partitioning", 4) - subtract;
         int isolationLevelNumber = parameters.getInt("isolationLevel", 3);
         config.isolationLevel = IsolationLevel.values()[isolationLevelNumber];
 
@@ -179,6 +192,6 @@ public class EvalConfig {
             SingleOutputStreamOperator<T> ds, String operatorName) {
         return ds
                 .name(operatorName).setParallelism(sourcePar)
-                .slotSharingGroup(sourceSharingGroup);
+                .slotSharingGroup(sourcesSharingGroup);
     }
 }

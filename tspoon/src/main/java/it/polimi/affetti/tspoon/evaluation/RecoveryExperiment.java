@@ -41,7 +41,7 @@ public class RecoveryExperiment {
         transferSource.setMicroSleep(waitPeriodMicro);
 
         DataStream<Transfer> transfers = env.addSource(transferSource)
-                .slotSharingGroup(EvalConfig.sourceSharingGroup)
+                .slotSharingGroup(config.sourcesSharingGroup)
                 .setParallelism(config.sourcePar);
         OpenStream<Transfer> open = tEnv.open(transfers);
 
