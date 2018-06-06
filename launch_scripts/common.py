@@ -1,9 +1,48 @@
 import pandas as pd
-import traceback
+import traceback, json
+
+IMG_FOLDER = None
+
+
+def load_experiment(fname):
+    with open(fname) as fp:
+        result = json.load(fp)
+
+    parsed = ExperimentResult(result)
+    return parsed
+
+
+def load_parsed_results():
+    import sys, os
+    global IMG_FOLDER
+
+    if len(sys.argv) < 2:
+        print 'Provide folder name, please'
+        sys.exit(1)
+
+    folder_name = sys.argv[1]
+    IMG_FOLDER = os.path.join(folder_name, 'img')
+
+    out_fname = os.path.join(folder_name, 'parsed_results.json')
+    df = pd.read_json(out_fname)
+    return df
+
+
+def savefig(label, figure):
+    import os
+    import matplotlib.pyplot as plt
+    global IMG_FOLDER
+
+    # make the dir if not present
+    if not os.path.exists(IMG_FOLDER):
+        os.mkdir(IMG_FOLDER)
+    fname = os.path.join(IMG_FOLDER, label + '.png')
+    figure.savefig(fname)
+    plt.close(figure)
+    print ">>> Figure saved to", fname
+
 
 class ExperimentResult(object):
-    MIN_BATCHES = 10
-
     def __init__(self, result_dict):
         try:
             self.valid = True
@@ -17,83 +56,41 @@ class ExperimentResult(object):
                 setattr(self, tag, value)
 
             self._results = self._raw['accumulators']
-            self.latency_curve = self._results['latency-curve']
-            self.throughput_curve = self._results['throughput-curve']
 
-            self.latency_min = min([point['value'] for point in self.latency_curve])
-            # the third batch if long enough
-            batch_no = 2 if len(self.latency_curve) >= 3 else self.latency_curve[-1]
-            self.latency_unloaded = self.latency_curve[batch_no]['value']
-            self.tp_max = self._results['max-throughput-and-latency']['max-throughput']
-            self.latency_at_tp_max = self._results['max-throughput-and-latency']['latency-at-max-throughput']
+            lat = self._results.get('latency-unloaded')
+            tp = self._results.get('throughput')
+
+            self.latency = None if lat is None else lat.get('mean')
+            self.throughput = None if tp is None else tp.get('mean')
+            self.deviation = None
+
+            if self.throughput is not None:
+                self.deviation = tp.get('stddev') / self.throughput
 
             if self.experiment_type == 'query':
-                self.avg_partitions = self._results['number-of-partitions-per-query']['mean']
-
-            lat_df = pd.DataFrame(self.latency_curve)
-            lat_df = lat_df[lat_df.actualRate > 0].reset_index(drop=True)
-            tp_df = pd.DataFrame(self.throughput_curve)
-            tp_df = tp_df[tp_df.actualRate > 0].reset_index(drop=True)
-
-            self.tp_stable_index, self.tp_stable = self._get_tp_stable(tp_df, 5, 0.1)
-            self.latency_at_tp_stable_description = lat_df.head(tp_stable_index + 1)['value'].describe([0.25, 0.5, 0.75, 0.9])
-            self.latency_at_tp_stable = self.latency_at_tp_stable_description['50%']
+                self.avg_partitions = self._results.get('number-of-partitions-per-query', dict()).get('mean')
         except:
             self.valid = False
             self.problems = ['>> EXCEPTION WHILE PARSING <<']
             self.problems.extend(traceback.format_exc().split('\n'))
 
-    def _get_tp_stable(self, tp_curve_df, w, t):
-        map_fn = lambda row: float(row.actualRate - row.value) / row.actualRate
-        error = tp_curve_df.apply(map_fn, axis=1)
-
-        index = -1
-        for i in error.index:
-            next_w = error.loc[i:i+w] # the next w rows
-            val = next_w.mean()
-            if val > t:
-                index = i
-                break
-
-        # if the condition wasn't met, then, we report the last one
-        if index == -1:
-            index = len(error) - 1
-
-        return index, tp_curve_df.loc[index,:].value
-
-    def _get_lat_stable(self, lat_curve_df, w, t):
-        index = 0
-        prev_window_mean = -1
-        for i in lat_curve_df.index:
-            window = lat_curve_df.loc[i:i+w,"value"] # the next w rows
-            val = window.mean()
-            error = float(val - prev_window_mean) / prev_window_mean
-            if error > t:
-                index = i
-                break
-            prev_window_mean = val
-
-        return index, lat_curve_df.loc[index,:].value
-
     def _check_result(self, result):
         reasons = []
-
-        notes = result['additional-notes']
+        notes = result.get('additional-notes')
         if notes:
             reasons.append(notes)
 
-        if len(result['accumulators']['latency-curve']) < self.MIN_BATCHES:
-            reasons.append(
-                'Less then {} batches, please check.'.format(self.MIN_BATCHES))
+        avg_curve = result['accumulators']['refining-curve']
+        if len(avg_curve) == 0:
+            reasons.append('The job terminated prematurely.')
 
         exceptions = result.get('exceptions')
-        if  exceptions and len(exceptions['all-exceptions']) > 0:
+        if exceptions is not None and len(exceptions['all-exceptions']) > 0:
             message = exceptions['root-exception']
             reasons.append('>> EXCEPTION IN JOB <<')
             reasons.extend(message.split('\n'))
 
-        return None if len(reasons) == 0 else reasons
-
+        return reasons
 
     def _parse_tags(self, config):
         label = config['label']
@@ -135,15 +132,13 @@ class ExperimentResult(object):
 
         return tags
 
-
     def __repr__(self):
         dictionary = {}
-        dictionary.update(self._tags)
-        dictionary.update(dict(
-            latency_min=self.latency_min,
-            tp_max=self.tp_max,
-            latency_at_tp_max=self.latency_at_tp_max,
-            tp_stable=self.tp_stable,
-            latency_at_tp_stable=self.latency_at_tp_stable
-        ))
+        if self.valid:
+            dictionary.update(self._tags)
+            dictionary.update(dict(
+                latency=self.latency,
+                throughput=self.throughput,
+                tp_deviation=self.deviation
+            ))
         return str(dictionary)

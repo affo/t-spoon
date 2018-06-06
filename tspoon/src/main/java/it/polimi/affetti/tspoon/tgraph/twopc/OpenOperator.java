@@ -2,9 +2,9 @@ package it.polimi.affetti.tspoon.tgraph.twopc;
 
 import it.polimi.affetti.tspoon.common.SafeCollector;
 import it.polimi.affetti.tspoon.common.TimestampGenerator;
-import it.polimi.affetti.tspoon.metrics.*;
-import it.polimi.affetti.tspoon.runtime.JobControlClient;
-import it.polimi.affetti.tspoon.runtime.JobControlListener;
+import it.polimi.affetti.tspoon.metrics.MetricAccumulator;
+import it.polimi.affetti.tspoon.metrics.SingleValueAccumulator;
+import it.polimi.affetti.tspoon.metrics.TimeDelta;
 import it.polimi.affetti.tspoon.tgraph.*;
 import it.polimi.affetti.tspoon.tgraph.durability.SnapshotService;
 import it.polimi.affetti.tspoon.tgraph.durability.WALEntry;
@@ -29,7 +29,7 @@ import java.util.*;
 public class OpenOperator<T>
         extends AbstractStreamOperator<Enriched<T>>
         implements OneInputStreamOperator<T, Enriched<T>>,
-        OpenOperatorTransactionCloseListener, JobControlListener {
+        OpenOperatorTransactionCloseListener {
     private transient Logger LOG;
 
     private static final String COMMIT_COUNT = "commit-count";
@@ -65,7 +65,6 @@ public class OpenOperator<T>
     protected TransactionsIndex<T> transactionsIndex;
     private transient AbstractOpenOperatorTransactionCloser openOperatorTransactionCloser;
 
-    private transient JobControlClient jobControlClient;
     private transient SnapshotService snapshotService;
 
     // stats
@@ -85,24 +84,12 @@ public class OpenOperator<T>
 
     private TimeDelta currentLatency = new TimeDelta();
 
-    private RealTimeAccumulatorsWithPerBatchCurve accumulators = new RealTimeAccumulatorsWithPerBatchCurve();
-
     private MetricAccumulator numberOfWalEntriesReplayed = new MetricAccumulator();
     private MetricAccumulator recoveryTime = new MetricAccumulator();
 
     public OpenOperator(TRuntimeContext tRuntimeContext, int tGraphID) {
         this.tGraphID = tGraphID;
         this.tRuntimeContext = tRuntimeContext;
-
-        Report.registerAccumulator(COMMIT_COUNT);
-        Report.registerAccumulator(ABORT_COUNT);
-        Report.registerAccumulator(REPLAY_COUNT);
-        Report.registerAccumulator(NUMBER_OF_CLOSED_TRANSACTIONS);
-        Report.registerAccumulator(DEPENDENCY_REPLAYED_COUNTER_NAME);
-        Report.registerAccumulator(REPLAYED_UPON_WATERMARK_UPDATE_COUNTER_NAME);
-        Report.registerAccumulator(DIRECTLY_REPLAYED_COUNTER_NAME);
-        Report.registerAccumulator(CLOSED_REPLAYED_RATIO);
-        Report.registerAccumulator(PROTOCOL_LATENCY);
     }
 
     @Override
@@ -122,16 +109,6 @@ public class OpenOperator<T>
 
         ParameterTool parameterTool = (ParameterTool)
                 getRuntimeContext().getExecutionConfig().getGlobalJobParameters();
-
-        try {
-            jobControlClient = JobControlClient.get(parameterTool);
-            jobControlClient.observe(this);
-        } catch (IllegalArgumentException iae) {
-            LOG.warn("Starting without listening to JobControl events" +
-                    "because cannot connect to JobControl: " + iae.getMessage());
-            jobControlClient = null;
-        }
-
         WALService wal = tRuntimeContext.getWALClient();
         snapshotService = tRuntimeContext.getSnapshotService(parameterTool);
 
@@ -167,28 +144,25 @@ public class OpenOperator<T>
         timestampGenerator = new TimestampGenerator(sourceID, numberOfSources, maxTimestamp);
         transactionsIndex = tRuntimeContext.getTransactionsIndex(restoredTid, timestampGenerator);
 
-        accumulators.register(getRuntimeContext(), COMMIT_COUNT, commits);
-        accumulators.register(getRuntimeContext(), ABORT_COUNT, aborts);
-        accumulators.register(getRuntimeContext(), REPLAY_COUNT, replays);
-        accumulators.register(getRuntimeContext(), NUMBER_OF_CLOSED_TRANSACTIONS, numberOfClosedTransactions);
-        accumulators.register(getRuntimeContext(), DEPENDENCY_REPLAYED_COUNTER_NAME, replayedUponDependencySatisfaction);
-        accumulators.register(getRuntimeContext(), REPLAYED_UPON_WATERMARK_UPDATE_COUNTER_NAME, replayedUponWatermarkUpdate);
-        accumulators.register(getRuntimeContext(), DIRECTLY_REPLAYED_COUNTER_NAME, directlyReplayed);
-        accumulators.register(getRuntimeContext(), CLOSED_REPLAYED_RATIO, replayedRatio);
-        accumulators.register(getRuntimeContext(), PROTOCOL_LATENCY, new MetricAccumulator(currentLatency.getMetric()));
-        accumulators.register(getRuntimeContext(), REPLAYED_TWICE, replayedTwice);
-        accumulators.register(getRuntimeContext(), REPLAYED_TRICE, replayedTrice);
-        accumulators.register(getRuntimeContext(), REPLAYED_3_PLUS, replayedTooMuch);
-        accumulators.registerCurve(getRuntimeContext(), getRuntimeContext().getTaskName() + "-curve");
+        getRuntimeContext().addAccumulator(COMMIT_COUNT, commits);
+        getRuntimeContext().addAccumulator(ABORT_COUNT, aborts);
+        getRuntimeContext().addAccumulator(REPLAY_COUNT, replays);
+        getRuntimeContext().addAccumulator(NUMBER_OF_CLOSED_TRANSACTIONS, numberOfClosedTransactions);
+        getRuntimeContext().addAccumulator(DEPENDENCY_REPLAYED_COUNTER_NAME, replayedUponDependencySatisfaction);
+        getRuntimeContext().addAccumulator(REPLAYED_UPON_WATERMARK_UPDATE_COUNTER_NAME, replayedUponWatermarkUpdate);
+        getRuntimeContext().addAccumulator(DIRECTLY_REPLAYED_COUNTER_NAME, directlyReplayed);
+        getRuntimeContext().addAccumulator(CLOSED_REPLAYED_RATIO, replayedRatio);
+        getRuntimeContext().addAccumulator(PROTOCOL_LATENCY, new MetricAccumulator(currentLatency.getMetric()));
+        getRuntimeContext().addAccumulator(REPLAYED_TWICE, replayedTwice);
+        getRuntimeContext().addAccumulator(REPLAYED_TRICE, replayedTrice);
+        getRuntimeContext().addAccumulator(REPLAYED_3_PLUS, replayedTooMuch);
     }
 
     @Override
     public void close() throws Exception {
         super.close();
         openOperatorTransactionCloser.close();
-        if (jobControlClient != null) {
-            jobControlClient.close();
-        }
+        snapshotService.close();
     }
 
     @Override
@@ -378,12 +352,6 @@ public class OpenOperator<T>
             //   but by being happened too early in time...
             collect(tid);
         }
-    }
-
-    @Override
-    public synchronized void onBatchEnd() {
-        accumulators.addPoint();
-        currentLatency.reset();
     }
 
     // --------------------------------------- Recovery & Snapshotting

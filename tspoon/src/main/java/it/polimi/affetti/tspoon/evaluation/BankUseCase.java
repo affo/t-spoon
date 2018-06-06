@@ -4,10 +4,13 @@ import it.polimi.affetti.tspoon.common.FinishOnCountSink;
 import it.polimi.affetti.tspoon.common.FlatMapFunction;
 import it.polimi.affetti.tspoon.common.SinglePartitionCommand;
 import it.polimi.affetti.tspoon.runtime.NetUtils;
-import it.polimi.affetti.tspoon.tgraph.*;
+import it.polimi.affetti.tspoon.tgraph.TStream;
+import it.polimi.affetti.tspoon.tgraph.TransactionEnvironment;
+import it.polimi.affetti.tspoon.tgraph.TransactionResult;
 import it.polimi.affetti.tspoon.tgraph.backed.Movement;
 import it.polimi.affetti.tspoon.tgraph.backed.Transfer;
 import it.polimi.affetti.tspoon.tgraph.backed.TransferSource;
+import it.polimi.affetti.tspoon.tgraph.backed.TunableSPUSource;
 import it.polimi.affetti.tspoon.tgraph.db.ObjectHandler;
 import it.polimi.affetti.tspoon.tgraph.query.FrequencyQuerySupplier;
 import it.polimi.affetti.tspoon.tgraph.query.PredicateQuery;
@@ -15,7 +18,6 @@ import it.polimi.affetti.tspoon.tgraph.query.RandomQuerySupplier;
 import it.polimi.affetti.tspoon.tgraph.state.*;
 import it.polimi.affetti.tspoon.tgraph.twopc.OpenStream;
 import org.apache.flink.api.java.utils.ParameterTool;
-import org.apache.flink.streaming.api.TimeCharacteristic;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
@@ -30,44 +32,27 @@ public class BankUseCase {
     public static final double startAmount = 100;
 
     public static void main(String[] args) throws Exception {
-        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
-        env.setStreamTimeCharacteristic(TimeCharacteristic.ProcessingTime);
-        env.setBufferTimeout(0);
-        env.getConfig().setLatencyTrackingInterval(-1);
         ParameterTool parameters = ParameterTool.fromArgs(args);
+        EvalConfig config = EvalConfig.fromParams(parameters);
 
         final double inputFrequency = parameters.getDouble("inputRate", 100);
         final double queryFrequency = parameters.getDouble("queryRate", 100);
         final long inputWaitPeriodMicro = Evaluation.getWaitPeriodInMicroseconds(inputFrequency);
-        final int par = parameters.getInt("par", 4);
-        final int partitioning = parameters.getInt("partitioning", 4);
-        final int keySpaceSize = parameters.getInt("ks", 10000);
-        final boolean optimisticOrPessimistic = parameters.getBoolean("optOrNot", true);
-        final int isolationLevelNumber = parameters.getInt("isolationLevel", 3);
+
 
         final int averageQuerySize = parameters.getInt("avg", 10);
         final int stdDevQuerySize = parameters.getInt("stddev", 5);
 
-        final int batchSize = parameters.getInt("batchSize", 10000);
-        final int resolution = parameters.getInt("resolution", 100);
-        final int startInputRate = parameters.getInt("startInputRate", 100);
-
         final boolean consistencyCheck = parameters.getBoolean("check", false);
 
         NetUtils.launchJobControlServer(parameters);
-        env.getConfig().setGlobalJobParameters(parameters);
-        env.setParallelism(par);
+        StreamExecutionEnvironment env = config.getFlinkEnv();
 
-        final Strategy strategy = optimisticOrPessimistic ? Strategy.OPTIMISTIC : Strategy.PESSIMISTIC;
-        final IsolationLevel isolationLevel = IsolationLevel.values()[isolationLevelNumber];
         final String nameSpace = "balances";
 
-        TransactionEnvironment tEnv = TransactionEnvironment.get(env);
-        tEnv.configIsolation(strategy, isolationLevel);
-        tEnv.setSynchronous(false);
-        tEnv.setStateServerPoolSize(Runtime.getRuntime().availableProcessors());
+        TransactionEnvironment tEnv = TransactionEnvironment.fromConfig(config);
 
-        TransferSource transferSource = new TransferSource(Integer.MAX_VALUE, keySpaceSize, startAmount);
+        TransferSource transferSource = new TransferSource(Integer.MAX_VALUE, config.keySpaceSize, startAmount);
         transferSource.setMicroSleep(inputWaitPeriodMicro);
 
         if (consistencyCheck) {
@@ -78,18 +63,16 @@ public class BankUseCase {
         } else {
             tEnv.enableStandardQuerying(
                     new FrequencyQuerySupplier(
-                            new RandomQuerySupplier(nameSpace, 0, Transfer.KEY_PREFIX, keySpaceSize,
+                            new RandomQuerySupplier(nameSpace, 0, Transfer.KEY_PREFIX, config.keySpaceSize,
                                     averageQuerySize, stdDevQuerySize), queryFrequency));
             // Uncomment if you want query results
             // tEnv.setOnQueryResult(new QueryResultMerger.PrintQueryResult());
         }
 
         RandomSPUSupplier spuSupplier = new DepositsAndWithdrawalsGenerator(
-                nameSpace, Transfer.KEY_PREFIX, keySpaceSize, startAmount
+                nameSpace, Transfer.KEY_PREFIX, config.keySpaceSize, startAmount
         );
-        TunableSource.TunableSPUSource tunableSPUSource = new TunableSource.TunableSPUSource(
-                startInputRate, resolution, batchSize, SPU_TRACKING_SERVER_NAME, spuSupplier
-        );
+        TunableSPUSource tunableSPUSource = new TunableSPUSource(config, SPU_TRACKING_SERVER_NAME, spuSupplier);
 
         SingleOutputStreamOperator<SinglePartitionUpdate> spuStream = env.addSource(tunableSPUSource)
                 .name("TunableSPUSource");
@@ -104,30 +87,28 @@ public class BankUseCase {
 
         StateStream<Movement> balances = halves.state(
                 nameSpace, t -> t.f1,
-                new Balances(), partitioning);
+                new Balances(), config.partitioning);
 
 
         DataStream<TransactionResult> output = tEnv.close(balances.leftUnchanged);
 
-        // every TunableSource requires a FinishOnBackPressure...
+        // every TunableSource requires a Tracker...
         balances.spuResults
                 .map(tr -> ((SinglePartitionUpdate) tr.f2).id).returns(SinglePartitionUpdateID.class)
-                .addSink(
-                        new FinishOnBackPressure<>(0.25, batchSize, startInputRate,
-                                resolution, -1, SPU_TRACKING_SERVER_NAME))
-                .name("FinishOnBackPressure")
+                .addSink(new Tracker<>(SPU_TRACKING_SERVER_NAME))
+                .name("EndTracker")
                 .setParallelism(1);
 
         if (consistencyCheck) {
             balances.queryResults.addSink(new ConsistencyCheck.CheckOnQueryResult(startAmount));
-            FinishOnCountSink<TransactionResult> finishOnCountSink = new FinishOnCountSink<>(batchSize);
+            FinishOnCountSink<TransactionResult> finishOnCountSink = new FinishOnCountSink<>(config.batchSize);
             finishOnCountSink.notSevere();
             output.addSink(finishOnCountSink)
                     .name("FinishOnCount")
                     .setParallelism(1);
         }
 
-        String label = strategy + " - " + isolationLevel + ": ";
+        String label = config.strategy + " - " + config.isolationLevel + ": ";
 
         if (consistencyCheck) {
             label += "Bank example consistency check";

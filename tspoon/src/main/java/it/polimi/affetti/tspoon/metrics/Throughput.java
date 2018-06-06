@@ -9,6 +9,7 @@ public class Throughput implements Serializable {
     private final String label;
     private Long lastTS;
     private double throughput;
+    private long count;
 
     public Throughput() {
         this("");
@@ -17,16 +18,20 @@ public class Throughput implements Serializable {
     public Throughput(String label) {
         this.label = label;
         this.lastTS = null;
+        this.count = 0;
     }
 
     public void open() {
-        lastTS = System.currentTimeMillis();
+        lastTS = System.nanoTime();
     }
 
-    public void close(int batchSize) {
-        long newTS = System.currentTimeMillis();
-        long elapsedTime = newTS - lastTS;
-        this.throughput = batchSize / (elapsedTime / 1000.0);
+    public void processed() {
+        count++;
+    }
+
+    public void close() {
+        long elapsedTime = System.nanoTime() - lastTS;
+        this.throughput = count / (elapsedTime * Math.pow(10, -9));
     }
 
     public double getThroughput() {

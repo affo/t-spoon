@@ -1,33 +1,22 @@
-import sys, os, math, shutil
+import sys, os, math
 import pandas as pd
 import matplotlib.pyplot as plt
+import common as cmn
 
 # ------------ MAIN ------------
 if __name__ == '__main__':
-    if len(sys.argv) < 2:
-        print 'Provide folder name, please'
-        sys.exit(1)
-
-    folder_name = sys.argv[1]
-    img_folder = os.path.join(folder_name, 'img')
+    df = cmn.load_parsed_results()
     ks_size = 100000
-
-    out_fname = os.path.join(folder_name, 'parsed_aggregates.json')
-    aggr = pd.read_json(out_fname)
-
-    def savefig(label, figure):
-        figure.savefig(os.path.join(img_folder, label + '.png'))
-        plt.close(figure)
 
     def map_fn(strategy):
         return 'LB' if strategy == 'PESS' else 'TB'
 
-    aggr = aggr[(aggr.tag1 == 'ks') & (aggr['var'] == ks_size)]
-    aggr = aggr[(aggr.isolationLevel != 'PL0') & (aggr.isolationLevel != 'PL1')]
-    aggr['strategy'] = aggr['strategy'].map(map_fn)
+    df = df[(df.tag1 == 'ks') & (df['var'] == ks_size)]
+    df = df[(df.isolationLevel != 'PL0') & (df.isolationLevel != 'PL1')]
+    df['strategy'] = df['strategy'].map(map_fn)
 
-    lb = aggr[(aggr.strategy == 'LB')]
-    tb = aggr[(aggr.strategy == 'TB')]
+    lb = df[(df.strategy == 'LB')]
+    tb = df[(df.strategy == 'TB')]
 
     def apply_fn(row):
         tplat = row.tag3
@@ -56,7 +45,7 @@ if __name__ == '__main__':
     joined.columns = ['tplat', 'isolation', 'TB', 'LB']
 
     # ------ throughput
-    tp = joined[(joined.tplat == 'tp_stable')]
+    tp = joined[(joined.tplat == 'tp')]
 
     fig, ax = plt.subplots()
     tp.plot(ax=ax, kind='bar', x='isolation', y=ys, rot=0)
@@ -65,10 +54,10 @@ if __name__ == '__main__':
     ax.margins(y=0.1)
     ax.set_ylabel('sustainable throughput [tr/s]')
     ax.set_xlabel(' ')
-    savefig('bank_isol_tp', fig)
+    cmn.savefig('bank_isol_tp', fig)
 
     # ------ latency
-    lat = joined[(joined.tplat == 'lat_unloaded')]
+    lat = joined[(joined.tplat == 'lat')]
 
     fig, ax = plt.subplots()
     lat.plot(ax=ax, kind='bar', x='isolation', y=ys, rot=0)
@@ -77,4 +66,4 @@ if __name__ == '__main__':
     ax.margins(y=0.1)
     ax.set_ylabel('average latency [ms]')
     ax.set_xlabel(' ')
-    savefig('bank_isol_lat', fig)
+    cmn.savefig('bank_isol_lat', fig)

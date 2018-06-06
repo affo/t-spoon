@@ -69,6 +69,10 @@ public class TimeDelta implements Serializable {
         return deltaStat;
     }
 
+    public void resetMetric() {
+        deltaStat.reset();
+    }
+
     public Double getMeanValue() {
         return deltaStat.metric.getMean();
     }
@@ -77,9 +81,9 @@ public class TimeDelta implements Serializable {
         return new MetricAccumulator(getMetric());
     }
 
-    public void reset() {
+    public void resetMetricAndTimestamps() {
         beginTimestamps.clear();
         endTimestamps.clear();
-        deltaStat.reset();
+        resetMetric();
     }
 }

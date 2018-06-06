@@ -1,32 +1,20 @@
 import sys, os, math, shutil
 import pandas as pd
 import matplotlib.pyplot as plt
+import common as cmn
 
 # ------------ MAIN ------------
 if __name__ == '__main__':
-    if len(sys.argv) < 2:
-        print 'Provide folder name, please'
-        sys.exit(1)
-
-    folder_name = sys.argv[1]
-    img_folder = os.path.join(folder_name, 'img')
-
-    out_fname = os.path.join(folder_name, 'parsed_aggregates.json')
-    aggr = pd.read_json(out_fname)
-
-    def savefig(label, figure):
-        figure.savefig(os.path.join(img_folder, label + '.png'))
-        plt.close(figure)
+    df = cmn.load_parsed_results()
 
     def map_fn(tag2):
         return 'SINGLE' if tag2 == '1tg' else 'MULTI'
 
-    aggr['tag2'] = aggr['tag2'].map(map_fn)
-    aggr = aggr[(aggr.strategy == 'OPT') & (aggr.isolationLevel == 'PL3')]
+    df['tag2'] = df['tag2'].map(map_fn)
+    df = df[(df.strategy == 'OPT') & (df.isolationLevel == 'PL3')]
 
-    # ------ throughput
-    for tpe in (['tp_stable', 'sustainable throughput [tr/s]'], ['lat_stable', 'average latency [ms]']):
-        data = aggr[(aggr.tag1 != 'query') & (aggr.tag1 != 'ks') & (aggr.tag3 == tpe[0])]
+    def myplot(tag3, ylabel):
+        data = df[(df.tag1 != 'query') & (df.tag1 != 'ks') & (df.tag3 == tag3)]
         data = data.sort_values('var')
 
         for chain, group in data.groupby('tag1'):
@@ -37,6 +25,9 @@ if __name__ == '__main__':
 
             ax.set_ylim((0, ax.yaxis.get_data_interval()[1]))
             ax.margins(y=0.1)
-            ax.set_ylabel(tpe[1])
+            ax.set_ylabel(ylabel)
             ax.set_xlabel(' ')
-            savefig('top_' + chain + '_' + tpe[0].split('_')[0], fig)
+            cmn.savefig('top_' + chain + '_' + tag3, fig)
+
+    myplot('tp', 'sustainable throughput [tr/s]')
+    myplot('lat', 'average latency [ms]')

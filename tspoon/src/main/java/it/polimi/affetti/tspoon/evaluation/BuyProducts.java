@@ -1,7 +1,10 @@
 package it.polimi.affetti.tspoon.evaluation;
 
 import it.polimi.affetti.tspoon.runtime.NetUtils;
-import it.polimi.affetti.tspoon.tgraph.*;
+import it.polimi.affetti.tspoon.tgraph.TStream;
+import it.polimi.affetti.tspoon.tgraph.TransactionEnvironment;
+import it.polimi.affetti.tspoon.tgraph.TransactionResult;
+import it.polimi.affetti.tspoon.tgraph.Vote;
 import it.polimi.affetti.tspoon.tgraph.db.ObjectHandler;
 import it.polimi.affetti.tspoon.tgraph.state.StateFunction;
 import it.polimi.affetti.tspoon.tgraph.state.StateStream;
@@ -11,7 +14,6 @@ import org.apache.flink.api.java.functions.KeySelector;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.configuration.Configuration;
-import org.apache.flink.streaming.api.TimeCharacteristic;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.windowing.AllWindowFunction;
@@ -36,35 +38,14 @@ public class BuyProducts {
     public static final String CATEGORY_PREFIX = "category";
 
     public static void main(String[] args) throws Exception {
-        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
-        env.setStreamTimeCharacteristic(TimeCharacteristic.ProcessingTime);
-        env.setBufferTimeout(0);
-        env.getConfig().setLatencyTrackingInterval(-1);
         ParameterTool parameters = ParameterTool.fromArgs(args);
-
-        final int par = parameters.getInt("par", 4);
-        final int partitioning = parameters.getInt("partitioning", 4);
-        final boolean optimisticOrPessimistic = parameters.getBoolean("optOrNot", true);
-        final int isolationLevelNumber = parameters.getInt("isolationLevel", 3);
-
-        final int batchSize = parameters.getInt("batchSize", 1000);
-        final int resolution = parameters.getInt("resolution", 100);
-        final int startInputRate = parameters.getInt("startInputRate", 100);
-
+        EvalConfig config = EvalConfig.fromParams(parameters);
         NetUtils.launchJobControlServer(parameters);
-        env.getConfig().setGlobalJobParameters(parameters);
-        env.setParallelism(par);
+        StreamExecutionEnvironment env = config.getFlinkEnv();
 
-        final Strategy strategy = optimisticOrPessimistic ? Strategy.OPTIMISTIC : Strategy.PESSIMISTIC;
-        final IsolationLevel isolationLevel = IsolationLevel.values()[isolationLevelNumber];
+        TransactionEnvironment tEnv = TransactionEnvironment.fromConfig(config);
 
-        TransactionEnvironment tEnv = TransactionEnvironment.get(env);
-        tEnv.configIsolation(strategy, isolationLevel);
-        tEnv.setSynchronous(false);
-        tEnv.setStateServerPoolSize(Runtime.getRuntime().availableProcessors());
-
-        PurchaseSource purchaseSource = new PurchaseSource(
-                startInputRate, resolution, batchSize, TRANSACTION_TRACKING_SERVER_NAME);
+        PurchaseSource purchaseSource = new PurchaseSource(config, TRANSACTION_TRACKING_SERVER_NAME);
         DataStream<PurchaseID> purchaseIds = env.addSource(purchaseSource).name("PurchaseIDSource");
         DataStream<Purchase> purchases = purchaseIds.map(new ToPurchase()).name("ToPurchases");
 
@@ -79,14 +60,14 @@ public class BuyProducts {
                 "productsByUser",
                 byUserSelector,
                 new PurchasesState(),
-                partitioning
+                config.partitioning
         );
 
         StateStream<Purchase> warehouse = tPurchases.state(
                 "warehouse",
                 byProductSelector,
                 new WarehouseState(),
-                partitioning
+                config.partitioning
         );
 
         DataStream<TransactionResult> transactionResults = tEnv
@@ -98,9 +79,8 @@ public class BuyProducts {
                     Purchase original = (Purchase) tr.f2;
                     return original.id;
                 }).returns(PurchaseID.class)
-                .addSink(new FinishOnBackPressure<>(0.25, batchSize, startInputRate,
-                        resolution, -1, TRANSACTION_TRACKING_SERVER_NAME))
-                .name("FinishOnBackPressure")
+                .addSink(new Tracker<>(TRANSACTION_TRACKING_SERVER_NAME))
+                .name("EndTracker")
                 .setParallelism(1);
 
 
@@ -159,7 +139,7 @@ public class BuyProducts {
                 .print();
 
 
-        env.execute("Buying some products: " + strategy + " - " + isolationLevel);
+        env.execute("Buying some products: " + config.strategy + " - " + config.isolationLevel);
     }
 
     public static class PurchaseID extends Tuple2<Integer, Long> implements UniquelyRepresentableForTracking {
@@ -325,10 +305,8 @@ public class BuyProducts {
     }
 
     private static class PurchaseSource extends TunableSource<PurchaseID> {
-
-        public PurchaseSource(int baseRate, int resolution, int batchSize,
-                              String trackingServerNameForDiscovery) {
-            super(baseRate, resolution, batchSize, trackingServerNameForDiscovery);
+        public PurchaseSource(EvalConfig config, String trackingServerNameForDiscovery) {
+            super(config, trackingServerNameForDiscovery);
         }
 
         @Override

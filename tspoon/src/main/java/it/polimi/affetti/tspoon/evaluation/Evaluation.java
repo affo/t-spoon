@@ -5,6 +5,7 @@ import it.polimi.affetti.tspoon.runtime.NetUtils;
 import it.polimi.affetti.tspoon.tgraph.TransactionEnvironment;
 import it.polimi.affetti.tspoon.tgraph.backed.Transfer;
 import it.polimi.affetti.tspoon.tgraph.backed.TransferID;
+import it.polimi.affetti.tspoon.tgraph.backed.TunableTransferSource;
 import org.apache.flink.api.common.JobExecutionResult;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.streaming.api.datastream.DataStream;
@@ -48,18 +49,14 @@ public class Evaluation {
         // ---------------------------- Topology
         TransactionEnvironment tEnv = TransactionEnvironment.fromConfig(config);
 
-        TunableSource.TunableTransferSource tunableSource =
-                new TunableSource.TunableTransferSource(
-                        config.startInputRate, config.resolution, config.batchSize, RECORD_TRACKING_SERVER_NAME);
-        if (!config.singleSharingGroup) {
-            tunableSource.enableBusyWait();
-        }
+        TunableTransferSource tunableSource =
+                new TunableTransferSource(config, RECORD_TRACKING_SERVER_NAME);
 
         DataStreamSource<TransferID> dsSource = env.addSource(tunableSource);
         SingleOutputStreamOperator<TransferID> tidSource =
-                config.addToSourcesSharingGroup(dsSource, "TunableParallelSource");
+                config.addToSourcesSharingGroup(dsSource, "TunableSource");
         SingleOutputStreamOperator<Transfer> toTranfers = tidSource
-                .map(new TunableSource.ToTransfers(config.keySpaceSize, EvalConfig.startAmount));
+                .map(new TunableTransferSource.ToTransfers(config.keySpaceSize, EvalConfig.startAmount));
         DataStream<Transfer> transfers = config.addToSourcesSharingGroup(toTranfers, "ToTransfers");
 
         // in case of parallel tgraphs, split the original stream for load balancing
@@ -113,10 +110,8 @@ public class Evaluation {
         // ---------------------------- Calculate Metrics
         endTracking // attach only to end tracking, we use a server for begin requests.
                 .addSink(
-                        new FinishOnBackPressure<>(
-                                0.25, config.batchSize, config.startInputRate, config.resolution,
-                                config.maxNumberOfBatches, RECORD_TRACKING_SERVER_NAME))
-                .setParallelism(1).name("FinishOnBackPressure");
+                        new Tracker<>(RECORD_TRACKING_SERVER_NAME))
+                .setParallelism(1).name("EndTracker");
 
         if (TransactionEnvironment.get(env).isVerbose()) {
             out.print();

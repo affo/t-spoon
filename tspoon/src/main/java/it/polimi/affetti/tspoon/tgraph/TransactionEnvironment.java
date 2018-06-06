@@ -75,7 +75,7 @@ public class TransactionEnvironment {
         if (instance == null) {
             instance = new TransactionEnvironment(config.getFlinkEnv());
             instance.registerCustomSerializers();
-            instance.sourcesParallelism = config.sourcePar;
+            instance.sourcesParallelism = 1; // defaults to 1
             instance.openTransactionParallelism = config.openTransactionPar;
             instance.sourcesSharingGroup = config.sourcesSharingGroup;
             instance.configIsolation(config.strategy, config.isolationLevel);

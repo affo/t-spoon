@@ -82,7 +82,7 @@ public class NetUtils {
     }
 
     public static ProxyWALServer launchWALServer(ParameterTool parameters, EvalConfig config) throws IOException {
-        return launchWALServer(parameters, config.sourcePar, config.taskManagerIPs);
+        return launchWALServer(parameters, config.openTransactionPar, config.taskManagerIPs);
     }
 
     public static ProxyWALServer launchWALServer(

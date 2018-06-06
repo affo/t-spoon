@@ -3,6 +3,7 @@ package it.polimi.affetti.tspoon.evaluation;
 import it.polimi.affetti.tspoon.runtime.NetUtils;
 import it.polimi.affetti.tspoon.tgraph.backed.Transfer;
 import it.polimi.affetti.tspoon.tgraph.backed.TransferID;
+import it.polimi.affetti.tspoon.tgraph.backed.TunableTransferSource;
 import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.streaming.api.datastream.DataStream;
@@ -24,18 +25,14 @@ public class PureRates {
         NetUtils.launchJobControlServer(parameters);
         StreamExecutionEnvironment env = config.getFlinkEnv();
 
-        TunableSource.TunableTransferSource tunableSource =
-                new TunableSource.TunableTransferSource(
-                        config.startInputRate, config.resolution, config.batchSize, RECORD_TRACKING_SERVER_NAME);
-        if (!config.singleSharingGroup) {
-            tunableSource.enableBusyWait();
-        }
+        TunableTransferSource tunableSource =
+                new TunableTransferSource(config, RECORD_TRACKING_SERVER_NAME);
 
         DataStreamSource<TransferID> dsSource = env.addSource(tunableSource);
         SingleOutputStreamOperator<TransferID> tidSource =
-                config.addToSourcesSharingGroup(dsSource, "TunableParallelSource");
+                config.addToSourcesSharingGroup(dsSource, "TunableSource");
         SingleOutputStreamOperator<Transfer> toTranfers = tidSource
-                .map(new TunableSource.ToTransfers(config.keySpaceSize, EvalConfig.startAmount));
+                .map(new TunableTransferSource.ToTransfers(config.keySpaceSize, EvalConfig.startAmount));
         DataStream<Transfer> transfers = config.addToSourcesSharingGroup(toTranfers, "ToTransfers");
 
         transfers = transfers.map(new HeavyComputation(heaviness))
@@ -56,11 +53,8 @@ public class PureRates {
                 .getSideOutput(endEndToEndTracker.getRecordTracking());
 
         endTracking
-                .addSink(
-                        new FinishOnBackPressure<>(
-                                0.25, config.batchSize, config.startInputRate, config.resolution,
-                                config.maxNumberOfBatches, RECORD_TRACKING_SERVER_NAME))
-                .setParallelism(1).name("FinishOnBackPressure");
+                .addSink(new Tracker<>(RECORD_TRACKING_SERVER_NAME))
+                .setParallelism(1).name("EndTracker");
 
         env.execute("PureRates");
     }

@@ -7,6 +7,7 @@ import it.polimi.affetti.tspoon.tgraph.TransactionEnvironment;
 import it.polimi.affetti.tspoon.tgraph.backed.Movement;
 import it.polimi.affetti.tspoon.tgraph.backed.Transfer;
 import it.polimi.affetti.tspoon.tgraph.backed.TransferSource;
+import it.polimi.affetti.tspoon.tgraph.backed.TunableQuerySource;
 import it.polimi.affetti.tspoon.tgraph.db.ObjectHandler;
 import it.polimi.affetti.tspoon.tgraph.query.MultiStateQuery;
 import it.polimi.affetti.tspoon.tgraph.query.Query;
@@ -45,13 +46,12 @@ public class QueryEvaluation {
 
         TransactionEnvironment tEnv = TransactionEnvironment.fromConfig(config);
 
-        TransferSource transferSource = new TransferSource(Integer.MAX_VALUE, config.keySpaceSize, config.startAmount);
+        TransferSource transferSource = new TransferSource(Integer.MAX_VALUE, config.keySpaceSize, EvalConfig.startAmount);
         transferSource.setMicroSleep(waitPeriodMicro);
 
-        TunableSource.TunableQuerySource tunableQuerySource = new TunableSource.TunableQuerySource(
-                config.startInputRate, config.resolution, config.batchSize, QUERY_TRACKING_SERVER_NAME, nameSpace,
+        TunableQuerySource tunableQuerySource = new TunableQuerySource(
+                config, QUERY_TRACKING_SERVER_NAME, nameSpace,
                 config.keySpaceSize, averageQuerySize, stdDevQuerySize);
-        tunableQuerySource.enableBusyWait();
 
         SingleOutputStreamOperator<Query> queries = env.addSource(tunableQuerySource);
         queries = config.addToSourcesSharingGroup(queries, "TunableQuerySource");
@@ -102,10 +102,8 @@ public class QueryEvaluation {
 
         balances.queryResults
                 .map(qr -> qr.queryID).returns(QueryID.class)
-                .addSink(
-                        new FinishOnBackPressure<>(0.10, config.batchSize, config.startInputRate,
-                                config.resolution, -1, QUERY_TRACKING_SERVER_NAME))
-                .name("FinishOnBackPressure")
+                .addSink(new Tracker<>(QUERY_TRACKING_SERVER_NAME))
+                .name("EndTracker")
                 .setParallelism(1);
 
 

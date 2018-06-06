@@ -1,57 +1,46 @@
 import sys, os, math, shutil
 import pandas as pd
 import matplotlib.pyplot as plt
+import common as cmn
 
 # ------------ MAIN ------------
 if __name__ == '__main__':
-    if len(sys.argv) < 2:
-        print 'Provide folder name, please'
-        sys.exit(1)
-
-    folder_name = sys.argv[1]
-    img_folder = os.path.join(folder_name, 'img')
-
-    out_fname = os.path.join(folder_name, 'parsed_aggregates.json')
-    aggr = pd.read_json(out_fname)
-
-    def savefig(label, figure):
-        figure.savefig(os.path.join(img_folder, label + '.png'))
-        plt.close(figure)
+    df = cmn.load_parsed_results()
 
     def map_fn(strategy):
         return 'LB-' if strategy == 'PESS' else 'TB-'
 
-    aggr = aggr[(aggr.isolationLevel != 'PL0') & (aggr.isolationLevel != 'PL1')]
-    aggr['strategy'] = aggr['strategy'].map(map_fn) + aggr['isolationLevel']
+    df = df[(df.isolationLevel != 'PL0') & (df.isolationLevel != 'PL1')]
+    df['strategy'] = df['strategy'].map(map_fn) + df['isolationLevel']
 
     # ------ throughput
-    tp = aggr[(aggr.tag1 == 'ks') & (aggr.tag3 == 'tp_stable')]
+    tp = df[(df.tag1 == 'ks') & (df.tag3 == 'tp')]
     tp = tp.sort_values('var')
 
     fig, ax = plt.subplots()
     for key, group in tp.groupby('strategy'):
         group.plot(ax=ax, kind='line', x='var', y='value', label=key)
 
-    ax.set_ylim((0, ax.yaxis.get_data_interval()[1]))
+    ax.set_ylim((0, 10000))
     ax.margins(y=0.1)
     ax.set_ylabel('sustainable throughput [tr/s]')
-    ax.set_xlabel(' ')
+    ax.set_xlabel('keyspace size')
     ax.set_xscale('log')
     plt.gca().invert_xaxis()
-    savefig('ks_tp', fig)
+    cmn.savefig('ks_tp', fig)
 
     # ------ latency
-    lat = aggr[(aggr.tag1 == 'ks') & (aggr.tag3 == 'lat_stable')]
+    lat = df[(df.tag1 == 'ks') & (df.tag3 == 'lat')]
     lat = lat.sort_values('var')
 
     fig, ax = plt.subplots()
     for key, group in lat.groupby('strategy'):
         group.plot(ax=ax, kind='line', x='var', y='value', label=key)
 
-    ax.set_ylim((0, ax.yaxis.get_data_interval()[1]))
+    ax.set_ylim((0, 100))
     ax.margins(y=0.1)
     ax.set_ylabel('average latency [ms]')
-    ax.set_xlabel(' ')
+    ax.set_xlabel('keyspace size')
     ax.set_xscale('log')
     plt.gca().invert_xaxis()
-    savefig('ks_lat', fig)
+    cmn.savefig('ks_lat', fig)

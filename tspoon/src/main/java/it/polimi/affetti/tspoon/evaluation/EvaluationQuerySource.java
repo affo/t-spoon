@@ -10,10 +10,9 @@ import it.polimi.affetti.tspoon.tgraph.query.QuerySupplier;
 public class EvaluationQuerySource extends TunableSource<Query> {
     private final QuerySupplier supplier;
 
-    public EvaluationQuerySource(
-            int baseRate, int resolution, int batchSize, String trackingServerName,
+    public EvaluationQuerySource(EvalConfig config, String trackingServerNameForDiscovery,
             QuerySupplier querySupplier) {
-        super(baseRate, resolution, batchSize, trackingServerName);
+        super(config, trackingServerNameForDiscovery);
         this.supplier = querySupplier;
     }
 

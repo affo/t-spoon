@@ -49,7 +49,7 @@ public class BankUseCaseNoT {
         SingleOutputStreamOperator<Transfer> transfers = env.addSource(transferSource);
         config.addToSourcesSharingGroup(transfers, "TransferSource")
                 .slotSharingGroup(config.sourcesSharingGroup)
-                .setParallelism(config.sourcePar);
+                .setParallelism(1);
 
         transfers
                 .map(t -> t.f0)

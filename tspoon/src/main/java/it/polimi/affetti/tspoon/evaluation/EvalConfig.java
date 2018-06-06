@@ -20,9 +20,8 @@ public class EvalConfig {
 
     public ParameterTool params;
     public String label;
-    public int sourcePar, openTransactionPar;
-    public String sourcesSharingGroup;
-    public boolean singleSharingGroup = false;
+    public int openTransactionPar;
+    public final String sourcesSharingGroup = "sources";
     public IsolationLevel isolationLevel;
     public int parallelism;
     public int partitioning;
@@ -38,13 +37,15 @@ public class EvalConfig {
     public boolean baselineMode;
     public int batchSize;
     public int resolution;
-    public int maxNumberOfBatches;
     public Strategy strategy;
     public int startInputRate;
     public String propertiesFile;
     public boolean isLocal;
     public String[] taskManagerIPs;
     public int closeBatchSize;
+    public long backPressureBatchSize, unloadedBatchSize, targetingBatchSize;
+    public int recordsInQueue, numberOfSamplesUnloaded, minAveragingSteps, maxAveragingSteps;
+    public double stdDevLimit;
 
     private StreamExecutionEnvironment flinkEnv;
 
@@ -54,22 +55,10 @@ public class EvalConfig {
         config.label = parameters.get("label");
         config.isLocal = config.label == null || config.label.startsWith("local");
         config.propertiesFile = parameters.get("propsFile", null);
-        // specify "default" to merge the groups
-        config.sourcesSharingGroup = parameters.get("sourcesSharingGroup", "sources");
-        config.sourcePar = parameters.getInt("sourcePar", 1);
 
-        // let the real source parallelism affect the overall parallelism
-        // only if in 2 separate sharing groups
-        int subtract = config.sourcePar;
-        config.openTransactionPar = config.sourcePar;
-        if (config.sourcesSharingGroup.equals("default")) {
-            config.singleSharingGroup = true;
-            subtract = 0;
-            config.openTransactionPar = 1;
-        }
-
-        config.parallelism = parameters.getInt("par", 4) - subtract;
-        config.partitioning = parameters.getInt("partitioning", 4) - subtract;
+        config.openTransactionPar = parameters.getInt("openPar", 1);
+        config.parallelism = parameters.getInt("par", 4) - 1; // the source has its own slot sharing group
+        config.partitioning = parameters.getInt("partitioning", 4) - 1;
         int isolationLevelNumber = parameters.getInt("isolationLevel", 3);
         config.isolationLevel = IsolationLevel.values()[isolationLevelNumber];
 
@@ -77,7 +66,7 @@ public class EvalConfig {
         // The overall parallelism remains the user-define one minus the original sourcePar
         // for proper comparison with other experiments.
         if (config.isolationLevel == IsolationLevel.PL4) {
-            config.sourcePar = 1;
+            config.openTransactionPar = 1;
         }
 
         config.noTGraphs = parameters.getInt("noTG", 1);
@@ -93,14 +82,20 @@ public class EvalConfig {
         config.stateServerPoolSize = parameters.getInt("statePool", 1);
         config.queryServerPoolSize = parameters.getInt("queryPool", 1);
         config.batchSize = parameters.getInt("batchSize", 100000);
-        config.resolution = parameters.getInt("resolution", 100);
-        config.maxNumberOfBatches = parameters.getInt("numberOfBatches", -1);
+        config.resolution = parameters.getInt("resolution", 50);
         config.startInputRate = parameters.getInt("startInputRate", -1);
         config.startInputRate = getStartRateFromProps(config);
         String ipsCsv = parameters.get("taskmanagers", "localhost");
         config.taskManagerIPs = ipsCsv.split(",");
         config.closeBatchSize = parameters.getInt("closeBatchSize", 0);
-
+        config.backPressureBatchSize = parameters.getLong("backPressureBatchSize", 5000);
+        config.unloadedBatchSize = parameters.getLong("unloadedBatchSize", 5000);
+        config.targetingBatchSize = parameters.getLong("targetingBatchSize", 5000);
+        config.minAveragingSteps = parameters.getInt("minAveragingSteps", 100);
+        config.maxAveragingSteps = parameters.getInt("maxAveragingSteps", 200);
+        config.numberOfSamplesUnloaded = parameters.getInt("numberOfSamplesUnloaded", 5);
+        config.recordsInQueue = parameters.getInt("recordsInQueue", 10);
+        config.stdDevLimit = parameters.getDouble("stdDevLimit", 0.05);
 
         // debugging stuff
         config.printPlan = parameters.getBoolean("printPlan", false);
@@ -166,7 +161,7 @@ public class EvalConfig {
         StreamExecutionEnvironment env;
         if (isLocal) { // TODO the only way to make slot sharing group work locally for now...
             Configuration conf = new Configuration();
-            conf.setInteger("taskmanager.numberOfTaskSlots", parallelism + sourcePar);
+            conf.setInteger("taskmanager.numberOfTaskSlots", parallelism + 1);
             env = StreamExecutionEnvironment.createLocalEnvironment(parallelism, conf);
         } else {
             env = StreamExecutionEnvironment.getExecutionEnvironment();
@@ -191,7 +186,7 @@ public class EvalConfig {
     public <T> SingleOutputStreamOperator<T> addToSourcesSharingGroup(
             SingleOutputStreamOperator<T> ds, String operatorName) {
         return ds
-                .name(operatorName).setParallelism(sourcePar)
+                .name(operatorName).setParallelism(1)
                 .slotSharingGroup(sourcesSharingGroup);
     }
 }

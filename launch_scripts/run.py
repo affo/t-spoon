@@ -16,7 +16,7 @@ if __name__ == "__main__":
     base_url = "http://localhost:8081"
     polling_interval = 20
     errors_threshold = 10
-    experiment_deadline = 1 * 60 * 60 # 1 hour
+    experiment_deadline = 10 * 60 # 10 minutes
 
     resp = requests.post(
             base_url + "/jars/upload",
@@ -64,6 +64,11 @@ if __name__ == "__main__":
                 resp = json.loads(resp.content)
                 status = resp["state"]
                 errors = 0 # reset errors
+
+                no_finished = int(resp['status-counts']['FINISHED'])
+                if no_finished > 4: # some task have finished
+                    print 'Some task have finished, stopping job...'
+                    break
             except ConnectionError:
                 # it could happen for JobManager congestion
                 print "{} - Connection error...".format(iteration)

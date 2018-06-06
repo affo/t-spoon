@@ -26,7 +26,6 @@ export IS_OPTIMISTIC=true
 
 # Parallelism settings
 export TOTAL_SLOTS=42
-export SOURCE_SLOTS=4 # the slots dedicated to sources of the TOTAL_SLOTS
 
 # Defaults
 # parameters appended as default options for every job

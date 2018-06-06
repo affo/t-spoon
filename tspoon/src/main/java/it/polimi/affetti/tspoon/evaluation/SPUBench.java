@@ -20,7 +20,6 @@ import org.apache.flink.api.java.functions.KeySelector;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.configuration.Configuration;
-import org.apache.flink.streaming.api.TimeCharacteristic;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.co.CoMapFunction;
@@ -39,37 +38,23 @@ public class SPUBench {
     public static final String SPU_TRACKING_SERVER_NAME = "spu-tracker";
 
     public static void main(String[] args) throws Exception {
-        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
-        env.setStreamTimeCharacteristic(TimeCharacteristic.ProcessingTime);
-        env.getConfig().setLatencyTrackingInterval(-1);
         ParameterTool parameters = ParameterTool.fromArgs(args);
+        EvalConfig config = EvalConfig.fromParams(parameters);
 
         final double inputFrequency = parameters.getDouble("inputRate", 100);
-        final long bufferTimeout = parameters.getLong("bufferTO", 0);
         final long inputWaitPeriodMicro = Evaluation.getWaitPeriodInMicroseconds(inputFrequency);
-        final int par = parameters.getInt("par", 4);
-        final int partitioning = parameters.getInt("partitioning", 4);
-        final int keySpaceSize = parameters.getInt("ks", 10000);
-
-        final int batchSize = parameters.getInt("batchSize", 10000);
-        final int resolution = parameters.getInt("resolution", 100);
-        final int startInputRate = parameters.getInt("startInputRate", 100);
         final boolean tunable = parameters.getBoolean("tunable", true);
         final boolean singleSource = parameters.getBoolean("singleSource", false);
-
         // relevant only if single source
         final boolean managedState = parameters.getBoolean("managedState", false);
         final boolean reducing = parameters.getBoolean("reducing", false);
 
-        env.setBufferTimeout(bufferTimeout);
-
         NetUtils.launchJobControlServer(parameters);
-        env.getConfig().setGlobalJobParameters(parameters);
-        env.setParallelism(par);
+        StreamExecutionEnvironment env = config.getFlinkEnv();
 
         DataStream<Movement> halves = null;
         if (!singleSource) {
-            TransferSource transferSource = new TransferSource(Integer.MAX_VALUE, keySpaceSize, EvalConfig.startAmount);
+            TransferSource transferSource = new TransferSource(Integer.MAX_VALUE, config.keySpaceSize, EvalConfig.startAmount);
             transferSource.setMicroSleep(inputWaitPeriodMicro);
             DataStream<Transfer> transfers = env.addSource(transferSource).setParallelism(1);
             halves = transfers.flatMap(
@@ -85,22 +70,19 @@ public class SPUBench {
         }
 
         RandomSPUSupplier spuSupplier = new DepositsAndWithdrawalsGenerator(
-                "balances", Transfer.KEY_PREFIX, keySpaceSize, EvalConfig.startAmount
+                "balances", Transfer.KEY_PREFIX, config.keySpaceSize, EvalConfig.startAmount
         );
 
         DataStream<SinglePartitionUpdate> spuStream;
         if (tunable) {
-            TunableSource.TunableSPUSource tunableSPUSource = new TunableSource.TunableSPUSource(
-                    startInputRate, resolution, batchSize, SPU_TRACKING_SERVER_NAME, spuSupplier
-            );
-            tunableSPUSource.enableBusyWait();
+            TunableSPUSource tunableSPUSource = new TunableSPUSource(config, SPU_TRACKING_SERVER_NAME, spuSupplier);
 
             spuStream = env.addSource(tunableSPUSource)
                     .name("TunableSPUSource")
                     // parallelism is set to 1 to have a single threaded busy wait
                     .setParallelism(1);
         } else {
-            SPUSource spuSource = new SPUSource("", keySpaceSize, batchSize, spuSupplier);
+            SPUSource spuSource = new SPUSource("", config.keySpaceSize, config.batchSize, spuSupplier);
 
             spuStream = env.addSource(spuSource)
                     .name("ParallelSPUSource"); // runs with default parallelism
@@ -129,13 +111,13 @@ public class SPUBench {
                         .keyBy(SinglePartitionUpdate::getKey)
                         .map(new Balances(managedState))
                         .name("Balances")
-                        .setParallelism(partitioning);
+                        .setParallelism(config.partitioning);
             }
         } else {
             DataStream<Either<TransferID, SinglePartitionUpdateID>> output = halves.connect(spuStream)
                     .map(new CoBalances())
                     .name("Balances")
-                    .setParallelism(partitioning);
+                    .setParallelism(config.partitioning);
 
             DataStream<TransferID> multiResults = output
                     .flatMap((FlatMapFunction<Either<TransferID, SinglePartitionUpdateID>, TransferID>)
@@ -156,13 +138,12 @@ public class SPUBench {
         if (tunable) {
             singleResults
                     .addSink(
-                            new FinishOnBackPressure<>(0.25, batchSize, startInputRate,
-                                    resolution, -1, SPU_TRACKING_SERVER_NAME))
-                    .name("FinishOnBackPressure")
+                            new Tracker<>(SPU_TRACKING_SERVER_NAME))
+                    .name("EndTracker")
                     .setParallelism(1);
         } else {
             singleResults
-                    .addSink(new FinishOnCountSink<>(batchSize))
+                    .addSink(new FinishOnCountSink<>(config.batchSize))
                     .name("FinishOnCount")
                     .setParallelism(1);
         }

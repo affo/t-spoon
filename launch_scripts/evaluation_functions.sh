@@ -270,3 +270,44 @@ function launch_suite_mixed {
       launch_mixed $size $(($slide - 2000)) $analytics "${@:2}"
     done
 }
+
+function launch_topologies_for {
+  opt=$1
+  level=$2
+  export IS_OPTIMISTIC=$opt
+  export ISOLATION=$level
+
+  strategy_name=""
+  if [[ $opt = true ]]; then
+      strategy_name="TB"
+  else
+      strategy_name="LB"
+  fi
+
+  echo; echo ">>> Strategy: $strategy_name, Isolation level: $ISOLATION"
+
+  echo; echo; echo;
+  echo "Launching series..."
+  sleep 2
+  launch_suite_series_1tg
+
+  echo; echo; echo;
+  echo "Launching series (separated TG)..."
+  sleep 2
+  launch_suite_series_ntg
+
+  echo; echo; echo;
+  echo "Launching parallel"
+  sleep 2
+  launch_suite_parallel_1tg
+
+  echo; echo; echo;
+  echo "Launching parallel (separated TG)..."
+  sleep 2
+  launch_suite_parallel_ntg
+
+  echo; echo; echo;
+  echo "Launching keyspace..."
+  sleep 2
+  launch_suite_keyspace
+}
