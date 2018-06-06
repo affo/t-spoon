@@ -70,16 +70,8 @@ BASE_RESULTS_DIR=$RESULTS_DIR
 rm -r $RESULTS_DIR
 mkdir -p $RESULTS_DIR
 
-# launch normal experiments
+# launch experiments
 launch_topologies $BASE_RESULTS_DIR
-# launch latencies
-
-echo;
-echo "Launching latency experiments"
-echo;
-sleep 2
-export DEFAULT="$DEFAULT --numberOfBatches 1 --startInputRate 50 --batchSize 50000"
-launch_topologies "$BASE_RESULTS_DIR/latencies"
 
 # some experiments run only for 1 isolation level
 # we'll see later what to do with latencies...

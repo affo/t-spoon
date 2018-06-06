@@ -35,6 +35,7 @@ export DEFAULT="--durable false --startInputRate 100 --resolution 100"
 
 # Refreshes the cluster at every job launch
 export REFRESH_CLUSTER=true
+export REFRESH_SLEEP=60 # the seconds to sleep between 2 experiments
 
 # Push Bullet access token for notifications
 # (if you don't want notifications comment this line)

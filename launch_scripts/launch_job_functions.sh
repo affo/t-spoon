@@ -116,7 +116,7 @@ function start-cluster {
 
 function restart-cluster {
     stop-cluster
-    sleep_if 10
+    sleep_if $REFRESH_SLEEP
     start-cluster
-    sleep_if 5
+    sleep_if $REFRESH_SLEEP
 }
