@@ -172,6 +172,16 @@ public class Object<T> implements Serializable {
         return lastVersion;
     }
 
+    public synchronized long getYoungestAccessorTidBefore(long tid) {
+        long max = -1;
+        for (ObjectVersion<T> version : versions) {
+            if (version.createdBy < tid) {
+                max = Math.max(max, version.createdBy);
+            }
+        }
+        return max;
+    }
+
     public synchronized Iterable<ObjectVersion<T>> getVersionsWithin(long startExclusive, long endInclusive) {
         List<ObjectVersion<T>> versions = new LinkedList<>();
 

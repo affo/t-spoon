@@ -11,7 +11,7 @@ public class StandardDependencyTrackingStrategy implements DependencyTrackingStr
     @Override
     public <T> void updateDependencies(Transaction<T> transaction, Object<T> object, long version, long createdBy) {
         if (transaction.vote == Vote.REPLAY) {
-            transaction.addDependency(createdBy);
+            transaction.addDependency(object.getYoungestAccessorTidBefore(transaction.tid));
         }
     }
 }

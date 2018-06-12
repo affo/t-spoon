@@ -295,10 +295,12 @@ public class OpenOperator<T>
                 }
             case ABORT:
                 // committed/aborted transaction satisfies a dependency
-                Long unleashed = dependencyTracker.satisfyDependency(tid);
-                if (unleashed != null) {
-                    replayElement(unleashed);
-                    replayedUponDependencySatisfaction.add(1);
+                Iterable<Long> satisfied = dependencyTracker.satisfyDependency(tid);
+                if (satisfied != null) {
+                    for (long unleashed : satisfied) {
+                        replayElement(unleashed);
+                        replayedUponDependencySatisfaction.add(1);
+                    }
                 }
 
                 // when committing/aborting you can delete the transaction
