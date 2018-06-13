@@ -111,11 +111,4 @@ public class MetricCalculator {
                     '}';
         }
     }
-
-    public static void main(String[] args) {
-        MetricCalculator metricCalculator = new MetricCalculator();
-        metricCalculator.start();
-        Measurement end = metricCalculator.end();
-        System.out.println(Double.isNaN(end.latency));
-    }
 }

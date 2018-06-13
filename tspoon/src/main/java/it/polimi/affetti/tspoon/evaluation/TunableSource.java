@@ -27,9 +27,8 @@ public abstract class TunableSource<T extends UniquelyRepresentableForTracking>
         extends RichSourceFunction<T> {
     public static final long ABORT_TIMEOUT = 3 * 60 * 1000;
     public static final String TARGETING_CURVE_ACC = "targeting-curve";
-    public static final String REFINING_CURVE_ACC = "refining-curve";
     public static final String LATENCY_UNLOADED_ACC = "latency-unloaded";
-    public static final String THROUGHPUT_ACC = "throughput";
+    public static final String INPUT_RATE_ACC = "sustainable-workload";
     public static final String BACKPRESSURE_THROUGHPUT_ACC = "backpressure-throughput";
 
     protected transient Logger LOG;
@@ -37,17 +36,17 @@ public abstract class TunableSource<T extends UniquelyRepresentableForTracking>
 
     private transient Timer timer;
     private boolean busyWait = true;
-    private final int numberOfSamplesUnloaded, minAveragingSteps, maxAveragingSteps;
+    private final int numberOfSamplesUnloaded;
     private final long backPressureBatchSize, unloadedBatchSize, targetingBatchSize;
     protected int count;
     private int recordsInQueue;
-    private double resolution, stdDevLimit;
+    private double resolution;
     private volatile boolean batchOpen = true;
     private transient MetricCalculator metricCalculator;
 
     // accumulators
-    private final MetricCurveAccumulator targetingCurve, averagingCurve;
-    private final MetricAccumulator latencyUnloaded, throughput, backpressureThroughput;
+    private final MetricCurveAccumulator targetingCurve;
+    private final MetricAccumulator latencyUnloaded, sustainableWorkload, backpressureThroughput;
 
     private transient JobControlClient jobControlClient;
     private transient WithServer requestTracker;
@@ -59,18 +58,14 @@ public abstract class TunableSource<T extends UniquelyRepresentableForTracking>
         this.targetingBatchSize = config.targetingBatchSize;
         this.recordsInQueue = config.recordsInQueue;
         this.numberOfSamplesUnloaded = config.numberOfSamplesUnloaded;
-        this.minAveragingSteps = config.minAveragingSteps;
-        this.maxAveragingSteps = config.maxAveragingSteps;
-        this.stdDevLimit = config.stdDevLimit;
         this.trackingServerNameForDiscovery = trackingServerNameForDiscovery;
         this.count = 0;
         this.resolution = config.resolution;
 
         this.targetingCurve = new MetricCurveAccumulator();
-        this.averagingCurve = new MetricCurveAccumulator();
         this.latencyUnloaded = new MetricAccumulator();
         this.backpressureThroughput = new MetricAccumulator();
-        this.throughput = new MetricAccumulator();
+        this.sustainableWorkload = new MetricAccumulator();
     }
 
     public void disableBusyWait() {
@@ -86,9 +81,8 @@ public abstract class TunableSource<T extends UniquelyRepresentableForTracking>
         metricCalculator = new MetricCalculator();
 
         getRuntimeContext().addAccumulator(TARGETING_CURVE_ACC, targetingCurve);
-        getRuntimeContext().addAccumulator(REFINING_CURVE_ACC, averagingCurve);
         getRuntimeContext().addAccumulator(LATENCY_UNLOADED_ACC, latencyUnloaded);
-        getRuntimeContext().addAccumulator(THROUGHPUT_ACC, throughput);
+        getRuntimeContext().addAccumulator(INPUT_RATE_ACC, sustainableWorkload);
         getRuntimeContext().addAccumulator(BACKPRESSURE_THROUGHPUT_ACC, backpressureThroughput);
 
         requestTracker = new WithServer(new TrackingServer());
@@ -137,10 +131,10 @@ public abstract class TunableSource<T extends UniquelyRepresentableForTracking>
             resolution = maxThroughput / 2;
         }
 
-        double sustainableThroughput = runTargetingPhase(maxThroughput, latencyThreshold);
-        runAveragingPhase(sustainableThroughput, latencyThreshold);
+        double sustainableWorkload = runTargetingPhase(maxThroughput, latencyThreshold);
+        this.sustainableWorkload.add(sustainableWorkload);
 
-        LOG.info(">>> Evaluation completed, sustainable throughput is " + throughput.getLocalValue().metric.getMean());
+        LOG.info(">>> Evaluation completed, sustainable workload is " + sustainableWorkload);
         jobControlClient.publishFinishMessage();
     }
 
@@ -172,7 +166,8 @@ public abstract class TunableSource<T extends UniquelyRepresentableForTracking>
 
     private double runTargetingPhase(double maxThroughput, double latencyThreshold) throws InterruptedException {
         LOG.info(">>> Starting targeting phase with target latency " + latencyThreshold + "[ms]");
-        double currentLatency, currentRate = maxThroughput;
+        double currentLatency, currentRate = maxThroughput, sustainableWorkload = maxThroughput;
+        boolean stop = false;
         do {
             MetricCalculator.Measurement m = launchBatch(currentRate, targetingBatchSize);
 
@@ -182,44 +177,19 @@ public abstract class TunableSource<T extends UniquelyRepresentableForTracking>
             }
 
             currentLatency = m.latency;
-            currentRate += resolution * 2;
-            maxThroughput = Math.max(maxThroughput, m.throughput);
+            currentRate += resolution;
+
+            if (currentLatency < latencyThreshold) {
+                sustainableWorkload = m.inputRate;
+            } else {
+                stop = true;
+            }
 
             LOG.info(">>> Targeting data: " + m);
             targetingCurve.add(Point.of(m.inputRate, currentRate, m.latency, m.throughput));
-        } while (currentLatency < latencyThreshold);
+        } while (!stop);
 
-        return maxThroughput;
-    }
-
-    private void runAveragingPhase(double sustainableThroughput, double latencyThreshold) throws InterruptedException {
-        LOG.info(">>> Starting averaging phase with sustainable throughput " + sustainableThroughput + "[r/s]");
-        double stdDevPercentage = 1;
-        int step = 0;
-        while ((step < minAveragingSteps || stdDevPercentage > stdDevLimit) && step < maxAveragingSteps) {
-            MetricCalculator.Measurement m = launchOneSecondBatch(sustainableThroughput);
-
-            if (!m.isValid() || m.latency >= latencyThreshold) {
-                LOG.info(">>> The latency is above threshold, rate -= " + resolution);
-                sustainableThroughput -= resolution;
-                if (sustainableThroughput <= 0) {
-                    sustainableThroughput = 1;
-                }
-            } else {
-                LOG.info(">>> The latency is below threshold, rate += " + resolution);
-                sustainableThroughput += resolution;
-            }
-
-            LOG.info(">>> Data: " + m);
-            averagingCurve.add(Point.of(m.inputRate, sustainableThroughput, m.latency, m.throughput));
-            throughput.add(m.throughput);
-            stdDevPercentage = throughput.getLocalValue().metric.getStandardDeviation() / m.throughput;
-            step++;
-        }
-    }
-
-    private MetricCalculator.Measurement launchOneSecondBatch(double rate) throws InterruptedException {
-        return launchBatch(rate, 1000);
+        return sustainableWorkload;
     }
 
     private MetricCalculator.Measurement launchBatch(double rate, long size) throws InterruptedException {

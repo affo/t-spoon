@@ -44,8 +44,7 @@ public class EvalConfig {
     public String[] taskManagerIPs;
     public int closeBatchSize;
     public long backPressureBatchSize, unloadedBatchSize, targetingBatchSize;
-    public int recordsInQueue, numberOfSamplesUnloaded, minAveragingSteps, maxAveragingSteps;
-    public double stdDevLimit;
+    public int recordsInQueue, numberOfSamplesUnloaded;
 
     private StreamExecutionEnvironment flinkEnv;
 
@@ -88,14 +87,11 @@ public class EvalConfig {
         String ipsCsv = parameters.get("taskmanagers", "localhost");
         config.taskManagerIPs = ipsCsv.split(",");
         config.closeBatchSize = parameters.getInt("closeBatchSize", 0);
-        config.backPressureBatchSize = parameters.getLong("backPressureBatchSize", 5000);
+        config.backPressureBatchSize = parameters.getLong("backPressureBatchSize", 2000);
         config.unloadedBatchSize = parameters.getLong("unloadedBatchSize", 5000);
         config.targetingBatchSize = parameters.getLong("targetingBatchSize", 5000);
-        config.minAveragingSteps = parameters.getInt("minAveragingSteps", 100);
-        config.maxAveragingSteps = parameters.getInt("maxAveragingSteps", 200);
-        config.numberOfSamplesUnloaded = parameters.getInt("numberOfSamplesUnloaded", 5);
-        config.recordsInQueue = parameters.getInt("recordsInQueue", 10);
-        config.stdDevLimit = parameters.getDouble("stdDevLimit", 0.05);
+        config.numberOfSamplesUnloaded = parameters.getInt("numberOfSamplesUnloaded", 10);
+        config.recordsInQueue = parameters.getInt("recordsInQueue", 50);
 
         // debugging stuff
         config.printPlan = parameters.getBoolean("printPlan", false);
