@@ -1,5 +1,9 @@
 if [[ -e "launchrc" ]]; then
     source launchrc
+    IFS=","
+    read -ra TMS_ARRAY <<< "$TASK_MANAGERS"
+    IFS=" "
+    export TMS_ARRAY
     echo ">>> launchrc configuration loaded"
 fi
 

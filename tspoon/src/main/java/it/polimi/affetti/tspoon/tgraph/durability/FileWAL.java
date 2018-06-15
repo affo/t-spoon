@@ -197,7 +197,7 @@ public class FileWAL {
      * @throws IOException
      * @return the time (ms) spent to load the WAL
      */
-    protected long forceReload() throws IOException {
+    public long forceReload() throws IOException {
         long start = System.nanoTime();
         walContent = loadWAL();
         return Math.round((System.nanoTime() - start) * Math.pow(10, -6));

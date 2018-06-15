@@ -44,6 +44,9 @@ public class CloseFunction extends RichFlatMapFunction<Metadata, TransactionResu
     public CloseFunction(TRuntimeContext tRuntimeContext) {
         this.tRuntimeContext = tRuntimeContext;
         this.toReplay = new ArrayList<>();
+        if (tRuntimeContext.isDurabilityEnabled()) {
+            LocalWALServer.incrementNumberOfCloseSinks();
+        }
     }
 
     @Override
@@ -60,10 +63,7 @@ public class CloseFunction extends RichFlatMapFunction<Metadata, TransactionResu
                 getRuntimeContext().getExecutionConfig().getGlobalJobParameters();
 
         if (tRuntimeContext.isDurabilityEnabled()) {
-            // TODO this is dirty, but...
-            int numberOfWALs = getRuntimeContext()
-                    .getNumberOfParallelSubtasks() / tRuntimeContext.getTaskManagers().length;
-            localWALServer = tRuntimeContext.getLocalWALServer(numberOfWALs, parameterTool);
+            localWALServer = tRuntimeContext.getLocalWALServer(parameterTool);
             wal = localWALServer.addAndCreateWAL(tRuntimeContext.getGraphId(), !restored);
 
             MetricAccumulator loadWALTime = new MetricAccumulator();

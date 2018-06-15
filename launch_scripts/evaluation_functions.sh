@@ -174,7 +174,7 @@ function launch_recovery {
 # The default scenario with durability enabled
 function launch_durability {
   launch durability $EVAL_CLASS --noStates 1 --noTG 1 --series true \
-    --durable true "$@"
+    --durable true --taskmanagers $TASK_MANAGERS "$@"
   sleep 1
 }
 
@@ -271,43 +271,39 @@ function launch_suite_mixed {
     done
 }
 
-function launch_topologies_for {
-  opt=$1
-  level=$2
-  export IS_OPTIMISTIC=$opt
-  export ISOLATION=$level
-
-  strategy_name=""
-  if [[ $opt = true ]]; then
-      strategy_name="TB"
-  else
-      strategy_name="LB"
+function launch_replay_simulation {
+  if [[ "$#" -lt 1 ]]; then
+      echo "Input: <inputRate> <params...>"
+      return 1
   fi
 
-  echo; echo ">>> Strategy: $strategy_name, Isolation level: $ISOLATION"
+  local rate=$1
 
-  echo; echo; echo;
-  echo "Launching series..."
+  # broadcast jar
+  for tm in ${TMS_ARRAY[@]}; do
+    echo ">>> Sending jar to TM $tm..."
+    scp $TARGET_JAR $tm:~
+    echo; echo;
+  done
   sleep 2
-  launch_suite_series_1tg
 
-  echo; echo; echo;
-  echo "Launching series (separated TG)..."
-  sleep 2
-  launch_suite_series_ntg
+  local args="--inputRate $rate --parallelism $TOTAL_SLOTS --taskmanagers $TASK_MANAGERS --rounds 1 --jmIP localhost ${@:2}"
+  local session="replay-experiment"
 
-  echo; echo; echo;
-  echo "Launching parallel"
-  sleep 2
-  launch_suite_parallel_1tg
+  # create session
+  screen -AdmS $session -t tab0 bash
+  local i=0
+  for tm in ${TMS_ARRAY[@]}; do
+    echo ">>> TM $tm"
+    cmd="java -cp $TARGET_JAR_NAME:$FLINK_HOME/lib/* $PACKAGE_BASE.$REPLAY_CLASS $args --taskManagerID $i; bash"
+    echo $cmd
+    screen -S $session -X screen -t "$tm" ssh -t "$tm" "$cmd"
+    echo; echo;
+    ((i = i + 1))
+  done
 
-  echo; echo; echo;
-  echo "Launching parallel (separated TG)..."
-  sleep 2
-  launch_suite_parallel_ntg
+  echo "Resuming screen in seconds..."
+  sleep 3
 
-  echo; echo; echo;
-  echo "Launching keyspace..."
-  sleep 2
-  launch_suite_keyspace
+  screen -r
 }

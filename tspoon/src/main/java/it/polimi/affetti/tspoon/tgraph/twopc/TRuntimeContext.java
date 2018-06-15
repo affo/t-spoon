@@ -198,12 +198,12 @@ public class TRuntimeContext implements Serializable {
         }
     }
 
-    public LocalWALServer getLocalWALServer(int numberOfWALs, ParameterTool parameterTool) throws IOException {
+    public LocalWALServer getLocalWALServer(ParameterTool parameterTool) throws IOException {
         Address proxyWALServerAddress = NetUtils.getProxyWALServerAddress(parameterTool);
         synchronized (TRuntimeContext.class) {
             if (localWALServer == null) {
                 localWALServer = NetUtils.getServer(NetUtils.ServerType.WAL,
-                        new LocalWALServer(numberOfWALs, proxyWALServerAddress.ip, proxyWALServerAddress.port));
+                        new LocalWALServer(proxyWALServerAddress.ip, proxyWALServerAddress.port));
             }
 
             return localWALServer;

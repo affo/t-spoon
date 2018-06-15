@@ -5,7 +5,9 @@ import it.polimi.affetti.tspoon.runtime.*;
 import java.io.EOFException;
 import java.io.IOException;
 import java.net.Socket;
+import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.List;
 import java.util.function.Function;
 
 /**
@@ -17,18 +19,18 @@ import java.util.function.Function;
  * Only one per machine
  */
 public class LocalWALServer extends AbstractServer{
+    private static int numberOfWALs = 0;
     // for multiple servers on the same machine (mainly for testing)
     private static int id = 0;
     private final int localWALServerID;
-    private final FileWAL[] wals;
+    private final List<FileWAL> wals;
     private final ObjectClient toProxyWAL;
-    private int index = 0;
     private boolean snapshotInProgress = false;
     private long inProgressWatermark = -1;
     private Thread snapshotter;
 
-    public LocalWALServer(int numberOfWALs, String proxyWALIp, int proxyWALPort) {
-        this.wals = new FileWAL[numberOfWALs];
+    public LocalWALServer(String proxyWALIp, int proxyWALPort) {
+        this.wals = new ArrayList<>();
         this.toProxyWAL = new ObjectClient(proxyWALIp, proxyWALPort);
         this.localWALServerID = id;
         id++;
@@ -49,22 +51,30 @@ public class LocalWALServer extends AbstractServer{
         toProxyWAL.close();
     }
 
+    /**
+     * Dirty way of knowing the number of FileWALs at open time.
+     * I suppose that, once LocalWalServer `open`s every CloseFunction has been created
+     * @return
+     */
+    public static synchronized void incrementNumberOfCloseSinks() {
+        numberOfWALs++;
+    }
+
     public synchronized void addWAL(FileWAL wal) {
-        wals[index++] = wal;
+        wals.add(wal);
         notifyAll();
     }
 
     public synchronized FileWAL addAndCreateWAL(int tGraphID, boolean overwrite) throws IOException {
-        String walName = String.format("lws%d_tg%d_%d", localWALServerID, tGraphID, index);
+        String walName = String.format("lws%d_tg%d_%d", localWALServerID, tGraphID, wals.size());
         FileWAL wal = new FileWAL(walName, overwrite);
         wal.open();
-        wals[index++] = wal;
-        notifyAll();
+        addWAL(wal);
         return wal;
     }
 
     private synchronized void waitForWALs() throws InterruptedException {
-        while (index < wals.length) {
+        while (wals.size() < numberOfWALs) {
             wait();
         }
     }
@@ -92,7 +102,7 @@ public class LocalWALServer extends AbstractServer{
     }
 
     // Only for testing
-    FileWAL[] getWrappedWALs() {
+    Iterable<FileWAL> getWrappedWALs() {
         return wals;
     }
 

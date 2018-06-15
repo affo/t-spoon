@@ -1,14 +1,15 @@
-package it.polimi.affetti.tspoon.tgraph.durability;
+package it.polimi.affetti.tspoon.evaluation;
 
 import it.polimi.affetti.tspoon.common.TimestampGenerator;
 import it.polimi.affetti.tspoon.metrics.Metric;
+import it.polimi.affetti.tspoon.metrics.Report;
 import it.polimi.affetti.tspoon.runtime.NetUtils;
 import it.polimi.affetti.tspoon.tgraph.Updates;
 import it.polimi.affetti.tspoon.tgraph.Vote;
+import it.polimi.affetti.tspoon.tgraph.durability.*;
 import org.apache.flink.api.java.utils.ParameterTool;
 
 import java.io.IOException;
-import java.util.Arrays;
 import java.util.Iterator;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -17,8 +18,10 @@ import java.util.stream.IntStream;
 
 /**
  * Created by affo on 18/05/18.
+ *
+ * This experiment emulates what happens upon replay.
  */
-public class ReplayTest {
+public class SimulateReplayTest {
     private static Metric reloadAtSink = new Metric();
     private static Metric reloadAtSource = new Metric();
     private static Metric reloadAtState = new Metric();
@@ -50,9 +53,10 @@ public class ReplayTest {
         IntStream.range(0, numRecords)
                 .mapToObj(i -> {
                     int index = i % numberOfSources;
-                    long nextID = tg[index].nextTimestamp();
+                    long nextTS = tg[index].nextTimestamp();
+                    long tid = tg[index].toLogical(nextTS);
                     int partition = i % numberOfPartitions;
-                    return createEntry(nextID, nextID, partition);
+                    return createEntry(tid, nextTS, partition);
                 })
                 .forEach(entry -> {
                     int index = (int) (entry.tid % numberOfWALs);
@@ -72,57 +76,76 @@ public class ReplayTest {
     public static void main(String[] args) throws Exception {
         ParameterTool parameters = ParameterTool.fromArgs(args);
         int inputRate = parameters.getInt("inputRate");
-        int checkpointInterval = parameters.getInt("checkpointInterval");
-        int numberOfWALs = parameters.getInt("numberOfWALs");
-        int numberOfLocalServers = parameters.getInt("numberOfLocalServers");
-        int numberOfSources = parameters.getInt("numberOfSources");
-        int numberOfPartitions = parameters.getInt("numberOfPartitions");
-        int numberOfRounds = parameters.getInt("numberOfRounds", 1);
-        int numberOfRecords = inputRate * checkpointInterval;
+        int checkpointInterval = parameters.getInt("checkpointInterval", 60);
+        int numberOfSources = parameters.getInt("numberOfSources", 1);
+        int parallelism = parameters.getInt("parallelism") - numberOfSources;
+        String tms = parameters.get("taskmanagers", "localhost");
+        String jobmanagerIP = parameters.get("jmIP", "jobmanager");
+        int tmID = parameters.getInt("taskManagerID");
+        int numberOfRounds = parameters.getInt("rounds", 1);
 
-        // start proxy
-        String[] ips = new String[numberOfLocalServers];
-        Arrays.fill(ips, "localhost");
-        ProxyWALServer proxyWALServer = NetUtils.launchWALServer(
-                parameters, numberOfSources, ips);
 
-        // create WALs and local servers
-        LocalWALServer[] localWALServers = new LocalWALServer[numberOfLocalServers];
-        for (int i = 0; i < localWALServers.length; i++) {
-            localWALServers[i] = NetUtils.getServer(NetUtils.ServerType.WAL,
-                    new LocalWALServer(numberOfWALs / numberOfLocalServers,
-                            proxyWALServer.getIP(), proxyWALServer.getPort()));
+        String[] taskManagers = tms.split(",");
+        int numberOfTaskmanagers = taskManagers.length;
+        int totalNumberOfRecords = inputRate * checkpointInterval;
+        int numberOfRecords = totalNumberOfRecords / numberOfTaskmanagers;
+        if (tmID == 0) {
+            numberOfRecords += totalNumberOfRecords % numberOfTaskmanagers;
+        }
+        int numberOfTasksHosted = parallelism / numberOfTaskmanagers;
+        if (tmID == numberOfSources) {
+            // Get remaining tasks only if you don't host a source.
+            // It can happen only when the number of tasks
+            // is not divisible by taskManagers (thus has to be > 1)
+            numberOfTasksHosted += parallelism % numberOfTaskmanagers;
+        }
+        boolean jm = tmID == 0;
+        boolean hostingSource = tmID < numberOfSources;
+
+
+        ProxyWALServer proxyWALServer = null;
+        if (jm) {
+            System.out.println(">>> Starting proxyWALServer at JobManager");
+            // start proxy
+            proxyWALServer = NetUtils.launchWALServer(
+                    parameters, numberOfSources, taskManagers);
         }
 
-        FileWAL[] wals = new FileWAL[numberOfWALs];
+        // create WALs and the local server
+        System.out.println(">>> Starting localWALServer at TM" + tmID);
+        LocalWALServer localWALServer = NetUtils.getServer(NetUtils.ServerType.WAL,
+                new LocalWALServer(jobmanagerIP, NetUtils.GLOBAL_WAL_SERVER_PORT));
+
+        FileWAL[] wals = new FileWAL[numberOfTasksHosted];
         for (int i = 0; i < wals.length; i++) {
             wals[i] = new FileWAL("wal-test" + i + ".tmp.log", true);
             wals[i].open();
-            int index = i % localWALServers.length;
-            localWALServers[index].addWAL(wals[i]);
+            localWALServer.addWAL(wals[i]);
         }
 
-        // start clients
-        WALClient[] atSource = new WALClient[numberOfSources];
-        for (int i = 0; i < atSource.length; i++) {
-            atSource[i] = WALClient.get(ips);
+        // start source client only if the tmID allows it
+        WALClient atSource = null;
+        if (hostingSource) {
+            System.out.println(">>> Starting source WALClient at TM" + tmID);
+            atSource = WALClient.get(taskManagers);
         }
-        WALClient[] atState = new WALClient[numberOfPartitions];
+
+        WALClient[] atState = new WALClient[numberOfTasksHosted];
         for (int i = 0; i < atState.length; i++) {
-            atState[i] = WALClient.get(ips);
+            System.out.println(">>> Starting state WALClient at TM" + tmID);
+            atState[i] = WALClient.get(taskManagers);
         }
 
         System.out.println(">>> Init complete, filling WALs");
 
         // fillWALs
         long start = System.nanoTime();
-        fillWALs(numberOfRecords, numberOfSources, numberOfWALs, numberOfPartitions, wals);
+        fillWALs(numberOfRecords, numberOfSources, numberOfTasksHosted, parallelism, wals);
         double delta = (System.nanoTime() - start) * Math.pow(10, -6);
 
         System.out.println(">>> Filled in " + delta + "[ms], now replaying");
 
-        Semaphore barrier = new Semaphore(0);
-        // ok, now we should replay from various clients
+        // -------------- Reload phase
         for (int i = 0; i < numberOfRounds; i++) {
             // reload
             int w = 0;
@@ -132,14 +155,21 @@ public class ReplayTest {
                 System.out.println(">>> WAL[" + w + "] loaded from disk");
                 w++;
             }
+        }
 
-            for (int j = 0; j < atSource.length; j++) {
-                int finalJ = j;
-                WALClient source = atSource[j];
+        Thread.sleep(5000);
+        // Every participant in this test should have reloaded his WAL
+        // numberOfRounds times by this time
+
+        // -------------- Replay phase
+        Semaphore barrier = new Semaphore(0);
+        for (int i = 0; i < numberOfRounds; i++) {
+            if (atSource != null) {
+                WALClient finalAtSource = atSource;
                 pool.submit(() -> {
                     try {
                         measure(reloadAtSource, () -> {
-                            Iterator<WALEntry> replay = source.replay(finalJ, numberOfSources);
+                            Iterator<WALEntry> replay = finalAtSource.replay(tmID, numberOfSources);
                             int n = 0;
                             while (replay.hasNext()) {
                                 replay.next();
@@ -148,7 +178,7 @@ public class ReplayTest {
                             synchronized (recordsAtSource) {
                                 recordsAtSource.add((double) n);
                             }
-                            System.out.println(">>> SOURCE[" + finalJ + "] replayed");
+                            System.out.println(">>> SOURCE[" + tmID + "] replayed");
                         });
                         barrier.release();
                     } catch (Exception e) {
@@ -181,44 +211,42 @@ public class ReplayTest {
                 });
             }
 
-            barrier.acquire(atSource.length + atState.length);
-
+            int plus = atSource == null ? 0 : 1;
+            barrier.acquire(plus + atState.length);
             System.out.println(">>> Round number " + (i + 1) + "/" + numberOfRounds + " finished.");
         }
+
 
         // close everything
         for (WALClient client : atState) {
             client.close();
         }
 
-        for (WALClient client : atSource) {
-            client.close();
+        if (atSource != null) {
+            atSource.close();
         }
 
         for (FileWAL wal : wals) {
             wal.close();
         }
 
-        for (LocalWALServer localWALServer : localWALServers) {
-            localWALServer.close();
+        localWALServer.close();
+        if (proxyWALServer != null) {
+            proxyWALServer.close();
         }
-
-        proxyWALServer.close();
         pool.shutdown();
 
         // print results
         Thread.sleep(1000);
-        System.out.println(">>> Total number of entries (120k is 11MB): " + numberOfRecords);
-        System.out.println(">>> Reload at sink[ms]:");
-        System.out.println(reloadAtSink);
-        System.out.println(">>> Replay at source[ms]:");
-        System.out.println(reloadAtSource);
-        System.out.println(">>>>>> Number of replays at source:");
-        System.out.println(recordsAtSource);
-        System.out.println(">>> Replay at state[ms]:");
-        System.out.println(reloadAtState);
-        System.out.println(">>>>>> Number of replays at state:");
-        System.out.println(recordsAtState);
+        Report report = new Report("replay-results-tm" + tmID);
+        // >>> Total number of entries (120k is 11MB):
+        report.addField("number-of-entries", numberOfRecords);
+        report.addField("reload-at-sink", reloadAtSink);
+        report.addField("replay-at-source", reloadAtSource);
+        report.addField("records-at-source", recordsAtSource);
+        report.addField("replay-at-state", reloadAtState);
+        report.addField("records-at-state", recordsAtState);
+        report.writeToFile();
     }
 
     @FunctionalInterface
