@@ -3,7 +3,7 @@ import pandas as pd
 
 # Please create a folder containing only parse aggragates from multiple runs,
 # the script will output the description (mean, max, min , percentiles) in the
-# file "aggagg.json"
+# file "aggregated.json"
 
 # ------------ MAIN ------------
 if __name__ == '__main__':
@@ -12,7 +12,7 @@ if __name__ == '__main__':
         sys.exit(1)
 
     folder_name = sys.argv[1]
-    aggagg = pd.DataFrame()
+    aggregated = pd.DataFrame()
 
     # aggregates_columns = [
     #    'value', 'strategy', 'isolationLevel', 'var',
@@ -20,7 +20,7 @@ if __name__ == '__main__':
     # ]
     # NOTE group by everything!
 
-    filename = 'aggagg.json'
+    filename = 'aggregated.json'
     parsed = 0
     for subdir, dirs, files in os.walk(folder_name):
         for file in files:
@@ -30,21 +30,24 @@ if __name__ == '__main__':
 
                 print '>>> Parsing', fname
                 agg = pd.read_json(fname)
-                aggagg = aggagg.append(agg, ignore_index=True)
+                aggregated = aggregated.append(agg, ignore_index=True)
 
-    aggagg = aggagg.fillna('None')
+    aggregated = aggregated.fillna('None')
+    aggregated['value'] = pd.to_numeric(aggregated.value, errors='coerce')
     agg_columns = [
        'strategy', 'isolationLevel', 'var', 'tag1', 'tag2', 'tag3'
     ]
-    grouped = aggagg.groupby(agg_columns)
+    grouped = aggregated.groupby(agg_columns)
 
-    described = pd.DataFrame(pd.concat([pd.Series(name), group['value'].describe().rename(name)])
+    described = pd.DataFrame(pd.concat([pd.Series(name), group.value.describe().rename(name)])
                          for name, group in grouped)
     indices = range(0, len(agg_columns))
     described = described.rename(dict(zip(indices, agg_columns)), axis='columns')
+    described.rename(columns={'mean':'value'}, inplace=True)
 
     out_fname = os.path.join(folder_name, filename)
     described.to_json(out_fname)
 
     print '>>> Output written to', out_fname
     print '>>> Parsed:', parsed
+    print '>>> Empty values:', described.value.isnull().sum()

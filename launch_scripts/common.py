@@ -3,7 +3,6 @@ import traceback, json
 
 IMG_FOLDER = None
 
-
 def load_experiment(fname):
     with open(fname) as fp:
         result = json.load(fp)
@@ -24,7 +23,13 @@ def load_parsed_results():
     IMG_FOLDER = os.path.join(folder_name, 'img')
 
     out_fname = os.path.join(folder_name, 'parsed_results.json')
-    df = pd.read_json(out_fname)
+    out_fname2 = os.path.join(folder_name, 'aggregated.json')
+
+    try:
+        df = pd.read_json(out_fname)
+    except:
+        df = pd.read_json(out_fname2)
+
     return df
 
 
@@ -58,7 +63,7 @@ class ExperimentResult(object):
             self._results = self._raw['accumulators']
 
             lat = self._results.get('latency-unloaded')
-            tp = self._results.get('throughput')
+            tp = self._results.get('sustainable-workload')
 
             self.latency = None if lat is None else lat.get('mean')
             self.throughput = None if tp is None else tp.get('mean')
@@ -80,7 +85,7 @@ class ExperimentResult(object):
         if notes:
             reasons.append(notes)
 
-        avg_curve = result['accumulators']['refining-curve']
+        avg_curve = result['accumulators']['targeting-curve']
         if len(avg_curve) == 0:
             reasons.append('The job terminated prematurely.')
 
@@ -139,6 +144,5 @@ class ExperimentResult(object):
             dictionary.update(dict(
                 latency=self.latency,
                 throughput=self.throughput,
-                tp_deviation=self.deviation
             ))
         return str(dictionary)

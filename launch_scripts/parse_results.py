@@ -59,7 +59,6 @@ def load_results(folder_name):
     print '>>> Number of experiments:', number_of_experiments
 
     df = pd.DataFrame(data, columns=columns)
-    print df
     return df, problems
 
 

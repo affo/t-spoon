@@ -21,7 +21,7 @@ if __name__ == '__main__':
     for key, group in tp.groupby('strategy'):
         group.plot(ax=ax, kind='line', x='var', y='value', label=key)
 
-    ax.set_ylim((0, 10000))
+    ax.set_ylim((0, 15000))
     ax.margins(y=0.1)
     ax.set_ylabel('sustainable throughput [tr/s]')
     ax.set_xlabel('keyspace size')

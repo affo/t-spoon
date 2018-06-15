@@ -16,7 +16,7 @@ if __name__ == '__main__':
     fig, ax = plt.subplots()
     ln_tp, = ax.plot(tp['var'].tolist(), tp['value'].tolist(), '-')
 
-    ax.set_ylim((0, ax.yaxis.get_data_interval()[1]))
+    ax.set_ylim((0, 60000))
     ax.margins(y=0.1)
     ax.set_ylabel('sustainable throughput [tr/s]')
     ax.set_xlabel('number of keys per query')
@@ -39,7 +39,7 @@ if __name__ == '__main__':
     fig, ax = plt.subplots()
     lat.plot(ax=ax, kind='line', x='var', y='value')
 
-    ax.set_ylim((0, ax.yaxis.get_data_interval()[1]))
+    ax.set_ylim((0, 100))
     ax.margins(y=0.1)
     ax.set_ylabel('average latency [ms]')
     ax.set_xlabel('number of keys per query')
