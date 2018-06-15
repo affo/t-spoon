@@ -6,24 +6,13 @@ import matplotlib.pyplot as plt
 if __name__ == '__main__':
     df = cmn.load_parsed_results()
 
-    def fix_columns(row):
-        chain = 'CHAIN' if row.tag1 == 'series' else 'PARALLEL'
-        single = 'SINGLE' if row.tag2 == '1tg' else 'MULTI'
-        tag = chain + '-' + single
-        strategy = 'LB-' if row.strategy == 'PESS' else 'TB-'
-        strategy += row.isolationLevel
-        s = pd.Series({
-            'value': row['value'],
-            'strategy': strategy,
-            'var': row['var'],
-            'type': tag,
-            'tplat': row.tag3
-        })
-        return s
-
-    df = df[(df.isolationLevel != 'PL0') & (df.isolationLevel != 'PL1')]
     df = df[(df.tag1 != 'query') & (df.tag1 != 'ks')]
-    df = df.apply(fix_columns, axis=1)
+    df['tag1'] = df['tag1'].apply(lambda v: 'CHAIN' if v == 'series' else 'PARALLEL')
+    df['tag2'] = df['tag2'].apply(lambda v: 'SINGLE' if v == '1tg' else 'MULTI')
+    df['type'] = df['tag1'] + '-' + df['tag2']
+    df['strategy'] = df['strategy'].apply(lambda v: 'LB' if v == 'PESS' else 'TB')
+    df['strategy'] = df['strategy'] + '-' + df['isolationLevel']
+    df['tplat'] = df['tag3']
 
     # -------- Throughput
     tp = df[df.tplat == 'tp'].sort_values('var')
@@ -33,7 +22,7 @@ if __name__ == '__main__':
         fig, ax = plt.subplots()
 
         for strategy, grp in group.groupby('strategy'):
-            grp.plot(ax=ax, kind='line', x='var', y='value', label=strategy)
+            cmn.my_plot(grp, ax=ax, kind='line', x='var', y='value', label=strategy)
 
         ax.set_ylim((0, 15000))
         ax.margins(y=0.1)
@@ -52,7 +41,7 @@ if __name__ == '__main__':
         fig, ax = plt.subplots()
 
         for strategy, grp in group.groupby('strategy'):
-            grp.plot(ax=ax, kind='line', x='var', y='value', label=strategy)
+            cmn.my_plot(grp, ax=ax, kind='line', x='var', y='value', label=strategy)
 
         ax.set_ylim((0, 100))
         ax.margins(y=0.1)

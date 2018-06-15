@@ -1,4 +1,5 @@
 import pandas as pd
+import matplotlib.pyplot as plt
 import traceback, json
 
 IMG_FOLDER = None
@@ -31,6 +32,12 @@ def load_parsed_results():
         df = pd.read_json(out_fname2)
 
     return df
+
+
+def my_plot(data, **kwargs):
+    data.plot(**kwargs)
+    if 'std' in data.columns:
+        plt.errorbar(data['var'], data['value'], data['std'], fmt='xk', lw=1)
 
 
 def savefig(label, figure):

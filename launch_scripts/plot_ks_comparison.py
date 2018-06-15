@@ -19,7 +19,7 @@ if __name__ == '__main__':
 
     fig, ax = plt.subplots()
     for key, group in tp.groupby('strategy'):
-        group.plot(ax=ax, kind='line', x='var', y='value', label=key)
+        cmn.my_plot(group, ax=ax, kind='line', x='var', y='value', label=key)
 
     ax.set_ylim((0, 15000))
     ax.margins(y=0.1)
@@ -35,7 +35,7 @@ if __name__ == '__main__':
 
     fig, ax = plt.subplots()
     for key, group in lat.groupby('strategy'):
-        group.plot(ax=ax, kind='line', x='var', y='value', label=key)
+        cmn.my_plot(group, ax=ax, kind='line', x='var', y='value', label=key)
 
     ax.set_ylim((0, 100))
     ax.margins(y=0.1)
