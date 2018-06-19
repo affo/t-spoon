@@ -160,14 +160,7 @@ function launch_flink_wordcount {
 }
 
 function launch_recovery {
-    if [[ "$#" -lt 1 ]]; then
-        echo "Input: <csv_list_of_ips_in_cluster> <params...>"
-        return 1
-    fi
-
-    local csv_ips=$1
-
-    launch recovery $RECOVERY_CLASS --taskmanagers $csv_ips "${@:2}"
+    launch recovery $RECOVERY_CLASS --taskmanagers $TASK_MANAGERS "${@:2}"
     sleep 1
 }
 
@@ -227,7 +220,7 @@ function launch_suite_parallel_ntg {
 }
 
 function launch_suite_keyspace {
-    _launch_suite_keyspace 100000,70000,40000,10000,7000,4000,1000,700,400,100
+    _launch_suite_keyspace 100000,50000,10000,5000,1000,5000,100
 }
 
 function launch_suite_query {
@@ -238,11 +231,12 @@ function launch_suite_query {
 }
 
 function launch_suite_scalability {
-    launch_scalability $TOTAL_SLOTS --sourcePar 4 # the real parallelism is 8 - 4
-    launch_scalability $(($TOTAL_SLOTS / 2)) --sourcePar 4
-    launch_scalability $(($TOTAL_SLOTS / 2 - 4)) --sourcePar 4
-    launch_scalability $(($TOTAL_SLOTS / 2 - 8)) --sourcePar 4
-    launch_scalability $(($TOTAL_SLOTS / 2 - 12)) --sourcePar 4
+    launch_scalability 2
+    launch_scalability 4
+    launch_scalability 8
+    launch_scalability 16
+    launch_scalability 32
+    launch_scalability 48
 }
 
 function launch_suite_mixed {
