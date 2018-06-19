@@ -6,14 +6,9 @@ import common as cmn
 # ------------ MAIN ------------
 if __name__ == '__main__':
     df = cmn.load_parsed_results()
-    ks_size = 100000
 
-    def map_fn(strategy):
-        return 'LB' if strategy == 'PESS' else 'TB'
-
-    df = df[(df.tag1 == 'ks') & (df['var'] == ks_size)]
-    df = df[(df.isolationLevel != 'PL0') & (df.isolationLevel != 'PL1')]
-    df['strategy'] = df['strategy'].map(map_fn)
+    df = df[(df['tag1'] == 'series') & (df['tag2'] == 'ntg') & (df['var'] == 1)]
+    df['strategy'] = df['strategy'].apply(lambda v: 'LB' if v == 'PESS' else 'TB')
 
     lb = df[(df.strategy == 'LB')]
     tb = df[(df.strategy == 'TB')]

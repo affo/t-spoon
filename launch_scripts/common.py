@@ -1,5 +1,6 @@
 import pandas as pd
 import matplotlib.pyplot as plt
+from matplotlib import container
 import traceback, json, itertools
 
 IMG_FOLDER = None
@@ -49,19 +50,24 @@ reset_colors_and_markers()
 
 
 def my_plot(data, ax, **kwargs):
+    color = _it_colors.next()
     data.plot(
         ax=ax,
-        color=_it_colors.next(),
+        color=color,
         marker=_it_markers.next(),
         markerfacecolor='none',
         **kwargs)
+
     if 'std' in data.columns:
-        plt.errorbar(data['var'], data['value'], data['std'], fmt='xk', lw=1)
+        plt.errorbar(data['var'], data['value'], yerr=data['std'],
+        linestyle='None', color=color, label=None)
 
     # redraw the legend for known bugs: https://github.com/pandas-dev/pandas/issues/14958
     # in case there is no external parameter
     if kwargs.get('legend') is None:
-        ax.legend()
+        handles, labels = ax.get_legend_handles_labels()
+        handles = [h[0] if isinstance(h, container.ErrorbarContainer) else h for h in handles]
+        ax.legend(handles, labels)
 
 
 def savefig(label, figure):
