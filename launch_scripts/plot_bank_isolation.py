@@ -44,13 +44,15 @@ if __name__ == '__main__':
     joined = joined.apply(merge_fn, axis=1)
     joined.columns = ['tplat', 'isolation', 'TB', 'LB']
 
+    colors = ['#424242', 'darkorange']
     # ------ throughput
     tp = joined[(joined.tplat == 'tp')]
 
     fig, ax = plt.subplots()
-    tp.plot(ax=ax, kind='bar', x='isolation', y=ys, rot=0)
+    tp.plot(ax=ax, kind='bar', x='isolation', y=ys, rot=0,
+        color=colors, linewidth=1, width=0.35)
 
-    ax.set_ylim((0, 8000))
+    ax.set_ylim((0, 15000))
     ax.margins(y=0.1)
     ax.set_ylabel('sustainable throughput [tr/s]')
     ax.set_xlabel(' ')
@@ -60,7 +62,8 @@ if __name__ == '__main__':
     lat = joined[(joined.tplat == 'lat')]
 
     fig, ax = plt.subplots()
-    lat.plot(ax=ax, kind='bar', x='isolation', y=ys, rot=0)
+    lat.plot(ax=ax, kind='bar', x='isolation', y=ys, rot=0,
+        color=colors, linewidth=1, width=0.35)
 
     ax.set_ylim((0, 20))
     ax.margins(y=0.1)

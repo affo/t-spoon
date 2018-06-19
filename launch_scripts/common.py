@@ -1,6 +1,6 @@
 import pandas as pd
 import matplotlib.pyplot as plt
-import traceback, json
+import traceback, json, itertools
 
 IMG_FOLDER = None
 
@@ -33,11 +33,35 @@ def load_parsed_results():
 
     return df
 
+COLORS = ['black', 'darkorange', 'dodgerblue', 'crimson', 'forestgreen']
+MARKERS = ['o', 'x', 'v', 's', 'p']
 
-def my_plot(data, **kwargs):
-    data.plot(**kwargs)
+_it_colors = None
+_it_markers = None
+
+def reset_colors_and_markers():
+    global _it_colors, _it_markers
+    _it_colors = itertools.cycle(COLORS)
+    _it_markers = itertools.cycle(MARKERS)
+
+# reset at first import
+reset_colors_and_markers()
+
+
+def my_plot(data, ax, **kwargs):
+    data.plot(
+        ax=ax,
+        color=_it_colors.next(),
+        marker=_it_markers.next(),
+        markerfacecolor='none',
+        **kwargs)
     if 'std' in data.columns:
         plt.errorbar(data['var'], data['value'], data['std'], fmt='xk', lw=1)
+
+    # redraw the legend for known bugs: https://github.com/pandas-dev/pandas/issues/14958
+    # in case there is no external parameter
+    if kwargs.get('legend') is None:
+        ax.legend()
 
 
 def savefig(label, figure):
@@ -61,6 +85,7 @@ class ExperimentResult(object):
             self.problems = self._check_result(result_dict)
 
             self._raw = result_dict
+            self._parallelism = int(result_dict['config']['execution-config']['job-parallelism'])
             self._tags = self._parse_tags(
                 result_dict['config']['execution-config']['user-config'])
 
@@ -120,6 +145,10 @@ class ExperimentResult(object):
         if 'keyspace' in label:
             experiment_type = 'ks'
             x = int(config['ks'])
+
+        if 'scale' in label:
+            experiment_type = 'scale'
+            x = self._parallelism
 
         if experiment_type is None:
             if '1tg' in label:

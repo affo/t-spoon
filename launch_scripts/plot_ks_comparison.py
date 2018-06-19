@@ -14,12 +14,13 @@ if __name__ == '__main__':
     df['strategy'] = df['strategy'].map(map_fn) + df['isolationLevel']
 
     # ------ throughput
+    cmn.reset_colors_and_markers()
     tp = df[(df.tag1 == 'ks') & (df.tag3 == 'tp')]
     tp = tp.sort_values('var')
 
     fig, ax = plt.subplots()
     for key, group in tp.groupby('strategy'):
-        cmn.my_plot(group, ax=ax, kind='line', x='var', y='value', label=key)
+        cmn.my_plot(group, ax, kind='line', x='var', y='value', label=key)
 
     ax.set_ylim((0, 15000))
     ax.margins(y=0.1)
@@ -30,12 +31,13 @@ if __name__ == '__main__':
     cmn.savefig('ks_tp', fig)
 
     # ------ latency
+    cmn.reset_colors_and_markers()
     lat = df[(df.tag1 == 'ks') & (df.tag3 == 'lat')]
     lat = lat.sort_values('var')
 
     fig, ax = plt.subplots()
     for key, group in lat.groupby('strategy'):
-        cmn.my_plot(group, ax=ax, kind='line', x='var', y='value', label=key)
+        cmn.my_plot(group, ax, kind='line', x='var', y='value', label=key)
 
     ax.set_ylim((0, 100))
     ax.margins(y=0.1)

@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 if __name__ == '__main__':
     df = cmn.load_parsed_results()
 
-    df = df[(df.tag1 != 'query') & (df.tag1 != 'ks')]
+    df = df[(df['tag1'] == 'series') | (df['tag1'] == 'parallel')]
     df['tag1'] = df['tag1'].apply(lambda v: 'CHAIN' if v == 'series' else 'PARALLEL')
     df['tag2'] = df['tag2'].apply(lambda v: 'SINGLE' if v == '1tg' else 'MULTI')
     df['type'] = df['tag1'] + '-' + df['tag2']
@@ -14,7 +14,11 @@ if __name__ == '__main__':
     df['strategy'] = df['strategy'] + '-' + df['isolationLevel']
     df['tplat'] = df['tag3']
 
+    def get_xlabel(typee):
+        return 'number of states' if 'SINGLE' in typee else 'number of t-graphs'
+
     # -------- Throughput
+    cmn.reset_colors_and_markers()
     tp = df[df.tplat == 'tp'].sort_values('var')
 
     i = 0
@@ -22,18 +26,19 @@ if __name__ == '__main__':
         fig, ax = plt.subplots()
 
         for strategy, grp in group.groupby('strategy'):
-            cmn.my_plot(grp, ax=ax, kind='line', x='var', y='value', label=strategy)
+            cmn.my_plot(grp, ax, kind='line', x='var', y='value', label=strategy)
 
         ax.set_ylim((0, 15000))
         ax.margins(y=0.1)
         ax.set_xticks(range(1, 6))
         ax.set_ylabel('sustainable throughput [tr/s]')
-        ax.set_xlabel('number of states/t-graphs')
+        ax.set_xlabel(get_xlabel(typee))
 
         i += 1
         cmn.savefig('topologies_' + typee.lower() + '_tp', fig)
 
     # -------- Latency
+    cmn.reset_colors_and_markers()
     lat = df[df.tplat == 'lat'].sort_values('var')
 
     i = 0
@@ -41,13 +46,13 @@ if __name__ == '__main__':
         fig, ax = plt.subplots()
 
         for strategy, grp in group.groupby('strategy'):
-            cmn.my_plot(grp, ax=ax, kind='line', x='var', y='value', label=strategy)
+            cmn.my_plot(grp, ax, kind='line', x='var', y='value', label=strategy)
 
         ax.set_ylim((0, 100))
         ax.margins(y=0.1)
         ax.set_xticks(range(1, 6))
         ax.set_ylabel('average latency [ms]')
-        ax.set_xlabel('number of states/t-graphs')
+        ax.set_xlabel(get_xlabel(typee))
 
         i += 1
         cmn.savefig('topologies_' + typee.lower() + '_lat', fig)

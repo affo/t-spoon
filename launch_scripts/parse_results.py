@@ -15,7 +15,7 @@ def load_results(folder_name):
         param = result.x
         tag1 = result.experiment_type
         tag2 = None
-        if tag1 not in ('query', 'ks'):
+        if tag1 not in ('query', 'ks', 'scale'):
             tag2 = str(tag1)
             tag1 = result.series_or_parallel
 
