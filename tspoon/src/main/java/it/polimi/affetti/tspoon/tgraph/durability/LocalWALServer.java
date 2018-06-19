@@ -6,6 +6,7 @@ import java.io.EOFException;
 import java.io.IOException;
 import java.net.Socket;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.function.Function;
@@ -18,7 +19,7 @@ import java.util.function.Function;
  *
  * Only one per machine
  */
-public class LocalWALServer extends AbstractServer{
+public class LocalWALServer extends AbstractServer {
     private static int numberOfWALs = 0;
     // for multiple servers on the same machine (mainly for testing)
     private static int id = 0;
@@ -30,7 +31,7 @@ public class LocalWALServer extends AbstractServer{
     private Thread snapshotter;
 
     public LocalWALServer(String proxyWALIp, int proxyWALPort) {
-        this.wals = new ArrayList<>();
+        this.wals = Collections.synchronizedList(new ArrayList<FileWAL>());
         this.toProxyWAL = new ObjectClient(proxyWALIp, proxyWALPort);
         this.localWALServerID = id;
         id++;
@@ -74,7 +75,7 @@ public class LocalWALServer extends AbstractServer{
     }
 
     private synchronized void waitForWALs() throws InterruptedException {
-        while (wals.size() < numberOfWALs) {
+        while (wals.size() == 0) {
             wait();
         }
     }
@@ -147,13 +148,25 @@ public class LocalWALServer extends AbstractServer{
 
                 waitForWALs();
 
+                int lastSize = 0, currentSize;
                 // replay all files
-                for (FileWAL wal : wals) {
-                    Iterator<WALEntry> iterator = iteratorSupplier.apply(wal);
-                    while (iterator.hasNext()) {
-                        send(iterator.next());
+                do {
+                    currentSize = wals.size();
+                    for (int i = lastSize; i < currentSize; i++) {
+                        FileWAL wal = wals.get(i);
+                        Iterator<WALEntry> entriesIterator = iteratorSupplier.apply(wal);
+                        while (entriesIterator.hasNext()) {
+                            send(entriesIterator.next());
+                        }
                     }
-                }
+
+                    int newSize = wals.size(); // some WAL could be added
+                    if (currentSize == newSize) {
+                        Thread.sleep(500); // wait for an addition -- fixed overhead...
+                    }
+                    lastSize = currentSize;
+                } while (currentSize < wals.size()); // if some WAL has been added you stay in the loop
+
                 send(new WALEntry(null, -1, -1, null)); // finished
                 out.flush();
             }
