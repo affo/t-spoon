@@ -48,7 +48,7 @@ if __name__ == '__main__':
         for strategy, grp in group.groupby('strategy'):
             cmn.my_plot(grp, ax, kind='line', x='var', y='value', label=strategy)
 
-        ax.set_ylim((0, 100))
+        ax.set_ylim((0, 50))
         ax.margins(y=0.1)
         ax.set_xticks(range(1, 6))
         ax.set_ylabel('average latency [ms]')

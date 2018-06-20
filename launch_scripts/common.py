@@ -1,9 +1,37 @@
 import pandas as pd
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib import container
+from matplotlib.figure import figaspect
 import traceback, json, itertools
 
 IMG_FOLDER = None
+
+############## Set style for matplotlib
+### Font
+font = {'family': 'Times New Roman', 'size': 20}
+mpl.rc('font', **font)
+
+### Figure dimensions
+_hw_ratio = 1.0 / 2.0
+_width, _height = figaspect(_hw_ratio)
+
+### Colors and markers
+COLORS = ['black', 'darkorange', 'dodgerblue', 'crimson', 'forestgreen']
+MARKERS = ['o', 'x', 'v', 's', 'p']
+
+_it_colors = None
+_it_markers = None
+
+def reset_colors_and_markers():
+    global _it_colors, _it_markers
+    _it_colors = itertools.cycle(COLORS)
+    _it_markers = itertools.cycle(MARKERS)
+
+# reset at first import
+reset_colors_and_markers()
+
+##########################################################
 
 def load_experiment(fname):
     with open(fname) as fp:
@@ -34,23 +62,10 @@ def load_parsed_results():
 
     return df
 
-COLORS = ['black', 'darkorange', 'dodgerblue', 'crimson', 'forestgreen']
-MARKERS = ['o', 'x', 'v', 's', 'p']
-
-_it_colors = None
-_it_markers = None
-
-def reset_colors_and_markers():
-    global _it_colors, _it_markers
-    _it_colors = itertools.cycle(COLORS)
-    _it_markers = itertools.cycle(MARKERS)
-
-# reset at first import
-reset_colors_and_markers()
-
 
 def my_plot(data, ax, **kwargs):
     color = _it_colors.next()
+    plt.tight_layout()
     data.plot(
         ax=ax,
         color=color,
@@ -60,7 +75,7 @@ def my_plot(data, ax, **kwargs):
 
     if 'std' in data.columns:
         plt.errorbar(data['var'], data['value'], yerr=data['std'],
-        linestyle='None', color=color, label=None)
+        linestyle='None', color=color, label=None, capsize=5)
 
     # redraw the legend for known bugs: https://github.com/pandas-dev/pandas/issues/14958
     # in case there is no external parameter
@@ -74,6 +89,10 @@ def savefig(label, figure):
     import os
     import matplotlib.pyplot as plt
     global IMG_FOLDER
+
+    # change figure dimensions
+    figure.set_figheight(_height)
+    figure.set_figwidth(_width)
 
     # make the dir if not present
     if not os.path.exists(IMG_FOLDER):

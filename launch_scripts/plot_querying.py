@@ -37,7 +37,7 @@ if __name__ == '__main__':
     lns = (ln_tp, ln_part)
     labs = ('throughput', 'partitions')
     ax.legend(lns, labs, loc='upper center')
-    #plt.gca().invert_xaxis()
+    plt.tight_layout()
     cmn.savefig('query_tp', fig)
 
     # ------ latency
@@ -54,5 +54,6 @@ if __name__ == '__main__':
     ax.set_ylabel('average latency [ms]')
     ax.set_xlabel('number of keys per query')
     ax.set_xscale('log')
-    #plt.gca().invert_xaxis()
+
+    plt.tight_layout()
     cmn.savefig('query_lat', fig)
