@@ -120,7 +120,7 @@ public class NetUtils {
 
             clients[i] = new ObjectClient(taskManagers[i], port);
 
-            int tries = 1000;
+            int tries = 10000; // ultra long retry for huge recoveries
             boolean trying = true;
 
             while (trying) {

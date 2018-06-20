@@ -20,7 +20,6 @@ import java.util.function.Function;
  * Only one per machine
  */
 public class LocalWALServer extends AbstractServer {
-    private static int numberOfWALs = 0;
     // for multiple servers on the same machine (mainly for testing)
     private static int id = 0;
     private final int localWALServerID;
@@ -52,24 +51,20 @@ public class LocalWALServer extends AbstractServer {
         toProxyWAL.close();
     }
 
-    /**
-     * Dirty way of knowing the number of FileWALs at open time.
-     * I suppose that, once LocalWalServer `open`s every CloseFunction has been created
-     * @return
-     */
-    public static synchronized void incrementNumberOfCloseSinks() {
-        numberOfWALs++;
-    }
-
     public synchronized void addWAL(FileWAL wal) {
         wals.add(wal);
         notifyAll();
     }
 
-    public synchronized FileWAL addAndCreateWAL(int tGraphID, boolean overwrite) throws IOException {
-        String walName = String.format("lws%d_tg%d_%d", localWALServerID, tGraphID, wals.size());
+    public static FileWAL createWAL(int localWALServerID, int tGraphID, int walID, boolean overwrite) throws IOException {
+        String walName = String.format("lws%d_tg%d_%d", localWALServerID, tGraphID, walID);
         FileWAL wal = new FileWAL(walName, overwrite);
         wal.open();
+        return wal;
+    }
+
+    public synchronized FileWAL addAndCreateWAL(int tGraphID, boolean overwrite) throws IOException {
+        FileWAL wal = createWAL(localWALServerID, tGraphID, wals.size(), overwrite);
         addWAL(wal);
         return wal;
     }

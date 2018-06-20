@@ -113,8 +113,8 @@ public class OpenOperator<T>
         snapshotService = tRuntimeContext.getSnapshotService(parameterTool);
 
         if (tRuntimeContext.isDurabilityEnabled()) {
-            getRuntimeContext().addAccumulator("recovery-time", recoveryTime);
-            getRuntimeContext().addAccumulator("number-of-wal-entries-replayed", numberOfWalEntriesReplayed);
+            getRuntimeContext().addAccumulator("recovery-time-at-source", recoveryTime);
+            getRuntimeContext().addAccumulator("no-wal-entries-replayed-at-source", numberOfWalEntriesReplayed);
         }
 
         // restore completedTids in the lastSnapshot

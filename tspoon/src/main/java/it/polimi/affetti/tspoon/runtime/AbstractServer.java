@@ -121,4 +121,8 @@ public abstract class AbstractServer implements Runnable {
     public String getIP() throws UnknownHostException {
         return NetUtils.getMyIp();
     }
+
+    public boolean isBound() {
+        return srv != null && !srv.isClosed();
+    }
 }

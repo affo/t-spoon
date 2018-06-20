@@ -20,7 +20,7 @@ import java.util.Arrays;
 /**
  * Created by affo on 29/07/17.
  */
-public class RecoveryExperiment {
+public class NeverLastingBank {
     public static void main(String[] args) throws Exception {
         ParameterTool parameters = ParameterTool.fromArgs(args);
         EvalConfig config = EvalConfig.fromParams(parameters);
@@ -32,9 +32,6 @@ public class RecoveryExperiment {
         NetUtils.launchWALServer(parameters, config);
         StreamExecutionEnvironment env = config.getFlinkEnv();
         TransactionEnvironment tEnv = TransactionEnvironment.fromConfig(config);
-        tEnv.enableDurability();
-
-        final String nameSpace = "balances";
 
         TransferSource transferSource = new TransferSource(
                 Integer.MAX_VALUE, config.keySpaceSize, EvalConfig.startAmount);
@@ -49,7 +46,7 @@ public class RecoveryExperiment {
                 (FlatMapFunction<Transfer, Movement>) t -> Arrays.asList(t.getDeposit(), t.getWithdrawal()));
 
         StateStream<Movement> balances = halves.state(
-                nameSpace, t -> t.f1,
+                EvalConfig.BANK_NAMESPACE, t -> t.f1,
                 new StateFunction<Movement, Double>() {
                     @Override
                     public Double defaultValue() {
@@ -76,6 +73,6 @@ public class RecoveryExperiment {
 
         tEnv.close(balances.leftUnchanged);
 
-        env.execute("Recovery experiment");
+        env.execute("Never lasting bank experiment - " + config.label);
     }
 }

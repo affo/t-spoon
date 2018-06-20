@@ -17,6 +17,7 @@ import java.util.Set;
  */
 public class EvalConfig {
     public static final double startAmount = 100d;
+    public static final String BANK_NAMESPACE = "balances";
 
     public ParameterTool params;
     public String label;
@@ -33,6 +34,7 @@ public class EvalConfig {
     public boolean synchronous;
     public boolean durable;
     public int openServerPoolSize, stateServerPoolSize, queryServerPoolSize;
+    public int simulateRecoveryAtRate;
     public boolean printPlan;
     public boolean baselineMode;
     public int batchSize;
@@ -92,6 +94,7 @@ public class EvalConfig {
         config.targetingBatchSize = parameters.getLong("targetingBatchSize", 5000);
         config.numberOfSamplesUnloaded = parameters.getInt("numberOfSamplesUnloaded", 10);
         config.recordsInQueue = parameters.getInt("recordsInQueue", 50);
+        config.simulateRecoveryAtRate = parameters.getInt("simulateRecoveryAtRate", -1);
 
         // debugging stuff
         config.printPlan = parameters.getBoolean("printPlan", false);

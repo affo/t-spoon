@@ -32,6 +32,7 @@ import static it.polimi.affetti.tspoon.tgraph.IsolationLevel.PL3;
  * Represents the transactional graph context
  */
 public class TransactionEnvironment {
+    public static long DEFAULT_CHECKPOINT_INTERVAL_MS = 60000;
     private static TransactionEnvironment instance;
 
     private final StreamExecutionEnvironment streamExecutionEnvironment;
@@ -56,6 +57,7 @@ public class TransactionEnvironment {
     private String sourcesSharingGroup = "default";
     private int openTransactionParallelism, sourcesParallelism;
     private int closeBatchSize;
+    private int recoverySimulationRate;
 
     private TransactionEnvironment(StreamExecutionEnvironment env) {
         this.streamExecutionEnvironment = env;
@@ -90,6 +92,7 @@ public class TransactionEnvironment {
             instance.setCloseBatchSize(config.closeBatchSize);
 
             if (config.durable) {
+                instance.setRecoverySimulationRate(config.simulateRecoveryAtRate);
                 instance.enableDurability();
             }
         }
@@ -190,7 +193,7 @@ public class TransactionEnvironment {
 
     public void enableDurability() throws IOException {
         isDurabilityEnabled = true;
-        streamExecutionEnvironment.enableCheckpointing(60000);
+        streamExecutionEnvironment.enableCheckpointing(DEFAULT_CHECKPOINT_INTERVAL_MS);
         streamExecutionEnvironment.setRestartStrategy(RestartStrategies.fixedDelayRestart(
                 60, Time.of(10, TimeUnit.SECONDS)));
         streamExecutionEnvironment.setStateBackend(new FsStateBackend("file:///tmp/checkpoints"));
@@ -248,6 +251,29 @@ public class TransactionEnvironment {
         return sourcesSharingGroup;
     }
 
+    public void setRecoverySimulationRate(int recoverySimulationRate) {
+        this.recoverySimulationRate = recoverySimulationRate;
+    }
+
+    public void setTaskManagers(String[] taskManagers) {
+        this.taskManagers = taskManagers;
+    }
+
+    public String[] getTaskManagers() {
+        return taskManagers;
+    }
+
+    public void setCloseBatchSize(int closeBatchSize) {
+        this.closeBatchSize = closeBatchSize;
+    }
+
+    public int getCloseBatchSize() {
+        return closeBatchSize;
+    }
+
+
+    // --------------------------------- Transactional graph utilities
+
     public TRuntimeContext createTransactionalRuntimeContext(int tGraphId) {
         TRuntimeContext runtimeContext = new TRuntimeContext(tGraphId);
         runtimeContext.setSynchronous(synchronous);
@@ -261,6 +287,8 @@ public class TransactionEnvironment {
         runtimeContext.setBaselineMode(baselineMode);
         runtimeContext.setTaskManagers(taskManagers);
         runtimeContext.setCloseBatchSize(closeBatchSize);
+        runtimeContext.setRecoverySimulationRate(recoverySimulationRate);
+        runtimeContext.setNumberOfSources(sourcesParallelism);
         return runtimeContext;
     }
 
@@ -280,8 +308,6 @@ public class TransactionEnvironment {
         }
         spuResultsPerTGraph.put(tGraphID, results);
     }
-
-    // ------------------- Open/Close
 
     public <T> OpenStream<T> open(DataStream<T> ds) {
         AbstractTStream.setTransactionEnvironment(this);
@@ -355,22 +381,6 @@ public class TransactionEnvironment {
         }
 
         return results;
-    }
-
-    public void setTaskManagers(String[] taskManagers) {
-        this.taskManagers = taskManagers;
-    }
-
-    public String[] getTaskManagers() {
-        return taskManagers;
-    }
-
-    public void setCloseBatchSize(int closeBatchSize) {
-        this.closeBatchSize = closeBatchSize;
-    }
-
-    public int getCloseBatchSize() {
-        return closeBatchSize;
     }
 
     private static class LastStepAdder implements MapFunction<Metadata, Metadata> {

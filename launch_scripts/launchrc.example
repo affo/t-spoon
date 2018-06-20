@@ -13,7 +13,7 @@ export CONSISTENCY_CHECK_CLASS=evaluation.ConsistencyCheck
 export BANK_EXAMPLE_CLASS=evaluation.BankUseCase
 export BANK_EXAMPLE_NOT_CLASS=evaluation.BankUseCaseNoT
 export PURE_FLINK_CLASS=evaluation.FlinkGoAsFastAsYouCan
-export RECOVERY_CLASS=evaluation.RecoveryExperiment
+export NEVER_LASTING_CLASS=evaluation.NeverLastingBank
 export REPLAY_CLASS=evaluation.SimulateReplayTest
 export MIXED_CLASS=evaluation.Mixed
 

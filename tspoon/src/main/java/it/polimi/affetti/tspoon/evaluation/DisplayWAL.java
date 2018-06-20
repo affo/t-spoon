@@ -16,7 +16,7 @@ import java.util.Map;
  *
  * Run this to get the entries replayed and measure replay time
  */
-public class SimulateRecovery {
+public class DisplayWAL {
     public static void main(String[] args) throws Exception {
         String[] ips = {"localhost"};
         WALClient wal = WALClient.get(ips);

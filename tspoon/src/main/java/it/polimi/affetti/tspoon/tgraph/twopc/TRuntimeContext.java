@@ -39,6 +39,8 @@ public class TRuntimeContext implements Serializable {
     private String[] taskManagers;
     private int tGraphId;
     private int closeBatchSize;
+    private int recoverySimulationRate;
+    private int numberOfSources;
 
     public TRuntimeContext(int tGraphId) {
         this.tGraphId = tGraphId;
@@ -151,6 +153,22 @@ public class TRuntimeContext implements Serializable {
         this.closeBatchSize = closeBatchSize;
     }
 
+    public void setRecoverySimulationRate(int recoverySimulationRate) {
+        this.recoverySimulationRate = recoverySimulationRate;
+    }
+
+    public int getRecoverySimulationRate() {
+        return recoverySimulationRate;
+    }
+
+    public void setNumberOfSources(int numberOfSources) {
+        this.numberOfSources = numberOfSources;
+    }
+
+    public int getNumberOfSources() {
+        return numberOfSources;
+    }
+
     // ---------------------- These methods are called upon deserialization
 
     public AbstractOpenOperatorTransactionCloser getSourceTransactionCloser(int taskNumber) {
@@ -202,11 +220,25 @@ public class TRuntimeContext implements Serializable {
         Address proxyWALServerAddress = NetUtils.getProxyWALServerAddress(parameterTool);
         synchronized (TRuntimeContext.class) {
             if (localWALServer == null) {
-                localWALServer = NetUtils.getServer(NetUtils.ServerType.WAL,
-                        new LocalWALServer(proxyWALServerAddress.ip, proxyWALServerAddress.port));
+                localWALServer = new LocalWALServer(proxyWALServerAddress.ip, proxyWALServerAddress.port);
             }
 
             return localWALServer;
+        }
+    }
+
+    public void startLocalWALServer() throws IOException {
+        synchronized (TRuntimeContext.class) {
+            if (localWALServer == null) {
+                throw new IllegalStateException("Cannot start LocalWALServer if not created!");
+
+            }
+
+            if (localWALServer.isBound()) {
+                return;
+            }
+
+            NetUtils.getServer(NetUtils.ServerType.WAL, localWALServer);
         }
     }
 

@@ -160,7 +160,8 @@ function launch_flink_wordcount {
 }
 
 function launch_recovery {
-    launch recovery $RECOVERY_CLASS --taskmanagers $TASK_MANAGERS "${@:2}"
+    launch recovery $NEVER_LASTING_CLASS \
+      --taskmanagers $TASK_MANAGERS --durable true "$@"
     sleep 1
 }
 
@@ -168,6 +169,20 @@ function launch_recovery {
 function launch_durability {
   launch durability $EVAL_CLASS --noStates 1 --noTG 1 --series true \
     --durable true --taskmanagers $TASK_MANAGERS "$@"
+  sleep 1
+}
+
+function launch_replay_simulation {
+  if [[ "$#" -lt 1 ]]; then
+      echo "Input: <inputRate> <params...>"
+      return 1
+  fi
+
+  local rate=$1
+
+  launch replay-simulation_$rate $NEVER_LASTING_CLASS \
+    --taskmanagers $TASK_MANAGERS --durable true \
+    --simulateRecoveryAtRate $rate --inputRate $rate "${@:2}"
   sleep 1
 }
 
@@ -265,39 +280,15 @@ function launch_suite_mixed {
     done
 }
 
-function launch_replay_simulation {
-  if [[ "$#" -lt 1 ]]; then
-      echo "Input: <inputRate> <params...>"
-      return 1
-  fi
-
-  local rate=$1
-
-  # broadcast jar
-  for tm in ${TMS_ARRAY[@]}; do
-    echo ">>> Sending jar to TM $tm..."
-    scp $TARGET_JAR $tm:~
-    echo; echo;
-  done
-  sleep 2
-
-  local args="--inputRate $rate --parallelism $TOTAL_SLOTS --taskmanagers $TASK_MANAGERS --rounds 1 --jmIP localhost ${@:2}"
-  local session="replay-experiment"
-
-  # create session
-  screen -AdmS $session -t tab0 bash
-  local i=0
-  for tm in ${TMS_ARRAY[@]}; do
-    echo ">>> TM $tm"
-    cmd="java -cp $TARGET_JAR_NAME:$FLINK_HOME/lib/* $PACKAGE_BASE.$REPLAY_CLASS $args --taskManagerID $i; bash"
-    echo $cmd
-    screen -S $session -X screen -t "$tm" ssh -t "$tm" "$cmd"
-    echo; echo;
-    ((i = i + 1))
-  done
-
-  echo "Resuming screen in seconds..."
-  sleep 3
-
-  screen -r
+function launch_suite_replay_simulation {
+    launch_replay_simulation 1000
+    launch_replay_simulation 2000
+    launch_replay_simulation 3000
+    launch_replay_simulation 4000
+    launch_replay_simulation 5000
+    launch_replay_simulation 6000
+    launch_replay_simulation 7000
+    launch_replay_simulation 8000
+    launch_replay_simulation 9000
+    launch_replay_simulation 10000
 }
