@@ -15,7 +15,7 @@ if __name__ == '__main__':
     df['tplat'] = df['tag3']
 
     def get_xlabel(typee):
-        return 'number of states' if 'SINGLE' in typee else 'number of t-graphs'
+        return 'Number of stateful operators' if 'SINGLE' in typee else 'Number of t-graphs'
 
     # -------- Throughput
     cmn.reset_colors_and_markers()
@@ -31,11 +31,11 @@ if __name__ == '__main__':
         ax.set_ylim((0, 15000))
         ax.margins(y=0.1)
         ax.set_xticks(range(1, 6))
-        ax.set_ylabel('sustainable throughput [tr/s]')
+        ax.set_ylabel(cmn.TP_LABEL)
         ax.set_xlabel(get_xlabel(typee))
 
         i += 1
-        cmn.savefig('topologies_' + typee.lower() + '_tp', fig)
+        cmn.savefig_with_separate_legend('topologies_' + typee.lower() + '_tp', ax, fig)
 
     # -------- Latency
     cmn.reset_colors_and_markers()
@@ -51,8 +51,8 @@ if __name__ == '__main__':
         ax.set_ylim((0, 50))
         ax.margins(y=0.1)
         ax.set_xticks(range(1, 6))
-        ax.set_ylabel('average latency [ms]')
+        ax.set_ylabel(cmn.LAT_LABEL)
         ax.set_xlabel(get_xlabel(typee))
 
         i += 1
-        cmn.savefig('topologies_' + typee.lower() + '_lat', fig)
+        cmn.savefig_with_separate_legend('topologies_' + typee.lower() + '_lat', ax, fig)

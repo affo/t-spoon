@@ -23,21 +23,21 @@ if __name__ == '__main__':
     ln_tp, = ax.plot(tp['var'].tolist(), tp['value'].tolist(),
         color=color1, marker=marker1, markerfacecolor='none')
 
+    cmn.set_yaxis_formatter(ax)
     ax.set_ylim((0, 60000))
     ax.margins(y=0.1)
-    ax.set_ylabel('sustainable throughput [tr/s]')
-    ax.set_xlabel('number of keys per query')
+    ax.set_ylabel(cmn.TP_LABEL)
+    ax.set_xlabel('Number of keys per query')
     ax.set_xscale('log')
 
     ax2 = ax.twinx()
     ln_part, = ax2.plot(partitions['var'].tolist(), partitions['value'].tolist(),
         color=color2, marker=marker2, markerfacecolor='none')
-    ax2.set_ylabel('average number of partitions')
+    ax2.set_ylabel('Average number of partitions')
 
     lns = (ln_tp, ln_part)
     labs = ('throughput', 'partitions')
     ax.legend(lns, labs, loc='upper center')
-    plt.tight_layout()
     cmn.savefig('query_tp', fig)
 
     # ------ latency
@@ -51,9 +51,8 @@ if __name__ == '__main__':
 
     ax.set_ylim((0, 100))
     ax.margins(y=0.1)
-    ax.set_ylabel('average latency [ms]')
-    ax.set_xlabel('number of keys per query')
+    ax.set_ylabel(cmn.LAT_LABEL)
+    ax.set_xlabel('Number of keys per query')
     ax.set_xscale('log')
 
-    plt.tight_layout()
     cmn.savefig('query_lat', fig)

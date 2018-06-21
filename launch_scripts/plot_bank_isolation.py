@@ -47,9 +47,10 @@ if __name__ == '__main__':
     tp.plot(ax=ax, kind='bar', x='isolation', y=ys, rot=0,
         color=colors, linewidth=1, width=0.35)
 
+    cmn.set_yaxis_formatter(ax)
     ax.set_ylim((0, 15000))
     ax.margins(y=0.1)
-    ax.set_ylabel('sustainable throughput [tr/s]')
+    ax.set_ylabel(cmn.TP_LABEL)
     ax.set_xlabel(' ')
     cmn.savefig('bank_isol_tp', fig)
 
@@ -62,6 +63,6 @@ if __name__ == '__main__':
 
     ax.set_ylim((0, 20))
     ax.margins(y=0.1)
-    ax.set_ylabel('average latency [ms]')
+    ax.set_ylabel(cmn.LAT_LABEL)
     ax.set_xlabel(' ')
     cmn.savefig('bank_isol_lat', fig)

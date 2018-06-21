@@ -24,11 +24,11 @@ if __name__ == '__main__':
 
     ax.set_ylim((0, 15000))
     ax.margins(y=0.1)
-    ax.set_ylabel('sustainable throughput [tr/s]')
-    ax.set_xlabel('keyspace size')
+    ax.set_ylabel(cmn.TP_LABEL)
+    ax.set_xlabel('Number of keys')
     ax.set_xscale('log')
     plt.gca().invert_xaxis()
-    cmn.savefig('ks_tp', fig)
+    cmn.savefig_with_separate_legend('ks_tp', ax, fig)
 
     # ------ latency
     cmn.reset_colors_and_markers()
@@ -41,8 +41,8 @@ if __name__ == '__main__':
 
     ax.set_ylim((0, 50))
     ax.margins(y=0.1)
-    ax.set_ylabel('average latency [ms]')
-    ax.set_xlabel('keyspace size')
+    ax.set_ylabel(cmn.LAT_LABEL)
+    ax.set_xlabel('Number of keys')
     ax.set_xscale('log')
     plt.gca().invert_xaxis()
-    cmn.savefig('ks_lat', fig)
+    cmn.savefig_with_separate_legend('ks_lat',ax,  fig)

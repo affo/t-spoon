@@ -1,15 +1,19 @@
-import pandas as pd
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib import container
 from matplotlib.figure import figaspect
-import traceback, json, itertools
+from matplotlib.ticker import FuncFormatter
+
+import pandas as pd
+import os, traceback, json, itertools
 
 IMG_FOLDER = None
+TP_LABEL = 'Sustainable throughput [Ktr/s]'
+LAT_LABEL = 'Average latency [ms]'
 
 ############## Set style for matplotlib
 ### Font
-font = {'family': 'Times New Roman', 'size': 20}
+font = {'family': 'Times New Roman', 'size': 22}
 mpl.rc('font', **font)
 
 ### Figure dimensions
@@ -63,9 +67,21 @@ def load_parsed_results():
     return df
 
 
+def thousands(x, pos):
+    'The two args are the value and tick position'
+    if x < 1000:
+        return str(x)
+
+    return '%1.1f' % (x * 1e-3)
+
+_formatter = FuncFormatter(thousands)
+
+def set_yaxis_formatter(ax):
+    ax.yaxis.set_major_formatter(_formatter)
+
 def my_plot(data, ax, **kwargs):
+    set_yaxis_formatter(ax)
     color = _it_colors.next()
-    plt.tight_layout()
     data.plot(
         ax=ax,
         color=color,
@@ -87,7 +103,6 @@ def my_plot(data, ax, **kwargs):
 
 def savefig(label, figure):
     import os
-    import matplotlib.pyplot as plt
     global IMG_FOLDER
 
     # change figure dimensions
@@ -97,10 +112,27 @@ def savefig(label, figure):
     # make the dir if not present
     if not os.path.exists(IMG_FOLDER):
         os.mkdir(IMG_FOLDER)
-    fname = os.path.join(IMG_FOLDER, label + '.png')
-    figure.savefig(fname)
+    fname = os.path.join(IMG_FOLDER, label + '.pdf')
+    figure.savefig(fname, bbox_inches='tight')
     plt.close(figure)
     print ">>> Figure saved to", fname
+
+def savefig_with_separate_legend(label, ax, figure):
+    global IMG_FOLDER
+
+    handles, labels = ax.get_legend_handles_labels()
+    # remove the legend from main figure
+    ax.get_legend().set_visible(False)
+
+    # saving the main figure
+    savefig(label, figure)
+
+    figlegend = plt.figure(figsize=(12, 0.7))
+    figlegend.legend(handles, labels, loc=10, ncol=len(labels))
+    fname = os.path.join(IMG_FOLDER, 'legendfor_' + label + '.pdf')
+    figlegend.savefig(fname)
+    plt.close(figlegend)
+    print ">>> Legend saved to", fname
 
 
 class ExperimentResult(object):

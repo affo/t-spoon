@@ -18,8 +18,8 @@ if __name__ == '__main__':
 
     ax.set_ylim((0, 15000))
     ax.margins(y=0.1)
-    ax.set_ylabel('sustainable throughput [tr/s]')
-    ax.set_xlabel('graph parallelism')
+    ax.set_ylabel(cmn.TP_LABEL)
+    ax.set_xlabel('Graph parallelism')
 
     cmn.savefig('scalability_tp', fig)
 
@@ -32,7 +32,7 @@ if __name__ == '__main__':
 
     ax.set_ylim((0, 50))
     ax.margins(y=0.1)
-    ax.set_ylabel('average latency [ms]')
-    ax.set_xlabel('graph parallelism')
+    ax.set_ylabel(cmn.LAT_LABEL)
+    ax.set_xlabel('Graph parallelism')
 
     cmn.savefig('scalability_lat', fig)

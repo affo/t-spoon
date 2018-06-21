@@ -29,5 +29,5 @@ if __name__ == '__main__':
             ax.set_xlabel(' ')
             cmn.savefig('top_' + chain + '_' + tag3, fig)
 
-    myplot('tp', 'sustainable throughput [tr/s]')
-    myplot('lat', 'average latency [ms]')
+    myplot('tp', cmn.TP_LABEL)
+    myplot('lat', cmn.LAT_LABEL)
