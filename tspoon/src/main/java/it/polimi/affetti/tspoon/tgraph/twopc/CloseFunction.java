@@ -1,12 +1,10 @@
 package it.polimi.affetti.tspoon.tgraph.twopc;
 
 import it.polimi.affetti.tspoon.common.TimestampGenerator;
+import it.polimi.affetti.tspoon.evaluation.EvalConfig;
 import it.polimi.affetti.tspoon.metrics.MetricAccumulator;
 import it.polimi.affetti.tspoon.runtime.JobControlClient;
-import it.polimi.affetti.tspoon.tgraph.Metadata;
-import it.polimi.affetti.tspoon.tgraph.TransactionEnvironment;
-import it.polimi.affetti.tspoon.tgraph.TransactionResult;
-import it.polimi.affetti.tspoon.tgraph.Vote;
+import it.polimi.affetti.tspoon.tgraph.*;
 import it.polimi.affetti.tspoon.tgraph.durability.FileWAL;
 import it.polimi.affetti.tspoon.tgraph.durability.LocalWALServer;
 import it.polimi.affetti.tspoon.tgraph.durability.SnapshotService;
@@ -28,6 +26,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Random;
 import java.util.stream.IntStream;
 
 /**
@@ -138,6 +137,7 @@ public class CloseFunction extends RichFlatMapFunction<Metadata, TransactionResu
         int totalNumberOfRecords = Math.round(inputRate * Math.round(checkpointIntervalMilliseconds / 1000));
         int baseNumberOfRecords = totalNumberOfRecords / flinkContext.getNumberOfParallelSubtasks();
         int numberOfRecords = baseNumberOfRecords;
+        Random random = new Random(inputRate);
 
         // The last one gets the remaining records
         if (flinkContext.getIndexOfThisSubtask() == flinkContext.getNumberOfParallelSubtasks() - 1) {
@@ -158,13 +158,22 @@ public class CloseFunction extends RichFlatMapFunction<Metadata, TransactionResu
                     int index = i % numberOfSources;
                     long nextTS = tg[index].nextTimestamp();
                     long tid = tg[index].toLogical(nextTS);
-                    int partition = i % statePartitions;
-                    return StateOperator.createFakeTransferEntry(tid, nextTS, partition);
+                    int partition1 = random.nextInt(statePartitions);
+                    int partition2 = random.nextInt(statePartitions);
+                    return createFakeTransferEntry(tid, nextTS, partition1, partition2);
                 })
                 .forEach(entry -> wal.addEntry(entry));
 
         // reload the WAL after filling
         wal.forceReload();
+    }
+
+    private WALEntry createFakeTransferEntry(long tid, long ts, int partition1, int partition2) {
+        Updates updates = new Updates();
+        // 2 updates to simulate transactions
+        updates.addUpdate(StateOperator.getShardID(EvalConfig.BANK_NAMESPACE, partition1), "k1", 42.0);
+        updates.addUpdate(StateOperator.getShardID(EvalConfig.BANK_NAMESPACE, partition2), "k2", 43.0);
+        return new WALEntry(Vote.COMMIT, tid, ts, updates);
     }
 
     @Override

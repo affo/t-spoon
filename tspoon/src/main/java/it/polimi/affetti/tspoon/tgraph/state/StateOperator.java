@@ -3,14 +3,11 @@ package it.polimi.affetti.tspoon.tgraph.state;
 import it.polimi.affetti.tspoon.common.Address;
 import it.polimi.affetti.tspoon.common.SafeCollector;
 import it.polimi.affetti.tspoon.common.TaskExecutor;
-import it.polimi.affetti.tspoon.common.TimestampGenerator;
-import it.polimi.affetti.tspoon.evaluation.EvalConfig;
 import it.polimi.affetti.tspoon.metrics.MetricAccumulator;
 import it.polimi.affetti.tspoon.runtime.NetUtils;
 import it.polimi.affetti.tspoon.tgraph.*;
 import it.polimi.affetti.tspoon.tgraph.db.Object;
 import it.polimi.affetti.tspoon.tgraph.db.*;
-import it.polimi.affetti.tspoon.tgraph.durability.FileWAL;
 import it.polimi.affetti.tspoon.tgraph.durability.SnapshotService;
 import it.polimi.affetti.tspoon.tgraph.durability.WALEntry;
 import it.polimi.affetti.tspoon.tgraph.durability.WALService;
@@ -32,11 +29,9 @@ import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
 import org.apache.flink.util.OutputTag;
 import org.apache.log4j.Logger;
 
-import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.util.Iterator;
 import java.util.Map;
-import java.util.stream.IntStream;
 
 /**
  * Created by affo on 14/07/17.
@@ -88,6 +83,10 @@ public abstract class StateOperator<T, V>
         this.stateFunction = stateFunction;
         this.keySelector = ks;
         this.tRuntimeContext = tRuntimeContext;
+    }
+
+    public static String getShardID(String namespace, int taskID) {
+        return String.format(StateOperator.SHARD_ID_FORMAT, namespace, taskID);
     }
 
     @Override
@@ -351,19 +350,5 @@ public abstract class StateOperator<T, V>
         shard.signalRecoveryComplete();
 
         return numberOfEntries;
-    }
-
-    // --------------------------------------- Generating fake data for recovery simulation ---------------------------------------
-
-    public static String getShardID(String namespace, int taskID) {
-        return String.format(StateOperator.SHARD_ID_FORMAT, namespace, taskID);
-    }
-
-    public static WALEntry createFakeTransferEntry(long tid, long ts, int partition) {
-        Updates updates = new Updates();
-        // 2 updates to simulate transactions
-        updates.addUpdate(getShardID(EvalConfig.BANK_NAMESPACE, partition), "k1", 42.0);
-        updates.addUpdate(getShardID(EvalConfig.BANK_NAMESPACE, partition), "k2", 43.0);
-        return new WALEntry(Vote.COMMIT, tid, ts, updates);
     }
 }
