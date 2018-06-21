@@ -80,7 +80,9 @@ def set_yaxis_formatter(ax):
     ax.yaxis.set_major_formatter(_formatter)
 
 def my_plot(data, ax, **kwargs):
-    set_yaxis_formatter(ax)
+    if kwargs.pop('yformatter', True):
+        set_yaxis_formatter(ax)
+
     color = _it_colors.next()
     data.plot(
         ax=ax,
@@ -110,12 +112,17 @@ def savefig(label, figure):
     figure.set_figwidth(_width)
 
     # make the dir if not present
-    if not os.path.exists(IMG_FOLDER):
+    if IMG_FOLDER is not None and not os.path.exists(IMG_FOLDER):
         os.mkdir(IMG_FOLDER)
+
+    if IMG_FOLDER is None:
+        IMG_FOLDER = os.getcwd()
+
     fname = os.path.join(IMG_FOLDER, label + '.pdf')
     figure.savefig(fname, bbox_inches='tight')
     plt.close(figure)
     print ">>> Figure saved to", fname
+
 
 def savefig_with_separate_legend(label, ax, figure):
     global IMG_FOLDER
