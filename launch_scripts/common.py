@@ -8,7 +8,7 @@ import pandas as pd
 import os, traceback, json, itertools
 
 IMG_FOLDER = None
-TP_LABEL = 'Sustainable throughput [Ktr/s]'
+TP_LABEL = 'Sustainable throughput [Kel/s]'
 LAT_LABEL = 'Average latency [ms]'
 
 ############## Set style for matplotlib
