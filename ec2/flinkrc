@@ -9,4 +9,5 @@ function flink_conf_update() {
     no_cores="$(grep -c ^processor /proc/cpuinfo)"
     sed -i "s/^taskmanager.numberOfTaskSlots:.*/taskmanager.numberOfTaskSlots: $no_cores/g" $FLINK_HOME/conf/flink-conf.yaml
     echo "Flink numberOfSlots per Task Manager set to $no_cores"
+    cat $FLINK_HOME/conf/flink-conf.yaml | grep taskmanager.numberOfTaskSlots
 }
