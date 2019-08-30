@@ -1,4 +1,5 @@
 DROP PROCEDURE Transfer IF EXISTS;
+DROP PROCEDURE Deposit IF EXISTS;
 DROP TABLE kv IF EXISTS;
 
 CREATE TABLE kv
@@ -14,3 +15,5 @@ PARTITION TABLE kv ON COLUMN key;
 load classes generated-data/storedprocs.jar;
 CREATE PROCEDURE
    FROM CLASS Transfer;
+CREATE PROCEDURE
+  FROM CLASS Deposit;

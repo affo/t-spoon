@@ -135,6 +135,9 @@ public class AsyncBenchmark {
         @Option(desc = "Filename to write raw summary statistics to.")
         String statsfile = "";
 
+        @Option(desc = "Percentage of single partition transactions in the mix.")
+        int singlePartitionTxPerc = 0;
+
         @Override
         public void validate() {
             if (tuples <= 0) exitWithMessageAndUsage("tuples must be > 0");
@@ -152,6 +155,7 @@ public class AsyncBenchmark {
             if (entropy > 127) exitWithMessageAndUsage("entropy must be <= 127");
 
             if (ratelimit <= 0) exitWithMessageAndUsage("ratelimit must be > 0");
+            if (singlePartitionTxPerc < 0) exitWithMessageAndUsage("singlePartitionTxPerc must be >= 0");
         }
     }
 
@@ -395,6 +399,29 @@ public class AsyncBenchmark {
         return "k" + rand.nextInt(config.poolsize);
     }
 
+    private boolean withProb(int p) {
+        return (Math.random() * 100) < p;
+    }
+
+    private void runPutTx() throws Exception {
+      int lo = -100;
+      int hi = 100;
+      Long value = (long) (rand.nextInt(Math.abs(lo) + Math.abs(hi)) - Math.abs(lo));
+      if (withProb(config.singlePartitionTxPerc)) {
+          // single partition tx.
+          String to = getRandomKey();
+          client.callProcedure(new TransferCallback(), "Deposit", to, value);
+      } else {
+          // multi partition tx.
+          String from = getRandomKey();
+          String to;
+          do {
+              to = getRandomKey();
+          } while (from.equals(to));
+          client.callProcedure(new TransferCallback(), "Transfer", from, to, value);
+      }
+    }
+
     /**
      * Core benchmark code.
      * Connect. Initialize. Run the loop. Cleanup. Print Results.
@@ -435,14 +462,8 @@ public class AsyncBenchmark {
                 // Get a key/value pair using inbuilt select procedure, asynchronously
                 client.callProcedure(new NullCallback(), "KV.select", getRandomKey());
             } else {
-                // Put a key/value pair using inbuilt Transfer procedure, asynchronously
-                String from = getRandomKey();
-                String to;
-                do {
-                    to = getRandomKey();
-                } while (from.equals(to));
-                Long value = (long) (rand.nextInt(99) + 1);
-                client.callProcedure(new NullCallback(), "Transfer", from, to, value);
+                // Put a key/value pair using builtin procedures, asynchronously
+                runPutTx();
             }
         }
 
@@ -464,19 +485,10 @@ public class AsyncBenchmark {
                 // Get a key/value pair using inbuilt select procedure, asynchronously
                 client.callProcedure(new GetCallback(), "KV.select", getRandomKey());
             } else {
-                // Put a key/value pair using inbuilt Transfer procedure, asynchronously
-                int lo = -100;
-                int hi = 100;
-
-                String from = getRandomKey();
-                String to;
-                do {
-                    to = getRandomKey();
-                } while (from.equals(to));
-                Long value = (long) (rand.nextInt(Math.abs(lo) + Math.abs(hi)) - Math.abs(lo));
-                client.callProcedure(new TransferCallback(), "Transfer", from, to, value);
+                // Put a key/value pair using builtin procedures, asynchronously
+                runPutTx();
             }
-	    requests++;
+	          requests++;
         }
 
         while (noRecordsProcessed.get() < config.tuples) {
