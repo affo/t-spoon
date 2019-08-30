@@ -92,3 +92,21 @@ or
 ```
 $ ./voter_run.sh ... --servers localhost,$(cat hosts.csv)
 ```
+
+## Running the benchmark and extract results
+
+First, deploy VoltDB as you wish (see above). Then you can:
+
+```
+$ ./run_mixed_load.sh 20
+```
+
+This script will do several things:
+
+ - Run `voltdb_install.sh`, that will drop the database and install procedures, etc.
+ - Run a throughput experiment with a single partition transaction percentage of 20%.
+ - Run `voltdb_install.sh`, that will drop the database and install procedures, etc.
+ - Run a latency experiment using half of the throughput of the experiment above.
+ - Create the folder `run_mixed_load.sh_results` to store results.
+
+The results folder contains the entire output of each experiment (`<timestamp>__(lat|tp)_<perc>`) and the file `global.csv`, that contains a row for each experiment run, with the following schema: `timestamp,percentage,throughput[txns/s],latency[ms]`.
