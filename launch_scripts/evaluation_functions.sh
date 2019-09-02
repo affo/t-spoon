@@ -217,6 +217,17 @@ function launch_mixed {
     sleep 1
 }
 
+function launch_aborts {
+    if [[ "$#" -lt 1 ]]; then
+        echo "Input: <aborts_percentage> <params...>"
+        return 1
+    fi
+
+    local aborts=$1
+
+    launch 'aborts_'$aborts $ABORTS_CLASS --abortsPercentage $aborts "${@:2}"
+}
+
 ### Builtin suites
 function launch_suite_series_1tg {
     _launch_suite series_1tg noStates 5 --noTG 1 --series true
@@ -278,6 +289,15 @@ function launch_suite_mixed {
       launch_mixed $size $(($slide - 1500)) $analytics "${@:2}"
       launch_mixed $size $(($slide - 2000)) $analytics "${@:2}"
     done
+}
+
+function launch_suite_aborts {
+    launch_aborts 0
+    launch_aborts 20
+    launch_aborts 40
+    launch_aborts 60
+    launch_aborts 80
+    launch_aborts 100
 }
 
 function launch_suite_replay_simulation {

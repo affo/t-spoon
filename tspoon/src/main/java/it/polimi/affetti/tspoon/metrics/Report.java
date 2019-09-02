@@ -55,7 +55,7 @@ public class Report {
         }
     }
 
-    public void writeToFile() throws IOException {
+    public String format() {
         Gson gson = new GsonBuilder()
                 .setPrettyPrinting()
                 .serializeSpecialFloatingPointValues()
@@ -63,7 +63,11 @@ public class Report {
                 .registerTypeAdapter(Throughput.class, new MetricSerializer())
                 .create();
 
-        String converted = gson.toJson(fields);
+        return gson.toJson(fields);
+    }
+
+    public void writeToFile() throws IOException {
+        String converted = format();
         System.out.println(">>> BEGIN report");
         System.out.println(converted);
         System.out.println("<<< END report");
