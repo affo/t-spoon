@@ -37,6 +37,26 @@ import java.util.*;
  * and, probably, the source will be back-pressured because the
  * topK window can't cope with the slide (it needs maybe 3 ms to get processed, which is 3 times the slide).
  * You need a slide wide enough to allow the source to go faster than the window throughput.
+ *
+ * You can tune the parallelism of the analytics part (--analyticsPar).
+ * If you set it to a smaller number than the default parallelism, you will get the analytics part
+ * running in a separated slot sharing group.
+ */
+
+/**
+ * Experiment description:
+ * The experiment tests what is the impact of transactions when running concurrent analytics.
+ * This is a voting example, the idea is that the pipeline computes the popularity of participants to a game
+ * by extracting the top voted during some time windows and increments or decrements their popularity
+ * if they are at the top or at the bottom of the last period.
+ * The source outputs random participants to the vote in random areas.
+ * We have 100000 participants uniformly distributed in 100 areas.
+ * Then, there is an anomaly detection operator that checks if a participant gets too many votes in the last 10 seconds.
+ * Then, we calculate the top and bottom 10 participants for the last X seconds every Y seconds (tunable).
+ * This is the end of the analytic part.
+ * The transactional part adds one point to a participant if he is in the top 10, subtracts one otherwise.
+ * No participant can achieve more then 10 votes, and cannot go below zero.
+ * We track throughput and latency before and after the transactional part.
  */
 public class Mixed {
     public static final String TRACKER_SERVER = "tracker";
