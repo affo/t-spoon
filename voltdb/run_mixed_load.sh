@@ -25,9 +25,6 @@ tp=$(cat $tp_fname | grep "Average throughput" | awk '{print $3}')
 # remove dot
 tp="${tp//.}"
 
-echo "Installing..."
-./voltdb_install.sh
-
 # half the tp is the threshold for latency
 tpt=$(($tp / 2))
 echo "Running latency experiment...."
