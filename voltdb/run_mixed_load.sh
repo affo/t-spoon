@@ -32,7 +32,7 @@ echo "Installing..."
 tpt=$(($tp / 2))
 echo "Running latency experiment...."
 echo "Saving output to $lat_fname"
-./run_benchmark.sh --singlePartitionTxPerc "$perc" --ratelimit "$tpt" --tuples 20000 | tee "$lat_fname"
+./run_benchmark.sh --singlePartitionTxPerc "$perc" --ratelimit "$tpt" --tuples 20000 --preload false | tee "$lat_fname"
 # TODO should this be the internal latency or not?
 # lat=$(cat $lat_fname | grep "Average latency" | awk '{print $3}')
 lat=$(cat $lat_fname | grep "Reported Internal Avg Latency" | awk '{print $5}')
