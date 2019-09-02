@@ -14,6 +14,7 @@ PARTITION TABLE kv ON COLUMN key;
 
 load classes generated-data/storedprocs.jar;
 CREATE PROCEDURE
-   FROM CLASS Transfer;
+  FROM CLASS Transfer;
 CREATE PROCEDURE
+  PARTITION ON TABLE kv COLUMN key
   FROM CLASS Deposit;
