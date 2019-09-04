@@ -37,7 +37,7 @@ import java.util.*;
  * and, probably, the source will be back-pressured because the
  * topK window can't cope with the slide (it needs maybe 3 ms to get processed, which is 3 times the slide).
  * You need a slide wide enough to allow the source to go faster than the window throughput.
- *
+ * <p>
  * You can tune the parallelism of the analytics part (--analyticsPar).
  * If you set it to a smaller number than the default parallelism, you will get the analytics part
  * running in a separated slot sharing group.
@@ -156,12 +156,17 @@ public class Mixed {
 
             DataStream<TransactionResult> results = tEnv.close(afterState);
 
-            results
+            DataStream<ComposedID> toID = results
                     .map(tr -> ((Point) tr.f2).id)
                     .name("ToID")
-                    .returns(ComposedID.class)
-                    .addSink(new LatencyTrackerEnd<>(TRACKER_SERVER, "tgraph-latency"))
+                    .returns(ComposedID.class);
+
+            toID.addSink(new LatencyTrackerEnd<>(TRACKER_SERVER, "tgraph-latency"))
                     .name("EndTracker").setParallelism(1);
+            toID.addSink(
+                    new ThroughputMeter<>("after-tgraph-throughput",
+                            transientPeriod))
+                    .setParallelism(1).name("MeasureTGraphOutputRate");
         }
 
         env.execute("Voting Experiment");
