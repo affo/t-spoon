@@ -16,6 +16,7 @@ export PURE_FLINK_CLASS=evaluation.FlinkGoAsFastAsYouCan
 export NEVER_LASTING_CLASS=evaluation.NeverLastingBank
 export REPLAY_CLASS=evaluation.SimulateReplayTest
 export MIXED_CLASS=evaluation.Mixed
+export NEW_MIXED_CLASS=evaluation.NewMixed
 export ABORTS_CLASS=evaluation.IncreaseAborts
 
 # Base Directory for results

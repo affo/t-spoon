@@ -217,6 +217,18 @@ function launch_mixed {
     sleep 1
 }
 
+function launch_new_mixed {
+    if [[ "$#" -lt 1 ]]; then
+        echo "Input: <analytics_only> <params...>"
+        return 1
+    fi
+    local analytics=$1
+
+    launch "mixed_$analytics" $NEW_MIXED_CLASS \
+      --analyticsOnly $analytics "${@:2}"
+    sleep 1
+}
+
 function launch_aborts {
     if [[ "$#" -lt 1 ]]; then
         echo "Input: <aborts_percentage> <params...>"
