@@ -228,7 +228,7 @@ function launch_new_mixed {
     local Ml=$3
 
     launch "mixed_$ml"_"$Ml"_"$analytics" $NEW_MIXED_CLASS \
-      --analyticsOnly $analytics --minSleep $ml --maxSleep $Ml "${@:3}"
+      --analyticsOnly $analytics --minSleep $ml --maxSleep $Ml "${@:4}"
     sleep 1
 }
 
