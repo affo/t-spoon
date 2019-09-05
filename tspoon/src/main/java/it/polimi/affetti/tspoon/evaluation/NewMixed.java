@@ -38,6 +38,7 @@ public class NewMixed {
         final int runtimeSeconds = parameters.getInt("runtimeSeconds", 180);
         final boolean analyticsOnly = parameters.getBoolean("analyticsOnly", false);
         final long maxSleep = parameters.getLong("maxSleep", 1000);
+        final long minSleep = parameters.getLong("minSleep", 5);
         final int transientSpan = parameters.getInt("transient", 30);
         final TransientPeriod transientPeriod = new TransientPeriod(transientSpan);
 
@@ -47,7 +48,7 @@ public class NewMixed {
         TransactionEnvironment tEnv = TransactionEnvironment.fromConfig(config);
 
         SingleOutputStreamOperator<Long> sleeps = env
-                .addSource(new Random(maxSleep, runtimeSeconds, transientPeriod));
+                .addSource(new Random(minSleep, maxSleep, runtimeSeconds, transientPeriod));
         sleeps = config.addToSourcesSharingGroup(sleeps, "RandomVotes");
 
         sleeps.addSink(new ThroughputMeter<>("input-throughput", transientPeriod))
@@ -107,6 +108,7 @@ public class NewMixed {
 
     private static class Random extends RichParallelSourceFunction<Long> {
         private final long maxSleep;
+        private final long minSleep;
         private boolean stop = false;
         private int runtimeSeconds;
         private IntCounter generatedRecords = new IntCounter();
@@ -114,8 +116,9 @@ public class NewMixed {
 
         private TransientPeriod transientPeriod;
 
-        public Random(long maxSleep, int runtimeSeconds, TransientPeriod transientPeriod) {
+        public Random(long minSleep, long maxSleep, int runtimeSeconds, TransientPeriod transientPeriod) {
             this.maxSleep = maxSleep;
+            this.minSleep = minSleep;
             this.runtimeSeconds = runtimeSeconds;
             this.transientPeriod = transientPeriod;
         }
@@ -142,7 +145,7 @@ public class NewMixed {
         public void run(SourceContext<Long> sourceContext) throws Exception {
             Timer timer = null;
             while (!stop) {
-                long rnd = (long) (Math.random() * maxSleep);
+                long rnd = (long) (Math.random() * maxSleep) + minSleep;
                 sourceContext.collect(rnd);
                 if (transientPeriod.hasFinished()) {
                     generatedRecords.add(1);
