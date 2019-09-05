@@ -24,7 +24,7 @@ import java.util.TimerTask;
 
 /**
  * Experiment description:
- * The pipeline sleeps for a uniformly random number of milliseconds (0 - 1000),
+ * The pipeline sleeps for a configurable uniformly random number of milliseconds,
  * and then perform a random transaction (overwrite the random sleep to internal state).
  *
  * We track throughput and latency before and after the transactional part.
@@ -37,6 +37,7 @@ public class NewMixed {
         EvalConfig config = EvalConfig.fromParams(parameters);
         final int runtimeSeconds = parameters.getInt("runtimeSeconds", 180);
         final boolean analyticsOnly = parameters.getBoolean("analyticsOnly", false);
+        final long maxSleep = parameters.getLong("maxSleep", 1000);
         final int transientSpan = parameters.getInt("transient", 30);
         final TransientPeriod transientPeriod = new TransientPeriod(transientSpan);
 
@@ -46,7 +47,7 @@ public class NewMixed {
         TransactionEnvironment tEnv = TransactionEnvironment.fromConfig(config);
 
         SingleOutputStreamOperator<Long> sleeps = env
-                .addSource(new Random(runtimeSeconds, transientPeriod));
+                .addSource(new Random(maxSleep, runtimeSeconds, transientPeriod));
         sleeps = config.addToSourcesSharingGroup(sleeps, "RandomVotes");
 
         sleeps.addSink(new ThroughputMeter<>("input-throughput", transientPeriod))
@@ -105,6 +106,7 @@ public class NewMixed {
     }
 
     private static class Random extends RichParallelSourceFunction<Long> {
+        private final long maxSleep;
         private boolean stop = false;
         private int runtimeSeconds;
         private IntCounter generatedRecords = new IntCounter();
@@ -112,7 +114,8 @@ public class NewMixed {
 
         private TransientPeriod transientPeriod;
 
-        public Random(int runtimeSeconds, TransientPeriod transientPeriod) {
+        public Random(long maxSleep, int runtimeSeconds, TransientPeriod transientPeriod) {
+            this.maxSleep = maxSleep;
             this.runtimeSeconds = runtimeSeconds;
             this.transientPeriod = transientPeriod;
         }
@@ -139,7 +142,7 @@ public class NewMixed {
         public void run(SourceContext<Long> sourceContext) throws Exception {
             Timer timer = null;
             while (!stop) {
-                long rnd = (long) (Math.random() * 1000);
+                long rnd = (long) (Math.random() * maxSleep);
                 sourceContext.collect(rnd);
                 if (transientPeriod.hasFinished()) {
                     generatedRecords.add(1);

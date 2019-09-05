@@ -218,14 +218,16 @@ function launch_mixed {
 }
 
 function launch_new_mixed {
-    if [[ "$#" -lt 1 ]]; then
-        echo "Input: <analytics_only> <params...>"
+    if [[ "$#" -lt 2 ]]; then
+        echo "Input: <analytics_only> <max_sleep> <params...>"
         return 1
     fi
+
     local analytics=$1
+    local ml=$2
 
     launch "mixed_$analytics" $NEW_MIXED_CLASS \
-      --analyticsOnly $analytics "${@:2}"
+      --analyticsOnly $analytics --maxSleep $ml "${@:3}"
     sleep 1
 }
 
