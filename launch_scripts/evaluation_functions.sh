@@ -218,17 +218,29 @@ function launch_mixed {
 }
 
 function launch_new_mixed {
-    if [[ "$#" -lt 3 ]]; then
-        echo "Input: <analytics_only> <min_sleep> <max_sleep> <params...>"
+    if [[ "$#" -lt 1 ]]; then
+        echo "Specify at least one param, please."
+        echo "Inputs:"
+        echo "    --aMaxSleep       the maximum sleep - analytical"
+        echo "    --aMinSleep       the minimum sleep - analytical"
+        echo "    --tMaxSleep       the maximum sleep - transactional"
+        echo "    --tMinSleep       the minimum sleep - transactional"
+        echo "    --windowSize      the size of the window - analytical"
+        echo "                      if <= 0, the window is not applied"
+        echo "    --windowSlide     the slide of the window - analytical"
+        echo "    --analyticsOnly   if to apply the tgraph after the analytical part"
+        echo ""
+        echo "NOTE: every duration is in milliseconds"
+        echo ""
+        echo "example:"
+        echo "  launch_new_mixed --windowSize 10000 --windowSlide 500 --aMinSleep 1 --aMaxSleep 3 --tMinSleep 1 --tMaxSleep 3 "
+        echo ""
         return 1
     fi
 
-    local analytics=$1
-    local ml=$2
-    local Ml=$3
+    local ts=$(date +"%s")
 
-    launch "mixed_$ml"_"$Ml"_"$analytics" $NEW_MIXED_CLASS \
-      --analyticsOnly $analytics --minSleep $ml --maxSleep $Ml "${@:4}"
+    launch "new_mixed_$ts" $NEW_MIXED_CLASS "${@:1}"
     sleep 1
 }
 
