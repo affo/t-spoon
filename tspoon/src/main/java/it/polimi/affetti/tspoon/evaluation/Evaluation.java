@@ -30,6 +30,8 @@ public class Evaluation {
         // ---------------------------- Params
         ParameterTool parameters = ParameterTool.fromArgs(args);
         EvalConfig config = EvalConfig.fromParams(parameters);
+        final long minSleep = parameters.getLong("minSleep", 0L);
+        final long maxSleep = parameters.getLong("maxSleep", 0L);
 
         System.out.println("\n>>>");
         System.out.println(config.params.toMap());
@@ -78,7 +80,7 @@ public class Evaluation {
                 transfers = splitTransfers.select(String.valueOf(i));
             }
             DataStream<Transfer> out = EvaluationGraphComposer
-                    .generateTGraph(transfers, config.noStates, config.partitioning, config.seriesOrParallel);
+                    .generateTGraph(transfers, config.noStates, config.partitioning, config.seriesOrParallel, minSleep, maxSleep);
             outs.add(out);
             if (config.seriesOrParallel) {
                 transfers = out;

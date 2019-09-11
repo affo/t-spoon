@@ -208,24 +208,6 @@ public class NewMixed {
         }
     }
 
-    private static class BusyWaitSleeper implements Serializable {
-        private final long maxSleep;
-        private final long minSleep;
-
-        private BusyWaitSleeper(long maxSleep, long minSleep) {
-            this.maxSleep = maxSleep;
-            this.minSleep = minSleep;
-        }
-
-        public Long sleep() throws Exception {
-            long sleepTime = (long) (Math.random() * maxSleep) + minSleep;
-            long currentTime = System.nanoTime();
-            // busy wait
-            while (System.nanoTime() - currentTime < sleepTime * 1000) ;
-            return sleepTime;
-        }
-    }
-
     private static class Event implements Serializable, UniquelyRepresentableForTracking {
         public long walTS;
         public int taskID;

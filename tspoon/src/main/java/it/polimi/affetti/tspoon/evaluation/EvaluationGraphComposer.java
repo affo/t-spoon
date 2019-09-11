@@ -32,7 +32,7 @@ public class EvaluationGraphComposer {
     }
 
     public static DataStream<Transfer> generateTGraph(
-            DataStream<Transfer> transfers, int noStates, int partitioning, boolean seriesOrParallel) {
+            DataStream<Transfer> transfers, int noStates, int partitioning, boolean seriesOrParallel, long minSleep, long maxSleep) {
         OpenStream<Transfer> openStream = openTGraph(transfers);
         TStream<Transfer> open = openStream.opened;
         TStream<Movement> source = toMovements(open);
@@ -40,7 +40,7 @@ public class EvaluationGraphComposer {
         int i = 0;
         TStream<Movement>[] outOfStateStreams = new TStream[noStates];
         do {
-            TStream<Movement> outOfState = addState(source, partitioning);
+            TStream<Movement> outOfState = addState(source, partitioning, minSleep, maxSleep);
             outOfStateStreams[i] = outOfState;
             if (seriesOrParallel && i < noStates - 1) {
                 source = toMovements(toSource(outOfState));
@@ -66,34 +66,12 @@ public class EvaluationGraphComposer {
         return transfers.flatMap(t -> Arrays.asList(t.getDeposit(), t.getWithdrawal()));
     }
 
-    public static TStream<Movement> addState(TStream<Movement> movements, int partitioning) {
+    public static TStream<Movement> addState(TStream<Movement> movements, int partitioning, long minSleep, long maxSleep) {
         String nameSpace = STATE_BASE_NAME + stateCount;
         stateCount++;
         StateStream<Movement> balances = movements.state(
                 nameSpace, t -> t.f1,
-                new StateFunction<Movement, Double>() {
-                    @Override
-                    public Double defaultValue() {
-                        return EvalConfig.startAmount;
-                    }
-
-                    @Override
-                    public Double copyValue(Double balance) {
-                        return balance;
-                    }
-
-                    @Override
-                    public boolean invariant(Double balance) {
-                        return balance > 0;
-                    }
-
-                    @Override
-                    public void apply(Movement element, ObjectHandler<Double> handler) {
-                        // this is the transaction:
-                        // r(x) w(x)
-                        handler.write(handler.read() + element.f2);
-                    }
-                }, partitioning);
+                new Balances(maxSleep, minSleep), partitioning);
 
         return balances.leftUnchanged;
     }
@@ -144,6 +122,37 @@ public class EvaluationGraphComposer {
                 result = merger.getTransfer(movement);
             }
             return result;
+        }
+    }
+
+    private static class Balances implements StateFunction<Movement, Double> {
+        private BusyWaitSleeper sleeper;
+
+        public Balances(long maxSleep, long minSleep) {
+            sleeper = new BusyWaitSleeper(maxSleep, minSleep);
+        }
+
+        @Override
+        public Double defaultValue() {
+            return EvalConfig.startAmount;
+        }
+
+        @Override
+        public Double copyValue(Double balance) {
+            return balance;
+        }
+
+        @Override
+        public boolean invariant(Double balance) {
+            return balance > 0;
+        }
+
+        @Override
+        public void apply(Movement element, ObjectHandler<Double> handler) {
+            sleeper.sleep();
+            // this is the transaction:
+            // r(x) w(x)
+            handler.write(handler.read() + element.f2);
         }
     }
 }
