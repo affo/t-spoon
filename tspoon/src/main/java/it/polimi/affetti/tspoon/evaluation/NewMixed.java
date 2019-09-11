@@ -49,7 +49,7 @@ public class NewMixed {
         final long tMinSleep = parameters.getLong("tMinSleep", 5);
         final long windowSize = parameters.getLong("windowSize", 5);
         final long windowSlide = parameters.getLong("windowSlide", 5);
-        final int transientSpan = parameters.getInt("transient", 1000);
+        final int transientSpan = parameters.getInt("transient", 10);
         final TransientPeriod transientPeriod = new TransientPeriod(transientSpan);
 
         NetUtils.launchJobControlServer(parameters);
