@@ -339,3 +339,15 @@ function launch_suite_replay_simulation {
     launch_replay_simulation 9000
     launch_replay_simulation 10000
 }
+
+function launch_suite_sleep {
+    launch_series_1tg 1 --minSleep 1 --maxSleep 1
+    launch_series_1tg 1 --minSleep 1 --maxSleep 3
+    launch_series_1tg 1 --minSleep 1 --maxSleep 5
+    launch_series_1tg 1 --minSleep 1 --maxSleep 7
+    launch_series_1tg 1 --minSleep 1 --maxSleep 10
+    launch_series_1tg 1 --minSleep 1 --maxSleep 13
+    launch_series_1tg 1 --minSleep 1 --maxSleep 15
+    launch_series_1tg 1 --minSleep 1 --maxSleep 17
+    launch_series_1tg 1 --minSleep 1 --maxSleep 20
+}
